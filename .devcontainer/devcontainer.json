@@ -1,0 +1,25 @@
+{
+	"name": "geodetic-engine",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"features": {
+		// moby-cli has no Debian 13 (trixie) packages; use upstream Docker CE instead.
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+			"moby": false
+		}
+	},
+	"remoteUser": "vscode",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"charliermarsh.ruff"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/usr/local/bin/python",
+				"python.terminal.activateEnvInCurrentTerminal": true
+			}
+		}
+	}
+}
