@@ -10,6 +10,7 @@
 		}
 	},
 	"remoteUser": "vscode",
+	"postCreateCommand": "uv sync --extra dev && uv run pytest tests/test_environment.py -q",
 	"customizations": {
 		"vscode": {
 			"extensions": [
@@ -17,7 +18,7 @@
 				"charliermarsh.ruff"
 			],
 			"settings": {
-				"python.defaultInterpreterPath": "/usr/local/bin/python",
+				"python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
 				"python.terminal.activateEnvInCurrentTerminal": true
 			}
 		}
