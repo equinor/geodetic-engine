@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "geodetic-engine"
+version = "0.1.0"
+description = "Geodetic transformation engine built on PROJ, with provenance and quality control"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.13"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+    "pyproj>=3.7.2",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "ipykernel>=6.29",
+]
+
+[project.scripts]
+geodetic-projdb = "geodetic_engine.projdb.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/equinor/geodetic-engine"
+
+# pyproj is built from source against the pinned system PROJ rather than taken
+# from a wheel, which would bundle its own PROJ and defeat the version pin.
+# This lives in [tool.uv.sources] and not in [project.dependencies] because PyPI
+# rejects direct reference URLs in published metadata.
+[tool.uv.sources]
+pyproj = { git = "https://github.com/pyproj4/pyproj", rev = "a11a0f3b863d05c9b7705fc1832be38f45ed52da" }
+
+[tool.uv]
+no-binary-package = ["pyproj"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["geodetic_engine"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-m", "not dataset"]
+markers = [
+    "network: test requires a reachable Georepository instance and credentials",
+    "dataset: exhaustive sweep of tests/testdataset; run with -m dataset",
+]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true

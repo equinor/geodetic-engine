@@ -1,0 +1,88 @@
+# Settings for `geodetic-projdb`.
+#
+# Copy this file to `geodetic-projdb.toml` and edit the values. It is picked up
+# automatically from the working directory; use --config to point elsewhere.
+#
+# This file holds no secrets: credentials go in `.env` instead, and the loader
+# rejects them if it finds them here. See `.env.example`.
+#
+# Precedence, highest first: command line options, environment variables, this
+# file, built-in defaults. A misspelled setting is an error rather than being
+# ignored, so a typo cannot silently leave a setting unapplied.
+
+[projdb]
+
+# --- Required ---------------------------------------------------------------
+
+# Base URL of your Georepository instance, without the /api suffix. Must be
+# https, because client credentials are sent to it. If you paste a URL that
+# still ends in /api or /api/v1 it is trimmed, with a warning.
+api_url = "https://georepository.example.com"
+
+# Authority name(s) whose objects are imported, matched against each object's
+# DataSource field. This has no default: nothing is assumed about who you are.
+# Only rows belonging to these authorities may be written to the database; an
+# attempt to write an EPSG, PROJ or ESRI row aborts the build.
+authorities = ["YourAuthority"]
+
+# Where the enriched database is written. The official proj.db is copied, never
+# modified in place.
+output_db = "build/proj.db"
+
+# --- Authentication ---------------------------------------------------------
+
+# OAuth2 token endpoint. Defaults to "{api_url}/auth/connect/token". Set this
+# only if your identity server lives elsewhere; it is not described by the
+# Georepository API document, so it is never guessed beyond that default.
+# token_url = "https://identity.example.com/connect/token"
+
+# Scope requested for the client credentials grant.
+# scope = "GeoRepositoryAPI_Scope"
+
+# --- Operation selection ----------------------------------------------------
+
+# How your operations enter PROJ's choice of transformation. This changes which
+# operation is applied to a coordinate, so it is stated explicitly.
+#
+#   custom_first  Your operations are preferred for CRS pairs involving your
+#                 authority, and are appended to PROJ's shipped rules for other
+#                 pairs so they become candidates without displacing EPSG's
+#                 established ordering.
+#   custom_only   Your operations are preferred for pairs involving your
+#                 authority. Selection between other authorities is untouched.
+#   none          No preference rules are written. Your operations are only
+#                 found when one of your CRSs is named directly.
+# authority_preference = "custom_first"
+
+# Authorities listed after yours in each generated rule.
+# fallback_authorities = ["PROJ", "EPSG"]
+
+# --- What to import ---------------------------------------------------------
+
+# Import deprecated objects, flagged as deprecated and linked to their
+# replacements. Keep this on if you validate user input: it is what lets you
+# answer "that code is deprecated, superseded by X" instead of "CRS not found".
+# include_deprecated = true
+
+# Naming systems whose aliases are imported. Defaults to `authorities`. Use
+# ["*"] to import aliases from every naming system the register defines, which
+# is what you want if it curates several of them for your objects.
+# naming_systems = ["YourAuthority"]
+
+# EPSG coordinate operation method codes this PROJ build cannot evaluate.
+# Objects using them are skipped and listed in the build report.
+# unsupported_method_codes = [1044, 1108]
+
+# --- Advanced ---------------------------------------------------------------
+
+# Official database to start from. Defaults to the proj.db of the linked PROJ.
+# base_proj_db = "/usr/local/share/proj/proj.db"
+
+# Results requested per API page.
+# page_size = 500
+
+# Per-request timeout in seconds.
+# request_timeout = 60.0
+
+# Georepository version recorded in the build report, for provenance.
+# georepository_version = "v1.92"
