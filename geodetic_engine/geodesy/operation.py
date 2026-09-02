@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
 from pyproj.crs import CoordinateOperation
+from pyproj.exceptions import CRSError
 
 # PROJJSON object types that are coordinate operations. Anything else with an
 # "id" (a CRS, a datum, an ellipsoid, a method, a parameter) is not one, and
@@ -132,6 +133,8 @@ class AppliedOperation:
     accuracy: float | None
     route: OperationRoute
     steps: tuple[str, ...] = ()
+    projjson: str = field(default="", repr=False, compare=False)
+    """PROJJSON of the operation applied, kept so it can be re-exported."""
 
     @property
     def authority_code(self) -> str | None:
@@ -139,6 +142,37 @@ class AppliedOperation:
         if self.auth_name is None or self.code is None:
             return None
         return f"{self.auth_name}:{self.code}"
+
+    def to_wkt(self, *, pretty: bool = False) -> str | None:
+        """Export the operation that was applied as WKT2.
+
+        Rendered from what PROJ built rather than looked up by code, so it also
+        works for an operation the EPSG dataset does not define, such as a
+        concatenated chain collapsed into one step. The consequence is that the
+        registry's descriptive metadata is not present: expect the method,
+        parameters and ``ID`` of the operation, but no ``VERSION``, ``USAGE``
+        or ``REMARK``. Read the parameters from here; read the scope and area
+        of validity from the EPSG dataset via :attr:`authority_code`.
+
+        Args:
+            pretty: Whether to indent the output over several lines.
+
+        Returns:
+            The WKT2 of the applied operation, or None where PROJ built
+            something that is not a coordinate operation in its own right.
+
+        Example:
+            >>> tfm = Transformation("EPSG:4230", "EPSG:4326", operation="EPSG:1133")
+            >>> tfm.operation.to_wkt()[:19]
+            'COORDINATEOPERATION'
+        """
+        if not self.projjson:
+            return None
+        try:
+            operation = CoordinateOperation.from_json(self.projjson)
+        except CRSError:
+            return None
+        return str(operation.to_wkt(pretty=pretty))
 
 
 @dataclass(frozen=True, slots=True)

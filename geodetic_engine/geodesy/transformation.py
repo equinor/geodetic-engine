@@ -21,6 +21,7 @@ axis order is reported separately and is not changed by this; see
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -717,6 +718,7 @@ def _describe(
         accuracy=pipeline.accuracy,
         route=pipeline.route,
         steps=tuple(sorted(steps)),
+        projjson=json.dumps(node),
     )
 
 
