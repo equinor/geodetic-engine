@@ -207,7 +207,7 @@ def _datum_row(
     table: str,
     datum_type: str,
 ) -> dict[str, Any] | None:
-    common = {
+    common: dict[str, Any] = {
         "auth_name": auth,
         "code": code,
         "name": tr.text(obj, "Name") or "unknown",

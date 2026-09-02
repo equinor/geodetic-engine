@@ -93,3 +93,71 @@ def test_paging_uses_zero_based_page_numbers(
         if "Ellipsoid" in str(request)
     ]
     assert pages[0] == "0"
+
+
+def test_wkt_is_exported_as_text(georepository_config: GeorepositoryConfig) -> None:
+    """The export endpoint answers with a WKT body, not JSON.
+
+    No formatVersion is sent. The parameter is a small enum rather than a year:
+    its default is the WKT2 rendering, 1 means WKT1, and passing 2019 makes the
+    register answer HTTP 500.
+    """
+    fake = FakeGeorepository({})
+    url = fake.add_object("/api/v1/CoordRefSystem/4230", {"Code": 4230})
+    fake.add_export("/api/v1/CoordRefSystem/4230", 'GEOGCRS["ED50",...]')
+
+    with _client(georepository_config, fake) as client:
+        wkt = client.wkt(client.get_object(url))
+
+    assert wkt == 'GEOGCRS["ED50",...]'
+    exported = [r for r in fake.requests if str(r).split("?")[0].endswith("/export")]
+    assert exported[0].params["format"] == "WKT"
+    assert "formatVersion" not in exported[0].params
+
+
+def test_crs_export_uses_the_generic_collection(
+    georepository_config: GeorepositoryConfig,
+) -> None:
+    """Only CoordRefSystem implements export; the per-kind ones answer 404."""
+    fake = FakeGeorepository({})
+    url = fake.add_object("/api/v1/GeodeticCoordRefSystem/4230", {"Code": 4230})
+    fake.add_export("/api/v1/CoordRefSystem/4230", 'GEOGCRS["ED50",...]')
+
+    with _client(georepository_config, fake) as client:
+        assert client.wkt(client.get_object(url)) == 'GEOGCRS["ED50",...]'
+
+
+def test_non_crs_export_keeps_its_own_collection(
+    georepository_config: GeorepositoryConfig,
+) -> None:
+    """A transformation exports from its own collection, not the CRS one."""
+    fake = FakeGeorepository({})
+    url = fake.add_object("/api/v1/Transformation/1133", {"Code": 1133})
+    fake.add_export("/api/v1/Transformation/1133", "COORDINATEOPERATION[...]")
+
+    with _client(georepository_config, fake) as client:
+        assert client.wkt(client.get_object(url)) == "COORDINATEOPERATION[...]"
+
+
+def test_wkt_unwraps_a_json_quoted_body(
+    georepository_config: GeorepositoryConfig,
+) -> None:
+    """Some deployments return the WKT as a JSON string; both must work."""
+    fake = FakeGeorepository({})
+    url = fake.add_object("/api/v1/Transformation/1133", {"Code": 1133})
+    fake.add_export("/api/v1/Transformation/1133", '"COORDINATEOPERATION[\\"a\\"]"')
+
+    with _client(georepository_config, fake) as client:
+        assert client.wkt(client.get_object(url)) == 'COORDINATEOPERATION["a"]'
+
+
+def test_wkt_is_none_when_the_body_is_empty(
+    georepository_config: GeorepositoryConfig,
+) -> None:
+    """An object with no exportable definition must not become an empty string."""
+    fake = FakeGeorepository({})
+    url = fake.add_object("/api/v1/CoordRefSystem/1", {"Code": 1})
+    fake.add_export("/api/v1/CoordRefSystem/1", "   ")
+
+    with _client(georepository_config, fake) as client:
+        assert client.wkt(client.get_object(url)) is None

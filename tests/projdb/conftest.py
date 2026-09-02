@@ -99,6 +99,7 @@ class FakeGeorepository:
         self.collections = collections
         self.objects: dict[str, dict[str, Any]] = {}
         self.aliases: dict[str, list[dict[str, Any]]] = {}
+        self.exports: dict[str, str] = {}
         self.requests: list[httpx.URL] = []
         self.ignore_page = False
         self.understate_total_by = 0
@@ -108,6 +109,10 @@ class FakeGeorepository:
         url = f"{API}{path}"
         self.objects[url] = payload
         return url
+
+    def add_export(self, path: str, wkt: str) -> None:
+        """Register the response of an object's ``/export`` endpoint."""
+        self.exports[f"{API}{path}/export"] = wkt
 
     def add_aliases(self, path: str, records: list[dict[str, Any]]) -> None:
         """Register the response of an object's ``/alias`` endpoint."""
@@ -128,6 +133,8 @@ class FakeGeorepository:
             )
 
         base = url.split("?")[0]
+        if base in self.exports:
+            return httpx.Response(200, text=self.exports[base])
         if base in self.aliases:
             return httpx.Response(200, json=self.aliases[base])
         if base.endswith("/alias"):

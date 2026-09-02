@@ -162,6 +162,11 @@ TABLE_COLUMNS: Final[Mapping[str, tuple[str, ...]]] = {
         "vertical_crs_code",
         "deprecated",
     ),
+    "conversion_param": (
+        "auth_name",
+        "code",
+        "name",
+    ),
     "conversion_table": (
         "auth_name",
         "code",
@@ -383,9 +388,15 @@ OBJECT_TABLES: Final[tuple[str, ...]] = (
 )
 
 # Tables whose rows legitimately reference authorities other than the custom
-# ones, so the per-row authority guard does not apply to them.
+# ones, so the per-row authority guard does not apply to them. conversion_param
+# is EPSG's shared vocabulary of parameter names, not an object of its own.
 FOREIGN_AUTHORITY_ALLOWED: Final[frozenset[str]] = frozenset(
-    {"authority_to_authority_preference", "supersession", "alias_name"}
+    {
+        "authority_to_authority_preference",
+        "supersession",
+        "alias_name",
+        "conversion_param",
+    }
 )
 
 # The column naming the authority that owns a row. Most tables use auth_name;

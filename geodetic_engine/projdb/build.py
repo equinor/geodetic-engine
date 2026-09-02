@@ -18,7 +18,9 @@ from typing import Any
 
 from geodetic_engine.georepository.client import GeorepositoryClient
 from geodetic_engine.projdb import (
+    annotate,
     authority,
+    bound,
     coordinate_system,
     crs,
     datum,
@@ -54,7 +56,7 @@ class BuildReport:
     rows_by_table: dict[str, int] = field(default_factory=dict)
     imported: list[dict[str, str]] = field(default_factory=list)
     deprecated_imported: list[dict[str, str]] = field(default_factory=list)
-    skipped: list[dict[str, str | None]] = field(default_factory=list)
+    skipped: list[dict[str, str | bool | None]] = field(default_factory=list)
     supersessions_written: int = 0
     supersessions_dropped: list[dict[str, str]] = field(default_factory=list)
     authority_preferences: list[dict[str, str]] = field(default_factory=list)
@@ -162,6 +164,12 @@ def build(
             crs.collect_compound(context)
             operation.collect_transformations(context)
             operation.collect_concatenated(context)
+            # Last of the objects: a bound CRS embeds a transformation, so it
+            # can only be assembled once the transformations exist.
+            bound.collect_bound(context)
+            # Annotations on other authorities' objects, which must already be
+            # in the database for the usage rows to resolve.
+            annotate.collect_foreign_annotations(context)
 
             _write_usage(context)
             _write_aliases(context)

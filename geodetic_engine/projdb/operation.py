@@ -59,6 +59,7 @@ _TRANSLATION_CODES = frozenset({"8605", "8606", "8607"})
 def collect_conversions(context: BuildContext) -> None:
     """Import map projection conversions used by projected CRSs."""
     rows: list[dict[str, Any]] = []
+    parameters: dict[tuple[str, str], dict[str, Any]] = {}
     for obj, auth, code in _candidates(context, "Conversion", "conversion_table"):
         method = obj.get("Method") or {}
         method_code = tr.link_code(method)
@@ -83,10 +84,33 @@ def collect_conversions(context: BuildContext) -> None:
         # conversion_table has seven parameter slots and no per-parameter name.
         for index, param in enumerate(_parameters(obj)[:7], start=1):
             row |= _numbered_param(param, index, with_name=False)
+            _record_parameter(context, parameters, param)
         rows.append(row)
         _finalise(context, "conversion_table", obj, auth, code)
+    # conversion_param supplies the parameter names the conversion view reads;
+    # it must exist before the conversions that reference it.
+    context.writer.insert("conversion_param", list(parameters.values()))
     context.writer.insert("conversion_table", rows)
-    logger.info("conversions: %d imported", len(rows))
+    logger.info(
+        "conversions: %d imported, %d parameter names added",
+        len(rows),
+        len(parameters),
+    )
+
+
+def _record_parameter(
+    context: BuildContext,
+    parameters: dict[tuple[str, str], dict[str, Any]],
+    param: dict[str, Any],
+) -> None:
+    """Note a conversion parameter's name, unless proj.db already defines it."""
+    code = str(param.get("ParameterCode") or "").strip()
+    name = tr.text(param, "Name")
+    if not code or not name or not context.is_new("conversion_param", "EPSG", code):
+        return
+    parameters.setdefault(
+        ("EPSG", code), {"auth_name": "EPSG", "code": code, "name": name}
+    )
 
 
 def collect_transformations(context: BuildContext) -> None:
@@ -223,6 +247,8 @@ def _resolve_steps(
     )
     resolved: list[dict[str, Any]] = []
     for number, step in enumerate(steps, start=1):
+        step_auth: str | None
+        step_code: str | None
         try:
             step_auth, step_code = context.resolve_link(
                 step,

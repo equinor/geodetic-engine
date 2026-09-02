@@ -62,6 +62,7 @@ _FILE_KEYS: Final = frozenset(
         "include_deprecated",
         "unsupported_method_codes",
         "authority_preference",
+        "annotate_foreign_objects",
         "fallback_authorities",
         "page_size",
         "request_timeout",
@@ -113,6 +114,11 @@ class ProjDbBuildConfig:
             "unknown code".
         unsupported_method_codes: EPSG method codes to skip.
         authority_preference: How custom authorities enter operation selection.
+        annotate_foreign_objects: Import this authority's aliases and usages for
+            objects owned by another authority, such as a local name for an EPSG
+            CRS. Requires enumerating every CRS in the register rather than only
+            this authority's, so it is the slowest part of a build; the objects
+            themselves are never rewritten.
         fallback_authorities: Authorities listed after the custom ones in every
             generated preference row.
         georepository_version: Optional Georepository version name to record.
@@ -127,6 +133,7 @@ class ProjDbBuildConfig:
     include_deprecated: bool = True
     unsupported_method_codes: frozenset[int] = DEFAULT_UNSUPPORTED_METHOD_CODES
     authority_preference: AuthorityPreference = AuthorityPreference.CUSTOM_FIRST
+    annotate_foreign_objects: bool = True
     fallback_authorities: tuple[str, ...] = ("PROJ", "EPSG")
     georepository_version: str | None = None
     source_file: Path | None = None
@@ -295,7 +302,7 @@ def find_config_file(
 def _read_config_file(path: Path) -> dict[str, Any]:
     with path.open("rb") as handle:
         document = tomllib.load(handle)
-    values = document.get(CONFIG_TABLE)
+    values: dict[str, Any] | None = document.get(CONFIG_TABLE)
     if values is None:
         raise ConfigurationError(
             f"{path} has no [{CONFIG_TABLE}] table; settings must live under it"
@@ -400,6 +407,9 @@ def load_config(
         ),
         authority_preference=_as_preference(
             value("authority_preference", "AUTHORITY_PREFERENCE")
+        ),
+        annotate_foreign_objects=_as_bool(
+            value("annotate_foreign_objects", "ANNOTATE_FOREIGN_OBJECTS"), default=True
         ),
         fallback_authorities=_as_tuple(
             value("fallback_authorities", "FALLBACK_AUTHORITIES"), ("PROJ", "EPSG")

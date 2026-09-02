@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "source": "out/agreed.jsonl",
+  "environment": {
+    "provenance_id": "sha256:5047c1d3f1aa49b2bc41abe54c1627b119f9543c33f0c4f7ca77466f4c0ac0c3",
+    "proj_version": "9.8.1",
+    "pyproj_version": "3.7.2",
+    "gdal_version": null,
+    "grid_file_count": 475,
+    "grid_inventory_sha256": "1757fa14241e44225f095904f0cfde309931e82cb8baac04aeb50adae6f6f8bc",
+    "epsg_datadump_version": "v12.029",
+    "proj_db_epsg_version": "v12.029",
+    "epsg_versions_aligned": true
+  },
+  "tier_meaning": {
+    "gold": "three or more independent lineages agreed",
+    "silver": "exactly two independent lineages agreed",
+    "reference": "one lineage only (PROJ); catches plumbing errors, does not establish correctness"
+  },
+  "note": "expected values are a consensus across engines, not a recording of any one engine; compare with tolerance_m, never for equality",
+  "field_meaning": {
+    "coordinate_epoch": "the epoch to supply with the source coordinates; required to reproduce any record that carries it",
+    "source_frame_epoch": "reference epoch of the source dynamic frame, descriptive only; using it as the coordinate epoch moves the answer by up to a metre"
+  },
+  "files": {
+    "horizontal_conversion.jsonl": {
+      "description": "Same datum; projection and unit maths only.",
+      "cases": 360,
+      "gold": 350,
+      "silver": 10
+    },
+    "horizontal_datum_shift.jsonl": {
+      "description": "Datum change by analytic method (Helmert, Molodensky-Badekas).",
+      "cases": 9131,
+      "gold": 7045,
+      "silver": 2086
+    },
+    "horizontal_grid.jsonl": {
+      "description": "Datum change that consumed a PROJ grid file. Requires those grids.",
+      "cases": 2410,
+      "gold": 1715,
+      "silver": 695
+    },
+    "horizontal_3d.jsonl": {
+      "description": "Three-dimensional geographic or geocentric coordinates.",
+      "cases": 42,
+      "gold": 39,
+      "silver": 3
+    },
+    "dynamic.jsonl": {
+      "description": "Epoch-dependent; source or target is a dynamic reference frame.",
+      "cases": 163,
+      "gold": 0,
+      "silver": 0,
+      "reference": 163,
+      "epoch_sensitive": 147
+    },
+    "vertical.jsonl": {
+      "description": "Vertical or compound target.",
+      "cases": 235,
+      "gold": 0,
+      "silver": 1,
+      "reference": 234
+    }
+  },
+  "total_cases": 11944
+}

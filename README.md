@@ -180,6 +180,7 @@ anything permanent so the setting stays reviewable.
 | `fallback_authorities` | `GEODETIC_ENGINE_FALLBACK_AUTHORITIES` | no | `PROJ,EPSG` |
 | `include_deprecated` | `GEODETIC_ENGINE_INCLUDE_DEPRECATED` | no | `true` |
 | `naming_systems` | `GEODETIC_ENGINE_NAMING_SYSTEMS` | no | same as `authorities` |
+| `annotate_foreign_objects` | `GEODETIC_ENGINE_ANNOTATE_FOREIGN_OBJECTS` | no | `true` |
 | `base_proj_db` | `GEODETIC_ENGINE_BASE_PROJ_DB` | no | the linked PROJ's `proj.db` |
 | `unsupported_method_codes` | `GEODETIC_ENGINE_UNSUPPORTED_METHOD_CODES` | no | `1044,1108` |
 | `page_size` | `GEODETIC_ENGINE_PAGE_SIZE` | no | `500` |
@@ -218,6 +219,103 @@ An alias is your organisation's own name for an object, stored in proj.db's
 `alias_name` so the object can be looked up by either name. Aliases are
 imported for every object type proj.db accepts one for, including datums, and
 only for the naming systems listed in `GEODETIC_ENGINE_NAMING_SYSTEMS`.
+
+### Bound CRSs
+
+A bound CRS is a CRS packaged together with the single transformation that ties
+it to a hub, almost always WGS 84. It is early binding made explicit: the
+operation is part of the CRS definition rather than something chosen when a
+transformation is requested. That is why this package treats it as satisfying
+the "a datum change must name its operation" rule rather than escaping it --
+whoever defined the CRS named the operation, and PROJ is left with exactly one
+candidate.
+
+proj.db has no bound CRS table. PROJ stores one as an ordinary `geodetic_crs`
+or `projected_crs` row whose `text_definition` holds the whole `BOUNDCRS` WKT,
+with the coordinate system and datum columns NULL, which that table's own CHECK
+constraints require. The WKT is assembled with pyproj from the register's own
+WKT export of the base CRS, the transformation and the hub, so what is embedded
+is a definition this package has inspected rather than one rebuilt from parts.
+
+When a bound CRS is transformed, the embedded operation is read out of it and
+resolved through the same transformer group as a named one, rather than letting
+the bound CRS build a transformer by itself. Most bound CRSs in a real register
+have a **projected** base -- `ED50 / UTM zone 32N` bound to WGS 84, not just
+`ED50` -- so the transformation has to unproject, apply the datum shift and
+reproject. Going through the group supplies those steps and keeps the applied
+operation identifiable; letting the bound CRS resolve itself reports the map
+projection as the operation and loses the datum shift's EPSG code.
+
+#### Naming a bound CRS by its code
+
+PROJ discards the `BOUNDCRS` wrapper when it builds a CRS from an authority
+code. It still honours the binding when it selects an operation -- `EPSG:4230`
+offers 35 candidates to WGS 84 where a CRS bound to one of them offers exactly
+one -- but the object handed back reports `is_bound` as false, carries no
+transformation, and so cannot say what it is bound to. A caller naming such a
+CRS by its code would then be refused for an ambiguous datum change, even
+though the CRS itself settles the question.
+
+So the stored definition is read back out of proj.db and the bound CRS is
+reconstructed from it, which is the only place this package reads the database
+directly. Only `BOUNDCRS` definitions are read, the scan happens once per PROJ
+data directory, and an ordinary CRS is never touched. If a future PROJ release
+preserves the wrapper, `tests/geodesy/test_bound_from_database.py` fails and
+the workaround can be removed.
+
+#### Bound CRSs over a concatenated transformation
+
+PROJ cannot embed a chain of operations in a bound CRS. A register that defines
+one over a concatenated transformation -- `EPSG:8047`, ED50 to WGS 84 (15), is
+two Helmert steps through ED87 -- would therefore be unusable as written.
+
+Such a chain is first **collapsed into a single equivalent step**. Two Helmert
+transformations compose exactly, because each is an affine map on geocentric
+coordinates:
+
+$$X_2 = T_2 + (1 + s_2) R_2 \left[ T_1 + (1 + s_1) R_1 X_0 \right]$$
+
+so the composition is again a Helmert, with
+
+$$T = T_2 + (1 + s_2) R_2 T_1, \qquad R = R_2 R_1, \qquad 1 + s = (1 + s_1)(1 + s_2)$$
+
+The intermediate geographic-to-geocentric conversions cancel because the frame
+between the two steps is one CRS with one ellipsoid.
+
+The algebra is only the proposal. EPSG's rotation matrix is linearised for small
+angles, so $R_2 R_1$ is not exactly a linearised matrix again, and rotations are
+stated in different units by different operations -- `EPSG:1147` uses
+microradians, not arc-seconds. Every collapse is therefore **verified against
+PROJ's own rendering of the original chain** over the operation's area of use
+and refused if it moves any coordinate by more than a millimetre. Across the
+EPSG dataset, 43 of 266 concatenated operations collapse, with a worst observed
+residual of 0.22 mm against operations whose stated accuracy is metres.
+
+A chain that is not equivalent to one Helmert -- because a step reads a grid, or
+is a Molodensky-Badekas, time-dependent or full-matrix variant -- is **not
+approximated**. The bound CRS is skipped, logged as an error, and listed in the
+build report's `skipped` section with the reason. The relevant code lives in
+`geodetic_engine/geodesy/utils/helmert.py`; the failure type is
+`NotCollapsibleError`.
+
+### Annotations on other authorities' objects
+
+A register curates more than its own objects. It also records what your
+organisation calls `EPSG:32632` and what that CRS is used for in your context,
+as an alias and as a usage whose scope belongs to your authority rather than to
+EPSG. Those rows are imported too, because a lookup by a local name is much of
+the reason for building a custom database.
+
+Nothing about the annotated object is rewritten. The EPSG row stays exactly as
+PROJ shipped it; only `alias_name` and `usage` gain rows pointing at it, and an
+object the database does not already hold is skipped rather than annotated, so
+no usage row can dangle.
+
+This pass has to enumerate every CRS in the register, since the annotation lives
+on the object and the API has no server-side filter for it. It is the slowest
+part of a build, and can be switched off with
+`annotate_foreign_objects = false` in the config file, or
+`GEODETIC_ENGINE_ANNOTATE_FOREIGN_OBJECTS=0`.
 
 ### Obtaining OAuth2 credentials
 
