@@ -34,11 +34,56 @@ def test_a_single_point_can_be_given_flat() -> None:
     assert flat_array.coordinates == wrapped.coordinates
 
 
+def test_x_y_z_can_be_given_as_separate_axes() -> None:
+    """Matches pyproj.Transformer.transform(xx, yy, zz): axes, not rows."""
+    expected = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+    lons = [OSLO_XY[0], BERGEN_XY[0]]
+    lats = [OSLO_XY[1], BERGEN_XY[1]]
+
+    by_axes = transform("EPSG:4326", "EPSG:3395", lons, lats)
+    by_keyword = transform("EPSG:4326", "EPSG:3395", x=lons, y=lats)
+    by_arrays = transform("EPSG:4326", "EPSG:3395", np.array(lons), np.array(lats))
+
+    assert by_axes.coordinates == expected.coordinates
+    assert by_keyword.coordinates == expected.coordinates
+    assert by_arrays.coordinates == expected.coordinates
+
+
+def test_a_single_point_can_be_given_as_scalar_axes() -> None:
+    """x, y as bare scalars is one point, matching flat and wrapped forms."""
+    wrapped = transform("EPSG:4326", "EPSG:3395", [OSLO_XY])
+    by_axes = transform("EPSG:4326", "EPSG:3395", *OSLO_XY)
+    assert by_axes.coordinates == wrapped.coordinates
+
+
+def test_a_scalar_z_is_broadcast_across_a_batch() -> None:
+    """One height applies to every point rather than being repeated by hand."""
+    lons = [OSLO_XY[0], BERGEN_XY[0]]
+    lats = [OSLO_XY[1], BERGEN_XY[1]]
+
+    broadcast = transform("EPSG:4326", "EPSG:3395", lons, lats, 100.0)
+    repeated = transform("EPSG:4326", "EPSG:3395", lons, lats, [100.0, 100.0])
+
+    assert broadcast.coordinates == repeated.coordinates
+
+
+def test_mismatched_axis_batch_sizes_are_rejected() -> None:
+    """x and y must hold the same number of points."""
+    with pytest.raises(ValueError, match="differing batch sizes"):
+        transform("EPSG:4326", "EPSG:3395", [10.0, 11.0], [60.0, 61.0, 62.0])
+
+
+def test_z_without_y_is_rejected() -> None:
+    """z alone is ambiguous: it cannot be told apart from a lone points batch."""
+    tfm = Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3858")
+    with pytest.raises(TypeError, match="z was given without y"):
+        tfm.transform(-144.0, None, 548.4082)
+
+
 def test_transform_accepts_a_numpy_array() -> None:
     """A 2D numpy array of shape (n_points, n_axes) works, one row per point."""
     rows = np.array([OSLO_XY, BERGEN_XY])
     expected = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
-
     result = transform("EPSG:4326", "EPSG:3395", rows)
 
     assert result.coordinates == expected.coordinates

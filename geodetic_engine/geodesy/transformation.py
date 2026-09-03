@@ -255,18 +255,27 @@ class Transformation:
 
     def transform(
         self,
-        points: Iterable[Iterable[float]] | Iterable[float],
+        x: Iterable[Iterable[float]] | Iterable[float] | float,
+        y: Iterable[float] | float | None = None,
+        z: Iterable[float] | float | None = None,
         *,
         coordinate_epoch: float | None = None,
     ) -> TransformationResult:
         """Transform one point or a batch of points.
 
         Args:
-            points: A single point's values -- ``(lon, lat)`` -- or a batch: an
-                iterable of coordinate iterables (a list of tuples, a list of
-                lists, or a 2D numpy array of shape ``(n_points, n_axes)``, one
-                row per point). Values are in ``xy`` order in the source CRS's
-                axis units, with one value per axis the source CRS declares.
+            x: Either every point's values in one go -- a single point given
+                flat such as ``(lon, lat)``, a list of tuples, or a 2D numpy
+                array of shape ``(n_points, n_axes)`` -- when ``y`` is omitted;
+                or just the first axis's values, matching
+                :meth:`pyproj.Transformer.transform`'s ``xx, yy, zz``
+                convention, when ``y`` is given.
+            y: Second axis's values: a scalar for one point, or a sequence for
+                a batch. Omit to pass ``x`` as the whole set of points instead.
+            z: Third axis's values (for example a height), in the same shape
+                as ``x`` and ``y``. A lone scalar is broadcast against the
+                other axes, so one height can be given once for many
+                horizontal points rather than repeated.
             coordinate_epoch: Decimal year the coordinates were observed at,
                 for example ``2010.0``. Required when either CRS is dynamic.
 
@@ -276,6 +285,7 @@ class Transformation:
             axis the target CRS declares.
 
         Raises:
+            TypeError: If ``z`` was given without ``y``.
             ValueError: If points disagree on how many values they carry, or
                 that count is not the source CRS's declared dimension, or one
                 more (a height alongside a 2D horizontal CRS, carried through
@@ -291,8 +301,21 @@ class Transformation:
             >>> tfm = Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3858")
             >>> tfm.transform((-144.0, 72.0, 548.4082)).coordinates
             ((556.38...,),)
+
+            Or as separate per-axis values, matching pyproj's own convention:
+
+            >>> tfm.transform(-144.0, 72.0, 548.4082).coordinates
+            ((556.38...,),)
         """
-        columns = _columns(self._source, points)
+        if y is None:
+            if z is not None:
+                raise TypeError(
+                    "z was given without y; pass x, y and z as separate "
+                    "per-axis values, or x alone as the whole set of points"
+                )
+            columns = _columns(self._source, x)
+        else:
+            columns = _columns_from_axes(self._source, x, y, z)
         count = len(columns[0]) if columns else 0
 
         if self._requires_epoch and coordinate_epoch is None:
@@ -372,23 +395,84 @@ def _columns(
     if len(widths) > 1:
         raise ValueError(f"points have differing numbers of values: {sorted(widths)}")
 
+    width = widths.pop() if widths else crs.dimension
+    _require_width(crs, width)
+    return tuple(tuple(row[axis] for row in rows) for axis in range(width))
+
+
+def _columns_from_axes(
+    crs: CoordinateReferenceSystem,
+    x: Iterable[float] | float,
+    y: Iterable[float] | float,
+    z: Iterable[float] | float | None,
+) -> tuple[tuple[float, ...], ...]:
+    """Reshape separate per-axis values into columns, broadcasting a lone scalar.
+
+    Mirrors :meth:`pyproj.Transformer.transform`'s ``xx, yy, zz`` convention:
+    each axis is either the whole batch's values, or a lone scalar applied to
+    every point -- a fixed height for many horizontal points, for example,
+    given once rather than repeated per point.
+
+    Args:
+        crs: The CRS the points are expressed in, whose declared axis count
+            bounds how many axes may be given.
+        x: First axis's values: a scalar for one point, or a sequence (a list
+            or a 1D numpy array) for a batch.
+        y: Second axis's values, in the same shape as ``x``.
+        z: Third axis's values, if any, in the same shape as ``x`` and ``y``.
+
+    Returns:
+        One tuple of values per axis, so a whole batch crosses into PROJ in a
+        single call instead of once per point.
+
+    Raises:
+        ValueError: If the sequence axes disagree on how many points they
+            hold, or the number of axes given is not ``crs``'s declared
+            dimension, or one more.
+    """
+    axes = (x, y) if z is None else (x, y, z)
+    _require_width(crs, len(axes))
+
+    values = [
+        tuple(float(v) for v in axis) if isinstance(axis, Iterable) else None
+        for axis in axes
+    ]
+    lengths = {len(column) for column in values if column is not None}
+    if len(lengths) > 1:
+        raise ValueError(f"axes have differing batch sizes: {sorted(lengths)}")
+    count = lengths.pop() if lengths else 1
+
+    return tuple(
+        column if column is not None else (float(axis),) * count
+        for column, axis in zip(values, axes, strict=True)
+    )
+
+
+def _require_width(crs: CoordinateReferenceSystem, width: int) -> None:
+    """Check how many values a point carries against what ``crs`` allows.
+
+    Raises:
+        ValueError: If ``width`` is not ``crs``'s declared dimension, or one
+            more (a height alongside a 2D horizontal CRS, carried through
+            unchanged).
+    """
     allowed = {crs.dimension}
     if crs.dimension < _MAX_COORDINATE_VALUES:
         allowed.add(crs.dimension + 1)
-    width = widths.pop() if widths else crs.dimension
     if width not in allowed:
         raise ValueError(
-            f"points have {width} values each but {crs!r} declares "
+            f"{width} values were given per point but {crs!r} declares "
             f"{crs.dimension} axes; {sorted(allowed)} values are accepted "
             "(the extra being a height PROJ carries through unchanged)"
         )
-    return tuple(tuple(row[axis] for row in rows) for axis in range(width))
 
 
 def transform(
     source_crs: Any,
     target_crs: Any,
-    points: Iterable[Iterable[float]] | Iterable[float],
+    x: Iterable[Iterable[float]] | Iterable[float] | float,
+    y: Iterable[float] | float | None = None,
+    z: Iterable[float] | float | None = None,
     *,
     operation: str | int | None = None,
     coordinate_epoch: float | None = None,
@@ -403,10 +487,18 @@ def transform(
     Args:
         source_crs: CRS the input coordinates are in.
         target_crs: CRS to produce coordinates in.
-        points: A single point's values, given flat -- ``(lon, lat)`` -- or a
-            batch of points, each holding its values in ``xy`` order in the
-            source CRS's axis units. A 2D numpy array of shape
-            ``(n_points, n_axes)`` works, one row per point.
+        x: Either every point's values in one go -- a single point given flat
+            such as ``(lon, lat)``, a list of tuples, or a 2D numpy array of
+            shape ``(n_points, n_axes)`` -- when ``y`` is omitted; or just the
+            first axis's values, matching
+            :meth:`pyproj.Transformer.transform`'s ``xx, yy, zz`` convention,
+            when ``y`` is given.
+        y: Second axis's values: a scalar for one point, or a sequence for a
+            batch. Omit to pass ``x`` as the whole set of points instead.
+        z: Third axis's values (for example a height), in the same shape as
+            ``x`` and ``y``. A lone scalar is broadcast against the other
+            axes, so one height can be given once for many horizontal points
+            rather than repeated.
         operation: EPSG coordinate operation to apply, for example
             ``"EPSG:15670"``. Required whenever a datum change is involved.
         coordinate_epoch: Decimal year, required when either CRS is dynamic.
@@ -427,11 +519,19 @@ def transform(
         'EPSG:16032'
         >>> result.target_axes
         ('E', 'N')
+
+        Or as separate per-axis values:
+
+        >>> result = transform(
+        ...     "EPSG:4326", "EPSG:25832", 10.75, 59.91, operation="EPSG:16032"
+        ... )
+        >>> result.coordinates
+        ((597868.38..., 6642681.51...),)
     """
     resolved = _cached_transformation(
         _cache_key(source_crs), _cache_key(target_crs), operation
     )
-    return resolved.transform(points, coordinate_epoch=coordinate_epoch)
+    return resolved.transform(x, y, z, coordinate_epoch=coordinate_epoch)
 
 
 def available_operations(
