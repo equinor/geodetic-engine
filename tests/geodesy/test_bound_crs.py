@@ -134,3 +134,42 @@ def test_projected_bound_crs_agrees_with_naming_the_operation() -> None:
     ).transform([point])
 
     assert through_bound.coordinates == through_name.coordinates
+
+
+def test_bound_crs_as_target_resolves_its_own_operation() -> None:
+    """The embedded operation must be found on either side of the pair.
+
+    PROJ reports the authority of an inverted operation as INVERSE(EPSG), not
+    EPSG: a bound CRS used as the target builds the inverse of its embedded
+    operation, and that wrapper has to be stripped the same way the
+    axis-order-normalisation wrapper already is, or the requested code is never
+    found among the candidates.
+    """
+    bound = _bound(CoordinateOperation.from_authority(*ED50_TO_WGS84))
+    forward = Transformation(bound, "EPSG:4326")
+    reverse = Transformation("EPSG:4326", bound)
+
+    assert reverse.operation.route is OperationRoute.BOUND
+    assert reverse.operation.authority_code == "EPSG:1133"
+
+    there = forward.transform([OSLO_XY])
+    back = reverse.transform(there.coordinates[0])
+    assert back.coordinates[0] == pytest.approx(OSLO_XY, abs=1e-6)
+
+
+def test_projected_bound_crs_as_target_resolves_its_own_operation() -> None:
+    """The same, with a projected base: the common real case in a register."""
+    point = (600000.0, 6643000.0)  # ED50 / UTM zone 32N, offshore Norway
+    bound = _bound_projected(CoordinateOperation.from_authority(*ED50_TO_WGS84))
+
+    forward = Transformation(bound, WGS84_UTM32)
+    reverse = Transformation(WGS84_UTM32, bound)
+
+    assert reverse.operation.route is OperationRoute.BOUND
+    assert reverse.operation.authority_code == "EPSG:1133"
+
+    there = forward.transform([point])
+    back = reverse.transform(there.coordinates[0])
+    # A Helmert's inverse is computed rather than exact, so the roundtrip is
+    # only precise to sub-millimetre, not bit-identical.
+    assert back.coordinates[0] == pytest.approx(point, abs=1e-3)

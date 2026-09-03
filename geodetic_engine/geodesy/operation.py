@@ -42,18 +42,20 @@ _URN_PREFIX = "urn:ogc:def:coordinateoperation:"
 # names them consistently across the time-dependent Helmert variants.
 _TIME_DEPENDENT_PARAMETERS = ("rate of change", "parameter reference epoch")
 
-# Normalising axis order makes PROJ re-issue an operation under a derived
-# authority, so EPSG:3858 comes back as DERIVED_FROM(DERIVED_FROM(EPSG)):3858.
-# It is still the same EPSG operation and must still satisfy a request for it.
-_DERIVED_AUTHORITY = re.compile(r"^DERIVED_FROM\((.*)\)$", re.IGNORECASE)
+# PROJ wraps the authority of an operation it had to derive rather than look
+# up directly. Normalising axis order re-issues an operation as
+# DERIVED_FROM(DERIVED_FROM(EPSG)):3858, and building the inverse of a named
+# operation re-issues it as INVERSE(EPSG):1612 -- both nestable, both still the
+# same EPSG operation, and both must still satisfy a request for it.
+_WRAPPED_AUTHORITY = re.compile(r"^(?:DERIVED_FROM|INVERSE)\((.*)\)$", re.IGNORECASE)
 
 
 def base_authority(authority: str) -> str:
-    """Strip PROJ's derived-authority wrapper down to the issuing authority.
+    """Strip PROJ's derived- and inverse-authority wrappers down to the issuer.
 
     Args:
         authority: An authority name, possibly wrapped, for example
-            ``"DERIVED_FROM(DERIVED_FROM(EPSG))"``.
+            ``"DERIVED_FROM(DERIVED_FROM(EPSG))"`` or ``"INVERSE(EPSG)"``.
 
     Returns:
         The underlying authority name, for example ``"EPSG"``.
@@ -61,9 +63,11 @@ def base_authority(authority: str) -> str:
     Example:
         >>> base_authority("DERIVED_FROM(DERIVED_FROM(EPSG))")
         'EPSG'
+        >>> base_authority("INVERSE(EPSG)")
+        'EPSG'
     """
     name = authority.strip()
-    while (match := _DERIVED_AUTHORITY.match(name)) is not None:
+    while (match := _WRAPPED_AUTHORITY.match(name)) is not None:
         name = match.group(1).strip()
     return name
 
