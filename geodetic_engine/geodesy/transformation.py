@@ -255,18 +255,18 @@ class Transformation:
 
     def transform(
         self,
-        points: Iterable[Iterable[float]],
+        points: Iterable[Iterable[float]] | Iterable[float],
         *,
         coordinate_epoch: float | None = None,
     ) -> TransformationResult:
         """Transform one point or a batch of points.
 
         Args:
-            points: An iterable of coordinate iterables: a list of tuples, a
-                list of lists, or a 2D numpy array of shape
-                ``(n_points, n_axes)``, one row per point. Each row holds one
-                point's values in ``xy`` order in the source CRS's axis units,
-                with one value per axis the source CRS declares.
+            points: A single point's values -- ``(lon, lat)`` -- or a batch: an
+                iterable of coordinate iterables (a list of tuples, a list of
+                lists, or a 2D numpy array of shape ``(n_points, n_axes)``, one
+                row per point). Values are in ``xy`` order in the source CRS's
+                axis units, with one value per axis the source CRS declares.
             coordinate_epoch: Decimal year the coordinates were observed at,
                 for example ``2010.0``. Required when either CRS is dynamic.
 
@@ -286,11 +286,10 @@ class Transformation:
                 result, or cannot produce every axis the target CRS declares.
 
         Example:
-            A vertical target declares one axis, so one value per point comes
-            back even though PROJ computes three:
+            A single point can be given flat, without wrapping it in a list:
 
             >>> tfm = Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3858")
-            >>> tfm.transform([(-144.0, 72.0, 548.4082)]).coordinates
+            >>> tfm.transform((-144.0, 72.0, 548.4082)).coordinates
             ((556.38...,),)
         """
         columns = _columns(self._source, points)
@@ -336,15 +335,16 @@ class Transformation:
 
 
 def _columns(
-    crs: CoordinateReferenceSystem, points: Iterable[Iterable[float]]
+    crs: CoordinateReferenceSystem, points: Iterable[Iterable[float]] | Iterable[float]
 ) -> tuple[tuple[float, ...], ...]:
     """Reshape points into one tuple of values per axis, the shape PROJ wants.
 
     Args:
         crs: The CRS the points are expressed in, whose declared axis count
             bounds how many values each point may carry.
-        points: An iterable of coordinate iterables, each holding one point's
-            values in ``xy`` order. A 2D numpy array of shape
+        points: A single point's values, given flat -- ``(lon, lat)`` -- or a
+            batch: an iterable of coordinate iterables, each holding one
+            point's values in ``xy`` order. A 2D numpy array of shape
             ``(n_points, n_axes)`` works, one row per point. A row may carry
             one value more than ``crs`` declares -- a height alongside a 2D
             horizontal CRS -- which is carried through unchanged rather than
@@ -361,7 +361,13 @@ def _columns(
     """
     # Materialised up front: points may be a one-shot iterable or a numpy array
     # (not a Sequence), and each axis is read once below.
-    rows = [tuple(float(value) for value in point) for point in points]
+    materialized = list(points)
+    if materialized and not isinstance(materialized[0], Iterable):
+        # A lone point given flat, e.g. (lon, lat), rather than [(lon, lat)].
+        # Unambiguous whenever a point has more than one value: only a single
+        # flat point looks like a list of bare numbers rather than of rows.
+        materialized = [materialized]
+    rows = [tuple(float(value) for value in point) for point in materialized]
     widths = {len(row) for row in rows}
     if len(widths) > 1:
         raise ValueError(f"points have differing numbers of values: {sorted(widths)}")
@@ -382,7 +388,7 @@ def _columns(
 def transform(
     source_crs: Any,
     target_crs: Any,
-    points: Iterable[Iterable[float]],
+    points: Iterable[Iterable[float]] | Iterable[float],
     *,
     operation: str | int | None = None,
     coordinate_epoch: float | None = None,
@@ -397,8 +403,9 @@ def transform(
     Args:
         source_crs: CRS the input coordinates are in.
         target_crs: CRS to produce coordinates in.
-        points: Points to transform, each holding its values in ``xy`` order in
-            the source CRS's axis units. A 2D numpy array of shape
+        points: A single point's values, given flat -- ``(lon, lat)`` -- or a
+            batch of points, each holding its values in ``xy`` order in the
+            source CRS's axis units. A 2D numpy array of shape
             ``(n_points, n_axes)`` works, one row per point.
         operation: EPSG coordinate operation to apply, for example
             ``"EPSG:15670"``. Required whenever a datum change is involved.
@@ -413,7 +420,7 @@ def transform(
 
     Example:
         >>> result = transform(
-        ...     "EPSG:4326", "EPSG:25832", [(10.75, 59.91)],
+        ...     "EPSG:4326", "EPSG:25832", (10.75, 59.91),
         ...     operation="EPSG:16032",
         ... )
         >>> result.operation.authority_code

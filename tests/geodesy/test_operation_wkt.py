@@ -96,13 +96,13 @@ def test_same_datum_conversion_exports_the_projection() -> None:
 
 
 def test_wkt_is_not_in_the_serialized_result() -> None:
-    """as_dict() stays a summary; the WKT is opt-in through to_wkt()."""
+    """to_json_dict() stays a summary; the WKT is opt-in through to_wkt()."""
     result = Transformation(
         "EPSG:4230", "EPSG:4326", operation=ED50_TO_WGS84
     ).transform([(10.75, 59.91)])
 
-    assert "wkt" not in result.as_dict()["operation"]
-    assert "projjson" not in result.as_dict()["operation"]
+    assert "wkt" not in result.to_json_dict()["operation"]
+    assert "projjson" not in result.to_json_dict()["operation"]
 
 
 @pytest.mark.parametrize("pretty", [False, True])

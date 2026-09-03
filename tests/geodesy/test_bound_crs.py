@@ -87,7 +87,7 @@ def test_bound_result_still_carries_provenance() -> None:
         _bound(CoordinateOperation.from_authority(*ED50_TO_WGS84)), "EPSG:4326"
     )
 
-    rendered = transformation.transform([OSLO_XY]).as_dict()
+    rendered = transformation.transform([OSLO_XY]).to_json_dict()
 
     assert rendered["operation"]["applied"] == "EPSG:1133"
     assert rendered["operation"]["route"] == "bound"

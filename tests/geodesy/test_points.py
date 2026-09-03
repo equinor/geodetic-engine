@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -18,6 +20,18 @@ def test_single_point_and_batch_agree() -> None:
     batch = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
     assert single.coordinates[0] == batch.coordinates[0]
     assert batch.count == 2
+
+
+def test_a_single_point_can_be_given_flat() -> None:
+    """(lon, lat) works directly, without wrapping it in an outer list."""
+    wrapped = transform("EPSG:4326", "EPSG:3395", [OSLO_XY])
+    flat_tuple = transform("EPSG:4326", "EPSG:3395", OSLO_XY)
+    flat_list = transform("EPSG:4326", "EPSG:3395", list(OSLO_XY))
+    flat_array = transform("EPSG:4326", "EPSG:3395", np.array(OSLO_XY))
+
+    assert flat_tuple.coordinates == wrapped.coordinates
+    assert flat_list.coordinates == wrapped.coordinates
+    assert flat_array.coordinates == wrapped.coordinates
 
 
 def test_transform_accepts_a_numpy_array() -> None:
@@ -75,10 +89,19 @@ def test_result_carries_its_provenance() -> None:
     assert result.coordinate_order == "xy"
     assert result.pipeline is not None
 
-    rendered = result.as_dict()
+    rendered = result.to_json_dict()
     assert rendered["operation"]["applied"] == "EPSG:3858"
     assert rendered["target_axes"] == ["H"]
     assert rendered["target_units"] == ["metre"]
+
+
+def test_to_json_matches_to_json_dict_and_can_be_compact() -> None:
+    """to_json() serialises the same fields as to_json_dict(), pretty by default."""
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY])
+
+    assert json.loads(result.to_json()) == result.to_json_dict()
+    assert "\n" in result.to_json()
+    assert "\n" not in result.to_json(pretty=False)
 
 
 def test_vertical_target_returns_one_value_per_point() -> None:

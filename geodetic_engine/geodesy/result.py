@@ -8,6 +8,7 @@ numbers are separated from those facts they cannot be checked, only trusted.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -94,11 +95,15 @@ class TransformationResult:
         """
         return tuple(grid.name for grid in self.grids if not grid.available)
 
-    def as_dict(self) -> dict[str, Any]:
+    def to_json_dict(self) -> dict[str, Any]:
         """Render the result as plain data, for logging or serialisation.
 
         Returns:
             A dict carrying the coordinates and every provenance field.
+
+        Example:
+            >>> result.to_json_dict()["coordinates"]  # doctest: +SKIP
+            [[10.7522, 59.9139]]
         """
         return {
             "coordinates": [list(row) for row in self.coordinates],
@@ -130,3 +135,20 @@ class TransformationResult:
             ],
             "pipeline": self.pipeline,
         }
+
+    def to_json(self, *, pretty: bool = True) -> str:
+        """Serialise the result as JSON.
+
+        Args:
+            pretty: Whether to indent the output over several lines. True by
+                default, since this is meant for a human to read; pass False
+                for a compact form to log or send over the wire.
+
+        Returns:
+            The same fields as :meth:`to_json_dict`, as a JSON string.
+
+        Example:
+            >>> print(result.to_json(pretty=False))  # doctest: +SKIP
+            {"coordinates": [[10.7522, 59.9139]], ...}
+        """
+        return json.dumps(self.to_json_dict(), indent=2 if pretty else None)
