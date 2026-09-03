@@ -4,31 +4,19 @@ Georepository objects share a common envelope (``Code``, ``Name``,
 ``DataSource``, ``Deprecations``, ``Usage``, ``Links``), so the field access and
 the deprecation, usage, alias and supersession handling that every concept needs
 lives here. Concept-specific shapes live in the concept modules.
+
+The proj.db row types these produce are source-neutral and live in
+:mod:`geodetic_engine.projdb.records`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass, field
 from typing import Any
 
-from geodetic_engine.projdb.schema import OBJECT_TABLE_NAME
+from geodetic_engine.projdb.records import Extent, ObjectKey, Scope
 
 JsonObject = dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class ObjectKey:
-    """Identity of an object in proj.db."""
-
-    table: str
-    auth_name: str
-    code: str
-
-    @property
-    def object_table_name(self) -> str:
-        """The name PROJ uses for this table in usage/alias/supersession."""
-        return OBJECT_TABLE_NAME[self.table]
 
 
 def auth_name(obj: JsonObject) -> str:
@@ -108,73 +96,47 @@ def epoch(obj: JsonObject, key: str) -> str | None:
     return str(value)
 
 
-@dataclass(slots=True)
-class UsageAccumulator:
-    """Builds ``usage`` rows and the ``scope``/``extent`` rows they reference.
+def scope_of(obj: JsonObject) -> Scope | None:
+    """Read a resolved Georepository ``Scope`` object.
 
-    proj.db's usage table has a ``(auth_name, code)`` primary key that permits
-    nulls, but writing explicit codes keeps every usage row traceable back to
-    the object that produced it.
+    Returns:
+        The scope, or None when the object carries no authority and code and so
+        cannot be referenced from a usage row.
     """
+    key = _key_of(obj)
+    if key is None:
+        return None
+    return Scope(
+        auth_name=key[0],
+        code=key[1],
+        scope=text(obj, "ScopeDetails", "Name", "Remark") or "not known",
+        deprecated=deprecated_flag(obj),
+    )
 
-    authority: str
-    usages: list[dict[str, Any]] = field(default_factory=list)
-    scopes: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
-    extents: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
-    _counter: int = 0
 
-    def add(
-        self,
-        key: ObjectKey,
-        *,
-        scope_obj: JsonObject,
-        extent_obj: JsonObject,
-    ) -> None:
-        """Record one usage of an object, along with its scope and extent.
+def extent_of(obj: JsonObject) -> Extent | None:
+    """Read a resolved Georepository ``Extent`` object.
 
-        Args:
-            key: The object being used.
-            scope_obj: Resolved Georepository ``Scope`` object.
-            extent_obj: Resolved Georepository ``Extent`` object.
-        """
-        scope_key = _key_of(scope_obj)
-        extent_key = _key_of(extent_obj)
-        if scope_key is None or extent_key is None:
-            return
+    The bounding box is carried through in the degrees the register states,
+    including a box that crosses the antimeridian.
 
-        if scope_key not in self.scopes:
-            self.scopes[scope_key] = {
-                "auth_name": scope_key[0],
-                "code": scope_key[1],
-                "scope": text(scope_obj, "ScopeDetails", "Name", "Remark")
-                or "not known",
-                "deprecated": deprecated_flag(scope_obj),
-            }
-        if extent_key not in self.extents:
-            self.extents[extent_key] = _extent_row(extent_obj, extent_key)
-
-        self._counter += 1
-        self.usages.append(
-            {
-                "auth_name": self.authority,
-                "code": f"{key.object_table_name}_{key.code}_{self._counter}",
-                "object_table_name": key.object_table_name,
-                "object_auth_name": key.auth_name,
-                "object_code": key.code,
-                "extent_auth_name": extent_key[0],
-                "extent_code": extent_key[1],
-                "scope_auth_name": scope_key[0],
-                "scope_code": scope_key[1],
-            }
-        )
-
-    def foreign_scope_extent_keys(self) -> set[tuple[str, str]]:
-        """Scope and extent keys that belong to another authority."""
-        return {
-            key
-            for key in (*self.scopes, *self.extents)
-            if key[0].casefold() != self.authority.casefold()
-        }
+    Returns:
+        The extent, or None when the object carries no authority and code.
+    """
+    key = _key_of(obj)
+    if key is None:
+        return None
+    return Extent(
+        auth_name=key[0],
+        code=key[1],
+        name=text(obj, "Name") or "unknown",
+        description=text(obj, "Description", "Remark"),
+        south_lat=number(obj, "BoundingBoxSouthBoundLatitude"),
+        north_lat=number(obj, "BoundingBoxNorthBoundLatitude"),
+        west_lon=number(obj, "BoundingBoxWestBoundLongitude"),
+        east_lon=number(obj, "BoundingBoxEastBoundLongitude"),
+        deprecated=deprecated_flag(obj),
+    )
 
 
 def _key_of(obj: JsonObject) -> tuple[str, str] | None:
@@ -183,20 +145,6 @@ def _key_of(obj: JsonObject) -> tuple[str, str] | None:
     if not obj_auth or obj_code is None:
         return None
     return obj_auth, obj_code
-
-
-def _extent_row(obj: JsonObject, key: tuple[str, str]) -> dict[str, Any]:
-    return {
-        "auth_name": key[0],
-        "code": key[1],
-        "name": text(obj, "Name") or "unknown",
-        "description": text(obj, "Description", "Remark"),
-        "south_lat": number(obj, "BoundingBoxSouthBoundLatitude"),
-        "north_lat": number(obj, "BoundingBoxNorthBoundLatitude"),
-        "west_lon": number(obj, "BoundingBoxWestBoundLongitude"),
-        "east_lon": number(obj, "BoundingBoxEastBoundLongitude"),
-        "deprecated": deprecated_flag(obj),
-    }
 
 
 def supersession_candidates(

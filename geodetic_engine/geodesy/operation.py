@@ -176,6 +176,50 @@ class AppliedOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class OperationCandidate:
+    """One coordinate operation PROJ offers for a CRS pair, not yet applied.
+
+    Listed by
+    :func:`geodetic_engine.geodesy.transformation.available_operations`, this
+    package's equivalent of inspecting a
+    :class:`pyproj.transformer.TransformerGroup` directly. Nothing here has
+    been checked against a request or applied to coordinates; it is
+    information to choose an ``operation=`` argument from, not a result.
+
+    Attributes:
+        auth_name: Authority of the operation, for example ``"EPSG"``.
+        code: Code of the operation.
+        name: Name of the operation.
+        method_name: Name of the operation method, when it is a single step.
+        accuracy: Stated accuracy in metres, or None when PROJ reports none.
+        area_of_use: Human-readable area the operation is valid for, or None.
+        ballpark: Whether this candidate is a ballpark approximation.
+        requires_epoch: Whether applying it would need a coordinate epoch.
+        grids: Grid files it depends on. Not all need be installed.
+        usable: Whether it could be applied right now: not a ballpark, and
+            every grid it depends on is installed.
+    """
+
+    auth_name: str | None
+    code: str | None
+    name: str
+    method_name: str | None
+    accuracy: float | None
+    area_of_use: str | None
+    ballpark: bool
+    requires_epoch: bool
+    grids: tuple[GridUsage, ...]
+    usable: bool
+
+    @property
+    def authority_code(self) -> str | None:
+        """``"AUTH:CODE"``, usable as ``Transformation``'s ``operation=``."""
+        if self.auth_name is None or self.code is None:
+            return None
+        return f"{self.auth_name}:{self.code}"
+
+
+@dataclass(frozen=True, slots=True)
 class OperationRequest:
     """A caller's request for a particular coordinate operation.
 

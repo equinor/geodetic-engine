@@ -224,3 +224,4 @@ tmp/
 
 # Local build settings; holds no secrets, but is specific to whoever ran it.
 geodetic-projdb.toml
+.github/*.md

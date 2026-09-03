@@ -4,6 +4,8 @@ Public entry points:
 
 * :func:`transform` -- transform points in one call.
 * :class:`Transformation` -- resolve once, transform many times.
+* :func:`available_operations` -- list every coordinate operation PROJ
+  offers between two CRSs, to choose an operation from.
 * :class:`CoordinateReferenceSystem` -- resolve a CRS and read the axis roles
   and units the EPSG dataset declares for it.
 * :class:`Position` and :class:`PositionSet` -- coordinates with their CRS and
@@ -42,12 +44,17 @@ from geodetic_engine.geodesy.errors import (
 from geodetic_engine.geodesy.operation import (
     AppliedOperation,
     GridUsage,
+    OperationCandidate,
     OperationRequest,
     OperationRoute,
 )
 from geodetic_engine.geodesy.position import Position, PositionSet
 from geodetic_engine.geodesy.result import TransformationResult
-from geodetic_engine.geodesy.transformation import Transformation, transform
+from geodetic_engine.geodesy.transformation import (
+    Transformation,
+    available_operations,
+    transform,
+)
 
 __all__ = [
     "AmbiguousOperationError",
@@ -60,6 +67,7 @@ __all__ = [
     "MissingCoordinateEpochError",
     "MissingGridError",
     "NotCollapsibleError",
+    "OperationCandidate",
     "OperationNotAvailableError",
     "OperationRequest",
     "OperationRoute",
@@ -69,5 +77,6 @@ __all__ = [
     "TransformationFailedError",
     "TransformationResult",
     "UnresolvableCRSError",
+    "available_operations",
     "transform",
 ]

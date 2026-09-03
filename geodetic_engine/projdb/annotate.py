@@ -20,7 +20,7 @@ from typing import Any
 
 from geodetic_engine.projdb import translate as tr
 from geodetic_engine.projdb.context import BuildContext
-from geodetic_engine.projdb.translate import ObjectKey
+from geodetic_engine.projdb.records import ObjectKey
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,14 @@ def _annotate(
         True if the object carried anything belonging to this authority.
     """
     obj = context.client.detail(summary)
-    added = context.alias.collect(key, obj)
+    added = sum(
+        context.alias.add(
+            key,
+            alias=tr.text(record, "Alias"),
+            source=str((record.get("NamingSystem") or {}).get("Name") or ""),
+        )
+        for record in context.client.aliases(obj)
+    )
 
     for usage in obj.get("Usage") or []:
         scope = context.client.resolve(usage.get("Scope"))
@@ -84,7 +91,7 @@ def _annotate(
         # database; only an annotation this authority added is new information.
         if not _owned(scope, custom) and not _owned(extent, custom):
             continue
-        context.usage.add(key, scope_obj=scope, extent_obj=extent)
+        context.usage.add(key, scope=tr.scope_of(scope), extent=tr.extent_of(extent))
         added += 1
 
     if added:

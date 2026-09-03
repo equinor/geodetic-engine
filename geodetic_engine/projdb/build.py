@@ -8,12 +8,9 @@ alias and supersession rows that annotate it.
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
-from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from geodetic_engine.georepository.client import GeorepositoryClient
@@ -31,79 +28,13 @@ from geodetic_engine.projdb.alias import AliasCollector
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.context import BuildContext
 from geodetic_engine.projdb.errors import MissingReferencedObjectError
-from geodetic_engine.projdb.translate import UsageAccumulator
+from geodetic_engine.projdb.records import UsageAccumulator
+from geodetic_engine.projdb.report import BuildReport, log_summary
 from geodetic_engine.projdb.writer import ProjDbWriter
 
+__all__ = ["BuildReport", "build", "log_summary"]
+
 logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class BuildReport:
-    """Provenance for one build, so a result can be traced after the fact."""
-
-    built_at: str
-    proj_version: str
-    epsg_version: str
-    proj_data_version: str
-    database_layout_version: str
-    georepository_url: str
-    georepository_version: str | None
-    authorities: list[str]
-    include_deprecated: bool
-    base_proj_db: str
-    output_db: str
-    dry_run: bool = False
-    rows_by_table: dict[str, int] = field(default_factory=dict)
-    imported: list[dict[str, str]] = field(default_factory=list)
-    deprecated_imported: list[dict[str, str]] = field(default_factory=list)
-    skipped: list[dict[str, str | bool | None]] = field(default_factory=list)
-    supersessions_written: int = 0
-    supersessions_dropped: list[dict[str, str]] = field(default_factory=list)
-    authority_preferences: list[dict[str, str]] = field(default_factory=list)
-    validation: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def status(self) -> str:
-        """``failed``, ``passed`` or ``not validated``."""
-        if self.dry_run:
-            return "dry run"
-        return str(self.validation.get("status", "not validated"))
-
-    def as_dict(self) -> dict[str, Any]:
-        """Return the report with everything that went wrong first.
-
-        A report is read when something is missing from the database, so the
-        objects that were not imported, the supersessions that were dropped and
-        the validation outcome come before the inventory of what succeeded.
-        """
-        data = asdict(self)
-        problems = {
-            "status": self.status,
-            "counts": {
-                "rows": sum(self.rows_by_table.values()),
-                "imported": len(self.imported),
-                "deprecated": len(self.deprecated_imported),
-                "skipped": len(self.skipped),
-                "skipped_active": sum(
-                    1 for item in self.skipped if not item["deprecated"]
-                ),
-                "supersessions_written": self.supersessions_written,
-                "supersessions_dropped": len(self.supersessions_dropped),
-                "missing_grids": len(self.validation.get("missing_grids", [])),
-            },
-            "skipped": data.pop("skipped"),
-            "supersessions_dropped": data.pop("supersessions_dropped"),
-            "validation": data.pop("validation"),
-        }
-        return {**problems, **data}
-
-    def to_json(self, indent: int = 2) -> str:
-        """Serialise the report as JSON, problems first."""
-        return json.dumps(self.as_dict(), indent=indent, sort_keys=False)
-
-    def write(self, path: Path) -> None:
-        """Write the report next to the database it describes."""
-        path.write_text(self.to_json(), encoding="utf-8")
 
 
 def build(
@@ -148,7 +79,7 @@ def build(
                 client=client,
                 writer=writer,
                 usage=UsageAccumulator(authority=authority_name),
-                alias=AliasCollector(client, config.naming_systems),
+                alias=AliasCollector(config.naming_systems),
             )
 
             datum.collect_units(context)
@@ -179,6 +110,8 @@ def build(
             report = _report(config, context, dropped)
             report.authority_preferences = preferences
             report.rows_by_table = dict(sorted(writer.inserted.items()))
+            report.appended = writer.appended
+            report.overwrite_existing = config.overwrite_existing
             report.dry_run = dry_run
             if dry_run:
                 logger.info("dry run: discarding %s", config.output_db)
@@ -189,67 +122,6 @@ def build(
             client.close()
 
     return report
-
-
-def log_summary(report: BuildReport) -> None:
-    """Log what the build imported and, in full, what it left out.
-
-    Emitted at the very end of a run, after validation, so the last thing in the
-    log is the whole picture. The per-object lines also appear earlier in the
-    log where they happened; this gathers them in one place.
-    """
-    rule = "=" * 72
-    logger.info(rule)
-    logger.info("BUILD SUMMARY - %s", report.status.upper())
-
-    if report.skipped:
-        active = sum(1 for item in report.skipped if not item["deprecated"])
-        logger.warning(
-            "%d object(s) NOT imported (%d active, %d deprecated):",
-            len(report.skipped),
-            active,
-            len(report.skipped) - active,
-        )
-        for item in report.skipped:
-            logger.warning(
-                "  [%s] %s %s:%s %s",
-                "DEPRECATED" if item["deprecated"] else "  ACTIVE  ",
-                item["table"],
-                item["auth_name"],
-                item["code"],
-                item["name"] or "",
-            )
-            logger.warning("      %s", item["reason"])
-
-    if report.supersessions_dropped:
-        logger.warning(
-            "%d supersession(s) dropped, replacement not found:",
-            len(report.supersessions_dropped),
-        )
-        for dropped in report.supersessions_dropped:
-            logger.warning("  %s -> %s", dropped["superseded"], dropped["replacement"])
-
-    if missing := report.validation.get("missing_grids"):
-        logger.warning(
-            "%d grid file(s) referenced but not installed here: %s",
-            len(missing),
-            missing,
-        )
-
-    if error := report.validation.get("error"):
-        logger.error("VALIDATION FAILED: %s", error)
-
-    # The tally goes last so the final lines of the log are the totals.
-    logger.info(
-        "%d rows, %d objects imported (%d deprecated), %d skipped",
-        sum(report.rows_by_table.values()),
-        len(report.imported),
-        len(report.deprecated_imported),
-        len(report.skipped),
-    )
-    for table, count in report.rows_by_table.items():
-        logger.info("  %6d  %s", count, table)
-    logger.info(rule)
 
 
 def _write_usage(context: BuildContext) -> None:
@@ -297,8 +169,16 @@ def _write_aliases(context: BuildContext) -> None:
 
 
 def _write_authority_preferences(context: BuildContext) -> list[dict[str, str]]:
-    """Write the operation selection preferences for the custom authorities."""
-    existing = authority.read_existing(context.writer.connection)
+    """Register the custom authorities and write their selection preferences."""
+    connection = context.writer.connection
+    builtin = authority.builtin_rows(
+        context.config.authorities, authority.read_builtin(connection)
+    )
+    context.writer.insert(authority.BUILTIN_TABLE, builtin)
+    for row in builtin:
+        logger.info("registered authority %s with PROJ", row["auth_name"])
+
+    existing = authority.read_existing(connection)
     rows = authority.preference_rows(context.config, existing)
     context.writer.upsert_authority_preferences(rows)
     logger.info("authority preferences: %d rows written", len(rows))
@@ -433,8 +313,8 @@ def _report(
         epsg_version=base_metadata.get("EPSG.VERSION", "unknown"),
         proj_data_version=base_metadata.get("PROJ_DATA.VERSION", "unknown"),
         database_layout_version=layout,
-        georepository_url=config.api_url,
-        georepository_version=config.georepository_version,
+        source=config.api_url,
+        source_version=config.georepository_version,
         authorities=sorted(config.authorities),
         include_deprecated=config.include_deprecated,
         base_proj_db=str(config.base_proj_db),

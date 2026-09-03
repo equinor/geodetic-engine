@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sqlite3
+import tempfile
 from collections.abc import Generator, Iterable, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -56,12 +58,19 @@ def validate(
     database: Path,
     *,
     authorities: Iterable[str],
+    imported: Iterable[tuple[str, str, str]] | None = None,
 ) -> dict[str, Any]:
     """Check that a built database is sound and that PROJ can read every object.
 
     Args:
         database: Path to the enriched proj.db.
         authorities: Custom authority names whose objects should be checked.
+        imported: The objects this build actually added, as
+            ``(table, auth_name, code)`` triples. When given, only these are
+            constructed. A build that imports objects under an established
+            authority such as EPSG would otherwise be judged on the whole of
+            that authority's stock content, and the EPSG dataset PROJ ships
+            with contains a handful of operations PROJ itself cannot build.
 
     Returns:
         A summary for the build report: how many CRSs and operations were
@@ -83,8 +92,15 @@ def validate(
         _check_integrity(connection)
         _check_foreign_keys(connection)
         logger.info("integrity and foreign key checks passed")
-        crs_keys = _custom_objects(connection, _CRS_TABLES, authority_list)
-        operation_keys = _custom_objects(connection, _OPERATION_TABLES, authority_list)
+        if imported is None:
+            crs_keys = _custom_objects(connection, _CRS_TABLES, authority_list)
+            operation_keys = _custom_objects(
+                connection, _OPERATION_TABLES, authority_list
+            )
+        else:
+            keys = list(imported)
+            crs_keys = [key for key in keys if key[0] in _CRS_TABLES]
+            operation_keys = [key for key in keys if key[0] in _OPERATION_TABLES]
 
     with _proj_data(database):
         _check_crs(crs_keys)
@@ -144,24 +160,54 @@ def _custom_objects(
 
 @contextmanager
 def _proj_data(database: Path) -> Generator[None]:
-    """Point PROJ at the built database for the duration of the block."""
+    """Point PROJ at the built database for the duration of the block.
+
+    PROJ opens the file called ``proj.db`` in each directory of its search
+    path, so a database under any other name is staged in a temporary
+    directory under that name first. Without this, PROJ would quietly read the
+    installed database instead and the build would be checked against the wrong
+    file.
+    """
     from pyproj import datadir
 
     previous_env = os.environ.get("PROJ_DATA")
     previous_dir = datadir.get_data_dir()
-    # The custom database must be found ahead of the installed one, but PROJ
-    # still needs the installed directory for grids and proj.ini.
-    search = os.pathsep.join([str(database.parent.resolve()), previous_dir])
-    os.environ["PROJ_DATA"] = search
-    datadir.set_data_dir(search)
-    try:
-        yield
-    finally:
-        datadir.set_data_dir(previous_dir)
-        if previous_env is None:
-            os.environ.pop("PROJ_DATA", None)
-        else:
-            os.environ["PROJ_DATA"] = previous_env
+    with _as_proj_db(database) as directory:
+        # The custom database must be found ahead of the installed one, but
+        # PROJ still needs the installed directory for grids and proj.ini.
+        search = os.pathsep.join([str(directory), previous_dir])
+        os.environ["PROJ_DATA"] = search
+        datadir.set_data_dir(search)
+        try:
+            yield
+        finally:
+            datadir.set_data_dir(previous_dir)
+            if previous_env is None:
+                os.environ.pop("PROJ_DATA", None)
+            else:
+                os.environ["PROJ_DATA"] = previous_env
+
+
+@contextmanager
+def _as_proj_db(database: Path) -> Generator[Path]:
+    """Yield a directory in which the database is called ``proj.db``.
+
+    The database itself is used where it is already named that way; otherwise
+    it is linked, or copied when linking is not possible, into a temporary
+    directory that is removed afterwards.
+    """
+    resolved = database.resolve()
+    if resolved.name == "proj.db":
+        yield resolved.parent
+        return
+    with tempfile.TemporaryDirectory(prefix="geodetic-projdb-") as staging:
+        staged = Path(staging) / "proj.db"
+        try:
+            os.link(resolved, staged)
+        except OSError:
+            shutil.copyfile(resolved, staged)
+        logger.debug("staged %s as %s for PROJ to read", resolved, staged)
+        yield Path(staging)
 
 
 def _check_crs(keys: Sequence[tuple[str, str, str]]) -> None:

@@ -1,8 +1,10 @@
-"""Command line entry point for the custom proj.db workflow.
+"""Command line entry point for building a proj.db from an OSDU catalogue.
 
-Credentials are never accepted as arguments; they come from the environment or
-a gitignored ``.env`` file, because arguments end up in shell history and in
-process listings.
+A build needs nothing but the catalogue file, so the common case is::
+
+    geodetic-osdudb build CRS_CT.json
+
+Everything else has a default or lives in an optional ``geodetic-osdudb.toml``.
 """
 
 from __future__ import annotations
@@ -15,14 +17,16 @@ import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from geodetic_engine.errors import GeodeticEngineError
-from geodetic_engine.projdb.build import build, log_summary
-from geodetic_engine.projdb.config import find_env_file, load_config
-from geodetic_engine.projdb.errors import ProjDbBuildError
+from geodetic_engine.osdudb.build import build, log_summary
+from geodetic_engine.osdudb.config import load_config
+from geodetic_engine.osdudb.errors import ProjDbBuildError
+from geodetic_engine.projdb.settings import find_env_file
 from geodetic_engine.projdb.validate import validate
 
-logger = logging.getLogger("geodetic_engine.projdb")
+logger = logging.getLogger("geodetic_engine.osdudb")
 
 _FILE_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 _CONSOLE_FORMAT = "%(levelname)s %(name)s: %(message)s"
@@ -35,12 +39,12 @@ def sidecar(output_db: Path, suffix: str, *, source: str | None = None) -> Path:
         output_db: The database the file describes.
         suffix: What to append, for example ``".report.json"``.
         source: Name of the build to put in the file name, for example
-            ``"projdb"``. Given when appending, where several builds describe
+            ``"osdudb"``. Given when appending, where several builds describe
             one database and a name derived from the database alone would let
             the last of them overwrite the others' provenance.
 
     Returns:
-        The path to write, for example ``proj.db.projdb.report.json``.
+        The path to write, for example ``proj.db.osdudb.report.json``.
     """
     tag = f".{source}" if source else ""
     return output_db.with_suffix(output_db.suffix + tag + suffix)
@@ -69,10 +73,10 @@ def _log_to_file(path: Path) -> Generator[None]:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="geodetic-projdb",
+        prog="geodetic-osdudb",
         description=(
-            "Build a PROJ database enriched with a custom authority's CRSs and "
-            "transformations, fetched from a Georepository instance."
+            "Build a PROJ database enriched with the CRSs and transformations "
+            "published in an OSDU coordinate reference catalogue."
         ),
     )
     parser.add_argument(
@@ -82,9 +86,25 @@ def _parser() -> argparse.ArgumentParser:
 
     build_cmd = sub.add_parser("build", help="build an enriched proj.db")
     build_cmd.add_argument(
-        "--config", type=Path, help="TOML file with a [projdb] table (no secrets)"
+        "catalog",
+        type=Path,
+        nargs="?",
+        help="the OSDU manifest to read, for example CRS_CT.json",
+    )
+    build_cmd.add_argument(
+        "--config", type=Path, help="TOML file with an [osdudb] table"
     )
     build_cmd.add_argument("--output", type=Path, help="path of the database to write")
+    build_cmd.add_argument(
+        "--authority",
+        action="append",
+        dest="authorities",
+        help=(
+            "code space to import; repeatable. Defaults to OSDU. Add EPSG to "
+            "also import the catalogue's EPSG objects that this proj.db's EPSG "
+            "dataset does not yet define."
+        ),
+    )
     build_cmd.add_argument(
         "--append",
         action="store_true",
@@ -123,7 +143,7 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         required=True,
         dest="authorities",
-        help="custom authority to check; repeatable",
+        help="authority to check; repeatable",
     )
 
     inspect_cmd = sub.add_parser(
@@ -134,8 +154,9 @@ def _parser() -> argparse.ArgumentParser:
     config_cmd = sub.add_parser(
         "config", help="show the resolved settings and where they came from"
     )
+    config_cmd.add_argument("catalog", type=Path, nargs="?")
     config_cmd.add_argument(
-        "--config", type=Path, help="TOML file with a [projdb] table (no secrets)"
+        "--config", type=Path, help="TOML file with an [osdudb] table"
     )
     return parser
 
@@ -159,22 +180,22 @@ def main(argv: list[str] | None = None) -> int:
     # than the console.
     root.setLevel(logging.DEBUG)
     root.addHandler(console)
-    if not args.verbose:
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     try:
         if args.command == "build":
             return _build(args)
         if args.command == "validate":
-            summary = validate(args.database, authorities=args.authorities)
-            print(json.dumps(summary, indent=2))
+            print(
+                json.dumps(
+                    validate(args.database, authorities=args.authorities), indent=2
+                )
+            )
             return 0
         if args.command == "inspect":
             print(json.dumps(_inspect(args.database), indent=2))
             return 0
         if args.command == "config":
-            print(json.dumps(_show_config(args.config), indent=2))
+            print(json.dumps(_show_config(args), indent=2))
             return 0
     except GeodeticEngineError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -182,15 +203,24 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def _build(args: argparse.Namespace) -> int:
-    overrides = {}
-    if args.output is not None:
+def _overrides(args: argparse.Namespace) -> dict[str, Any]:
+    """The settings the command line states, if any."""
+    overrides: dict[str, Any] = {}
+    if getattr(args, "catalog", None) is not None:
+        overrides["catalog"] = args.catalog
+    if getattr(args, "output", None) is not None:
         overrides["output_db"] = args.output
-    if args.append:
+    if getattr(args, "authorities", None):
+        overrides["authorities"] = args.authorities
+    if getattr(args, "append", False):
         overrides["append"] = True
-    if args.overwrite_existing:
+    if getattr(args, "overwrite_existing", False):
         overrides["overwrite_existing"] = True
-    config = load_config(config_file=args.config, **overrides)
+    return overrides
+
+
+def _build(args: argparse.Namespace) -> int:
+    config = load_config(config_file=args.config, **_overrides(args))
 
     if args.dry_run:
         # A dry run keeps nothing, so it leaves no log or report behind either.
@@ -206,11 +236,11 @@ def _build(args: argparse.Namespace) -> int:
 
     # An appending build shares its output with the builds that came before it,
     # so it must not write over their report and log.
-    tag = "projdb" if config.append else None
+    tag = "osdudb" if config.append else None
     log_path = sidecar(config.output_db, ".log", source=tag)
     report_path = sidecar(config.output_db, ".report.json", source=tag)
     with _log_to_file(log_path):
-        logger.info("geodetic-projdb build starting")
+        logger.info("geodetic-osdudb build starting")
         logger.info("configuration: %r", config)
         if source := config.source_file:
             logger.info("settings read from %s", source)
@@ -258,17 +288,15 @@ def _build(args: argparse.Namespace) -> int:
     return 0
 
 
-def _show_config(config_file: Path | None) -> dict[str, object]:
-    """Resolve the configuration and describe it without revealing secrets."""
-    resolved = load_config(config_file=config_file)
+def _show_config(args: argparse.Namespace) -> dict[str, Any]:
+    """Resolve the configuration and describe where it came from."""
+    resolved = load_config(config_file=args.config, **_overrides(args))
     env_file = find_env_file()
     return {
         "config_file": str(resolved.source_file) if resolved.source_file else None,
         "env_file": str(env_file) if env_file else None,
-        "api_url": resolved.georepository.api_url,
-        "token_url": resolved.georepository.token_url,
-        "scope": resolved.georepository.scope,
-        "credentials": "set" if resolved.georepository.client_secret else "missing",
+        "catalog": str(resolved.catalog),
+        "catalog_version": resolved.catalog_version,
         "authorities": sorted(resolved.authorities),
         "naming_systems": sorted(resolved.naming_systems),
         "output_db": str(resolved.output_db),
@@ -279,11 +307,10 @@ def _show_config(config_file: Path | None) -> dict[str, object]:
         "unsupported_method_codes": sorted(resolved.unsupported_method_codes),
         "append": resolved.append,
         "overwrite_existing": resolved.overwrite_existing,
-        "page_size": resolved.georepository.page_size,
     }
 
 
-def _inspect(database: Path) -> dict[str, object]:
+def _inspect(database: Path) -> dict[str, Any]:
     with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
         metadata = dict(connection.execute("SELECT key, value FROM metadata"))
         authorities = {

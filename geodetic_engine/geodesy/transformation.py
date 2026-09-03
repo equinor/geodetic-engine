@@ -46,6 +46,7 @@ from geodetic_engine.geodesy.errors import (
 from geodetic_engine.geodesy.operation import (
     AppliedOperation,
     GridUsage,
+    OperationCandidate,
     OperationRequest,
     OperationRoute,
     base_authority,
@@ -399,6 +400,113 @@ def transform(
         _cache_key(source_crs), _cache_key(target_crs), operation
     )
     return resolved.transform(points, coordinate_epoch=coordinate_epoch)
+
+
+def available_operations(
+    source_crs: Any,
+    target_crs: Any,
+    *,
+    authority: str | None = None,
+    accuracy: float | None = None,
+    allow_superseded: bool = True,
+    allow_ballpark: bool = True,
+) -> tuple[OperationCandidate, ...]:
+    """List every coordinate operation PROJ offers between two CRSs.
+
+    This package's equivalent of inspecting a
+    :class:`pyproj.transformer.TransformerGroup` directly: every candidate is
+    described, including a ballpark fallback or one whose grid is not
+    installed, so an ``operation=`` argument for :class:`Transformation` can be
+    chosen with full information instead of by trial and error. Nothing here
+    is applied to coordinates or checked against a request.
+
+    A deprecated EPSG operation is never among the candidates: PROJ's own
+    operation search excludes deprecated operations unconditionally, with no
+    option to include them, so there is no ``allow_deprecated`` filter here to
+    match -- one would silently do nothing.
+
+    Args:
+        source_crs: CRS the input coordinates would be in.
+        target_crs: CRS to produce coordinates in.
+        authority: Restrict candidates to those published by this authority,
+            for example ``"EPSG"``. ``"any"`` searches every authority without
+            the preference PROJ otherwise gives the source/target CRS's own
+            authority. Omitted by default, which applies that preference.
+        accuracy: Discard candidates stated as less accurate than this, in
+            metres. Omitted by default, so every accuracy is considered.
+        allow_superseded: Whether to include an operation EPSG has marked as
+            superseded by a newer one. True by default, since a superseded
+            operation is still valid, just no longer preferred.
+        allow_ballpark: Whether to include a ballpark approximation among the
+            candidates. True by default, so its presence and its lack of a
+            usable accuracy are visible here rather than only discovered when
+            :class:`Transformation` refuses it.
+
+    Returns:
+        One candidate per operation PROJ offers, ordered as PROJ ranks them
+        (most accurate/likely first). Pass any entry's
+        :attr:`~geodetic_engine.geodesy.operation.OperationCandidate.authority_code`
+        as ``Transformation``'s ``operation=`` argument.
+
+    Example:
+        >>> candidates = available_operations("EPSG:4230", "EPSG:4326")
+        >>> candidates[0].authority_code
+        'EPSG:1133'
+        >>> most_accurate = available_operations(
+        ...     "EPSG:4230", "EPSG:4326", accuracy=1.0, allow_ballpark=False
+        ... )
+        >>> all(c.accuracy is not None and c.accuracy <= 1.0 for c in most_accurate)
+        True
+    """
+    source = CoordinateReferenceSystem.from_user_input(source_crs)
+    target = CoordinateReferenceSystem.from_user_input(target_crs)
+    group = TransformerGroup(
+        source.crs,
+        target.crs,
+        always_xy=True,
+        authority=authority,
+        accuracy=accuracy,
+        allow_ballpark=allow_ballpark,
+        allow_superseded=allow_superseded,
+        crs_extent_use="none",
+        grid_check="none",
+    )
+    return tuple(_describe_candidate(transformer) for transformer in group.transformers)
+
+
+def _describe_candidate(transformer: Transformer) -> OperationCandidate:
+    """Describe one candidate transformer without applying or requesting it."""
+    definition = transformer.to_json_dict()
+    operations = tuple(transformer.operations or ())
+    if not operations:
+        try:
+            operations = (CoordinateOperation.from_json_dict(definition),)
+        except CRSError:
+            operations = ()
+
+    substantive = _substantive_operation(operations)
+    node = substantive.to_json_dict() if substantive is not None else definition
+    identifier = _identifier(node)
+    method = node.get("method")
+    area = transformer.area_of_use
+    ballpark = is_ballpark(definition)
+    grids = grid_usages(operations)
+    return OperationCandidate(
+        auth_name=None if identifier is None else identifier[0],
+        code=None if identifier is None else identifier[1],
+        name=str(node.get("name") or transformer.description),
+        method_name=(
+            str(method["name"])
+            if isinstance(method, dict) and "name" in method
+            else None
+        ),
+        accuracy=transformer.accuracy if transformer.accuracy >= 0 else None,
+        area_of_use=None if area is None else area.name,
+        ballpark=ballpark,
+        requires_epoch=requires_epoch(definition, operations),
+        grids=grids,
+        usable=not ballpark and all(grid.available for grid in grids),
+    )
 
 
 def _cache_key(crs: Any) -> str:

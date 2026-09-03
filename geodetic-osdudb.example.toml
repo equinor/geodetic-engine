@@ -1,0 +1,110 @@
+# Settings for `geodetic-osdudb`.
+#
+# Copy this file to `geodetic-osdudb.toml` and edit the values. It is picked up
+# automatically from the working directory; use --config to point elsewhere.
+#
+# Every setting here has a default, so this file is optional: a build can be run
+# against nothing but the catalogue path,
+#
+#     geodetic-osdudb build CRS_CT.json
+#
+# There is nothing secret to configure. An OSDU catalogue is a file, so a build
+# needs no credentials and no network.
+#
+# Precedence, highest first: command line options, environment variables, this
+# file, built-in defaults. A misspelled setting is an error rather than being
+# ignored, so a typo cannot silently leave a setting unapplied.
+
+[osdudb]
+
+# --- What to read -----------------------------------------------------------
+
+# The OSDU manifest to read: a JSON document whose ReferenceData array holds
+# reference-data--CoordinateReferenceSystem and
+# reference-data--CoordinateTransformation records. A path given on the command
+# line wins over this.
+catalog = "CRS_CT.json"
+
+# Where the enriched database is written. The official proj.db is copied, never
+# modified in place. Defaults to "build/proj.db".
+# output_db = "build/proj.db"
+
+# --- Which objects to import ------------------------------------------------
+
+# Code spaces whose objects are imported, matched against each record's
+# CodeSpace field. Only rows belonging to these may be written to the database;
+# an attempt to write a row belonging to any other aborts the build.
+#
+# "OSDU" is the code space OSDU uses for the objects it defines itself, which in
+# practice means the bound CRSs that pair an EPSG CRS with one named
+# transformation to WGS 84.
+#
+# Adding "EPSG" also imports the catalogue's EPSG records. Only those the base
+# proj.db does not already define are written, so this is how a catalogue newer
+# than the EPSG dataset PROJ ships with fills the gap. Objects PROJ already
+# defines are never rewritten.
+# authorities = ["OSDU"]
+
+# Import records flagged with InactiveIndicator, marked deprecated in the
+# database so a caller gets "this code is deprecated" rather than "unknown
+# code". OSDU records no replacement for an inactive record, so a deprecated
+# object cannot be linked to whatever superseded it.
+# include_deprecated = true
+
+# Naming systems whose NameAlias entries are imported, taken from the segment
+# after "AliasNameType:" in each alias's AliasNameTypeID. Defaults to the
+# authorities above; "*" imports every naming system.
+# naming_systems = ["*"]
+
+# EPSG coordinate operation methods this PROJ build cannot evaluate. Objects
+# using them are skipped and listed in the report rather than written as rows
+# PROJ would fail on.
+# unsupported_method_codes = [1044, 1108]
+
+# --- Operation selection ----------------------------------------------------
+
+# How the imported operations enter PROJ's choice of transformation. This
+# changes which operation is applied to a coordinate, so it is stated
+# explicitly.
+#
+#   custom_first  Imported operations are preferred for CRS pairs involving an
+#                 imported authority, and are appended to PROJ's shipped rules
+#                 for other pairs so they become candidates without displacing
+#                 EPSG's established ordering.
+#   custom_only   Imported operations are preferred for pairs involving an
+#                 imported authority. Selection between other authorities is
+#                 untouched.
+#   none          No preference rules are written. Imported operations are only
+#                 found when one of the imported CRSs is named directly.
+# authority_preference = "custom_first"
+
+# Authorities listed after the imported ones in each generated rule.
+# fallback_authorities = ["PROJ", "EPSG"]
+
+# --- Combining sources ------------------------------------------------------
+
+# Add to the database already at `output_db` instead of starting from a fresh
+# copy of the official proj.db, so this catalogue extends one another source (a
+# Georepository register, say) already wrote there. Has no effect when the
+# output does not exist yet, so the first build of a chain still starts from
+# the base. Off by default: a build that silently added to whatever happened to
+# be at the output path could not be reproduced from its configuration alone.
+# append = false
+
+# Replace a row this build collides with instead of aborting. Only reaches the
+# authorities configured above: the per-row authority guard runs first, and
+# every object table is keyed on (auth_name, code), so a replacement can never
+# land on an EPSG or PROJ definition. Off by default, so a collision is a
+# reported failure rather than a definition that changed underneath whoever was
+# already using it.
+# overwrite_existing = false
+
+# --- Advanced ---------------------------------------------------------------
+
+# The official proj.db to start from. Defaults to the one belonging to the
+# installed PROJ, which is what pyproj reads.
+# base_proj_db = "/usr/local/share/proj/proj.db"
+
+# Catalogue version, recorded verbatim in the build report so a database can be
+# traced back to the manifest it was built from.
+# catalog_version = "2024-06"

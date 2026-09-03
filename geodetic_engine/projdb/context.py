@@ -15,7 +15,7 @@ from geodetic_engine.projdb import translate as tr
 from geodetic_engine.projdb.alias import AliasCollector
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.errors import MissingReferencedObjectError
-from geodetic_engine.projdb.translate import ObjectKey, UsageAccumulator
+from geodetic_engine.projdb.records import ObjectKey, UsageAccumulator
 from geodetic_engine.projdb.writer import ProjDbWriter
 
 logger = logging.getLogger(__name__)
@@ -70,10 +70,15 @@ class BuildContext:
         for usage in obj.get("Usage") or []:
             self.usage.add(
                 key,
-                scope_obj=self.client.resolve(usage.get("Scope")),
-                extent_obj=self.client.resolve(usage.get("Extent")),
+                scope=tr.scope_of(self.client.resolve(usage.get("Scope"))),
+                extent=tr.extent_of(self.client.resolve(usage.get("Extent"))),
             )
-        self.alias.collect(key, obj)
+        for record in self.client.aliases(obj):
+            self.alias.add(
+                key,
+                alias=tr.text(record, "Alias"),
+                source=str((record.get("NamingSystem") or {}).get("Name") or ""),
+            )
         self.supersessions.extend(tr.supersession_candidates(key, obj))
 
     def known_keys(self, table: str) -> set[tuple[str, str]]:

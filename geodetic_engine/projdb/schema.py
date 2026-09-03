@@ -362,6 +362,9 @@ TABLE_COLUMNS: Final[Mapping[str, tuple[str, ...]]] = {
         "target_auth_name",
         "allowed_authorities",
     ),
+    # The authorities PROJ will look an object up under. An object written
+    # under an authority absent from this table cannot be found by code at all.
+    "builtin_authorities": ("auth_name",),
 }
 
 # Tables keyed by (auth_name, code) that the builder may populate with custom

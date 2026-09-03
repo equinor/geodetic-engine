@@ -73,6 +73,24 @@ output_db = "build/proj.db"
 # Objects using them are skipped and listed in the build report.
 # unsupported_method_codes = [1044, 1108]
 
+# --- Combining sources ------------------------------------------------------
+
+# Add to the database already at `output_db` instead of starting from a fresh
+# copy of the official proj.db, so this build extends one another source (an
+# OSDU catalogue, say) already wrote there. Has no effect when the output does
+# not exist yet, so the first build of a chain still starts from the base.
+# Off by default: a build that silently added to whatever happened to be at the
+# output path could not be reproduced from its configuration alone.
+# append = false
+
+# Replace a row this build collides with instead of aborting. Only reaches the
+# authorities configured above: the per-row authority guard runs first, and
+# every object table is keyed on (auth_name, code), so a replacement can never
+# land on an EPSG or PROJ definition. Off by default, so a collision is a
+# reported failure rather than a definition that changed underneath whoever was
+# already using it.
+# overwrite_existing = false
+
 # --- Advanced ---------------------------------------------------------------
 
 # Official database to start from. Defaults to the proj.db of the linked PROJ.

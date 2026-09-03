@@ -1,15 +1,9 @@
 """Coordinate conversions and transformations.
 
-Which proj.db table a coordinate operation belongs in is decided from its
-parameters rather than from a hand-maintained list of method codes: an
-operation carrying a grid file reference is a grid transformation, one carrying
-the Helmert translation parameters is a Helmert transformation, and anything
-else is an other_transformation. Getting this wrong would hide an operation
-from PROJ entirely.
-
-Parameter values are written in the units the authority states, with the unit
-recorded alongside. Nothing is converted here; PROJ applies the unit when it
-builds the pipeline.
+Georepository states an operation's parameters as ``ParameterValues``; this
+module turns those into :class:`~geodetic_engine.projdb.parameters.Parameter`
+records and leaves the decision of which proj.db table they imply, and which
+columns they fill, to :mod:`geodetic_engine.projdb.parameters`.
 """
 
 from __future__ import annotations
@@ -18,6 +12,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from geodetic_engine.projdb import parameters as pm
 from geodetic_engine.projdb import translate as tr
 from geodetic_engine.projdb.context import BuildContext
 from geodetic_engine.projdb.errors import MissingReferencedObjectError
@@ -31,29 +26,6 @@ CRS_TABLES = (
     "compound_crs",
     "engineering_crs",
 )
-
-# EPSG parameter codes for the Helmert family, mapped to their proj.db columns.
-_HELMERT_PARAMS: dict[str, tuple[str, str]] = {
-    "8605": ("tx", "translation"),
-    "8606": ("ty", "translation"),
-    "8607": ("tz", "translation"),
-    "8608": ("rx", "rotation"),
-    "8609": ("ry", "rotation"),
-    "8610": ("rz", "rotation"),
-    "8611": ("scale_difference", "scale_difference"),
-    "1040": ("rate_tx", "rate_translation"),
-    "1041": ("rate_ty", "rate_translation"),
-    "1042": ("rate_tz", "rate_translation"),
-    "1043": ("rate_rx", "rate_rotation"),
-    "1044": ("rate_ry", "rate_rotation"),
-    "1045": ("rate_rz", "rate_rotation"),
-    "1046": ("rate_scale_difference", "rate_scale_difference"),
-    "1047": ("epoch", "epoch"),
-    "8617": ("px", "pivot"),
-    "8618": ("py", "pivot"),
-    "8667": ("pz", "pivot"),
-}
-_TRANSLATION_CODES = frozenset({"8605", "8606", "8607"})
 
 
 def collect_conversions(context: BuildContext) -> None:
@@ -82,8 +54,9 @@ def collect_conversions(context: BuildContext) -> None:
             "deprecated": tr.deprecated_flag(obj),
         }
         # conversion_table has seven parameter slots and no per-parameter name.
-        for index, param in enumerate(_parameters(obj)[:7], start=1):
-            row |= _numbered_param(param, index, with_name=False)
+        parsed = _parameters(obj)
+        row |= pm.conversion_columns(parsed)
+        for param in parsed[:7]:
             _record_parameter(context, parameters, param)
         rows.append(row)
         _finalise(context, "conversion_table", obj, auth, code)
@@ -101,24 +74,25 @@ def collect_conversions(context: BuildContext) -> None:
 def _record_parameter(
     context: BuildContext,
     parameters: dict[tuple[str, str], dict[str, Any]],
-    param: dict[str, Any],
+    param: pm.Parameter,
 ) -> None:
     """Note a conversion parameter's name, unless proj.db already defines it."""
-    code = str(param.get("ParameterCode") or "").strip()
-    name = tr.text(param, "Name")
-    if not code or not name or not context.is_new("conversion_param", "EPSG", code):
+    if not param.code or not param.name:
+        return
+    if not context.is_new("conversion_param", param.auth_name, param.code):
         return
     parameters.setdefault(
-        ("EPSG", code), {"auth_name": "EPSG", "code": code, "name": name}
+        (param.auth_name, param.code),
+        {"auth_name": param.auth_name, "code": param.code, "name": param.name},
     )
 
 
 def collect_transformations(context: BuildContext) -> None:
     """Import transformations, routed by parameter shape to the right table."""
     by_table: dict[str, list[dict[str, Any]]] = {
-        "helmert_transformation_table": [],
-        "grid_transformation": [],
-        "other_transformation": [],
+        pm.HELMERT_TABLE: [],
+        pm.GRID_TABLE: [],
+        pm.OTHER_TABLE: [],
     }
 
     for summary in context.client.iter_collection(
@@ -129,7 +103,7 @@ def collect_transformations(context: BuildContext) -> None:
         if code is None:
             continue
         parameters = _parameters(obj)
-        table = _classify(parameters)
+        table = pm.classify(parameters)
         if not context.is_new(table, auth, code):
             continue
 
@@ -167,15 +141,15 @@ def collect_transformations(context: BuildContext) -> None:
             "operation_version": tr.text(obj, "CoordTfmVersion"),
             "deprecated": tr.deprecated_flag(obj),
         }
-        if table != "helmert_transformation_table":
+        if table != pm.HELMERT_TABLE:
             common["method_name"] = str(method.get("Name") or "")
 
-        if table == "helmert_transformation_table":
-            row = common | _helmert_columns(parameters)
-        elif table == "grid_transformation":
-            row = common | _grid_columns(parameters)
+        if table == pm.HELMERT_TABLE:
+            row = common | pm.helmert_columns(parameters)
+        elif table == pm.GRID_TABLE:
+            row = common | pm.grid_columns(parameters)
         else:
-            row = common | _other_columns(parameters)
+            row = common | pm.other_columns(parameters)
 
         by_table[table].append(row)
         _finalise(context, table, obj, auth, code)
@@ -288,81 +262,27 @@ def _resolve_steps(
     return resolved
 
 
-def _classify(parameters: list[dict[str, Any]]) -> str:
-    """Choose the proj.db table for a transformation from its parameters."""
-    if any(_grid_file(param) for param in parameters):
-        return "grid_transformation"
-    codes = {str(param.get("ParameterCode")) for param in parameters}
-    if codes >= _TRANSLATION_CODES:
-        return "helmert_transformation_table"
-    return "other_transformation"
-
-
-def _helmert_columns(parameters: list[dict[str, Any]]) -> dict[str, Any]:
-    row: dict[str, Any] = {}
-    units: dict[str, dict[str, Any]] = {}
-    for param in parameters:
-        mapping = _HELMERT_PARAMS.get(str(param.get("ParameterCode")))
-        if mapping is None:
-            continue
-        column, unit_group = mapping
-        row[column] = tr.number(param, "ParameterValue")
-        units.setdefault(unit_group, param.get("Unit") or {})
-    for unit_group, unit in units.items():
-        row[f"{unit_group}_uom_auth_name"] = tr.auth_name(unit) or "EPSG"
-        row[f"{unit_group}_uom_code"] = tr.link_code(unit)
-    return row
-
-
-def _grid_columns(parameters: list[dict[str, Any]]) -> dict[str, Any]:
-    row: dict[str, Any] = {}
-    grids = [param for param in parameters if _grid_file(param)]
-    others = [param for param in parameters if not _grid_file(param)]
-
-    for prefix, param in zip(("grid", "grid2"), grids[:2], strict=False):
-        row[f"{prefix}_param_auth_name"] = "EPSG"
-        row[f"{prefix}_param_code"] = str(param.get("ParameterCode"))
-        row[f"{prefix}_param_name"] = tr.text(param, "Name") or ""
-        row[f"{prefix}_name"] = _grid_file(param)
-
-    for index, param in enumerate(others[:2], start=1):
-        row |= _numbered_param(param, index, with_name=True)
-    return row
-
-
-def _other_columns(parameters: list[dict[str, Any]]) -> dict[str, Any]:
-    row: dict[str, Any] = {}
-    for index, param in enumerate(parameters[:9], start=1):
-        row |= _numbered_param(param, index, with_name=True)
-    return row
-
-
-def _numbered_param(
-    param: dict[str, Any], index: int, *, with_name: bool
-) -> dict[str, Any]:
-    unit = param.get("Unit") or {}
-    row = {
-        f"param{index}_auth_name": "EPSG",
-        f"param{index}_code": str(param.get("ParameterCode")),
-        f"param{index}_value": tr.number(param, "ParameterValue"),
-        f"param{index}_uom_auth_name": tr.auth_name(unit) or "EPSG",
-        f"param{index}_uom_code": tr.link_code(unit),
-    }
-    if with_name:
-        row[f"param{index}_name"] = tr.text(param, "Name") or ""
-    return row
-
-
-def _grid_file(param: dict[str, Any]) -> str | None:
-    """Return the grid file a parameter refers to, if it refers to one."""
-    return tr.text(param, "ParamValueFileRef")
-
-
-def _parameters(obj: dict[str, Any]) -> list[dict[str, Any]]:
-    return sorted(
+def _parameters(obj: dict[str, Any]) -> list[pm.Parameter]:
+    """Read an operation's parameters in the order the register declares them."""
+    ordered = sorted(
         obj.get("ParameterValues") or [],
         key=lambda param: int(param.get("SortOrder") or 0),
     )
+    parameters = []
+    for param in ordered:
+        unit = param.get("Unit") or {}
+        parameters.append(
+            pm.Parameter(
+                code=str(param.get("ParameterCode") or "").strip(),
+                name=tr.text(param, "Name") or "",
+                value=tr.number(param, "ParameterValue"),
+                # A parameter naming a grid file has no numeric value.
+                file=tr.text(param, "ParamValueFileRef"),
+                uom_auth_name=tr.auth_name(unit) or pm.PARAMETER_AUTHORITY,
+                uom_code=tr.link_code(unit),
+            )
+        )
+    return parameters
 
 
 def _is_unsupported(context: BuildContext, method_code: str | None) -> bool:

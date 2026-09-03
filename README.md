@@ -76,19 +76,32 @@ uv run python -c "import pyproj; print(pyproj.proj_version_str, pyproj.datadir.g
 ### What this is, and when you need it
 
 PROJ ships an official `proj.db` built from the EPSG dataset. If your
-organisation maintains its own CRSs, datums or transformations in a
-Georepository instance, PROJ cannot see them, and any attempt to use them fails
-with "unknown code".
+organisation maintains its own CRSs, datums or transformations, PROJ cannot see
+them, and any attempt to use them fails with "unknown code".
 
-`geodetic-engine` builds an **enriched** copy of `proj.db` that adds your
-authority's objects to the official database. You need it if, and only if, you
-have authority-specific geodetic objects that are not in EPSG.
+`geodetic-engine` builds an **enriched** copy of `proj.db` that adds those
+objects to the official database. You need it if, and only if, you have
+authority-specific geodetic objects that are not in EPSG.
+
+The definitions can come from either of two sources, which produce the same
+artefact through the same writer, the same frozen schema and the same
+validator:
+
+| Source | Command | Configuration |
+| --- | --- | --- |
+| A Georepository instance, over its API | `geodetic-projdb` | `geodetic-projdb.toml` plus credentials in `.env` |
+| An OSDU coordinate reference catalogue, from a file | `geodetic-osdudb` | nothing but the file; `geodetic-osdudb.toml` is optional |
+
+Most of what follows describes the Georepository workflow. What differs for
+OSDU is gathered under [Building from an OSDU
+catalogue](#building-from-an-osdu-catalogue).
 
 The workflow is deliberately conservative:
 
 - The official `proj.db` is **copied, never modified in place**.
 - Only objects belonging to your configured authorities are added. Any attempt
-  to write a row owned by EPSG, PROJ or ESRI **aborts the build**.
+  to write a row owned by an authority you did not configure **aborts the
+  build**.
 - Objects the official database already defines are **not** re-imported. EPSG
   stays authoritative for EPSG.
 - Every imported CRS and coordinate operation must be constructible by PROJ from
@@ -402,11 +415,170 @@ datadir.set_data_dir(os.pathsep.join(["/path/to/build", datadir.get_data_dir()])
 ### Provenance
 
 Every build writes `<output>.report.json` recording the PROJ version, the EPSG
-dataset version, the proj.db layout version, the Georepository instance and
-version, every imported object, every skipped object with its reason, every
-supersession that was written or dropped, and every authority preference rule
-applied. A transformation produced from this database can therefore be traced
-back to the inputs that defined it.
+dataset version, the proj.db layout version, where the definitions came from and
+at what version, every imported object, every skipped object with its reason,
+every supersession that was written or dropped, and every authority preference
+rule applied. A transformation produced from this database can therefore be
+traced back to the inputs that defined it.
+
+## Building from an OSDU catalogue
+
+OSDU publishes coordinate reference systems and transformations as a single
+manifest file, typically called `CRS_CT.json`, whose `ReferenceData` array holds
+`reference-data--CoordinateReferenceSystem` and
+`reference-data--CoordinateTransformation` records. `geodetic-osdudb` builds the
+same enriched `proj.db` from one of those, with no credentials and no network:
+
+```bash
+# Everything is defaulted; the catalogue is the only thing that must be named.
+uv run geodetic-osdudb build CRS_CT.json
+
+# Choose where it goes, and run the whole build without keeping it.
+uv run geodetic-osdudb build CRS_CT.json --output build/proj.db --dry-run
+
+# Also import the catalogue's EPSG records that this proj.db does not yet have.
+uv run geodetic-osdudb build CRS_CT.json --authority OSDU --authority EPSG
+
+# Check, summarise, and show the resolved settings.
+uv run geodetic-osdudb validate build/proj.db --authority OSDU
+uv run geodetic-osdudb inspect build/proj.db
+uv run geodetic-osdudb config CRS_CT.json
+```
+
+Or from Python:
+
+```python
+from pathlib import Path
+
+from geodetic_engine.osdudb import build, load_config
+
+report = build(load_config(catalog=Path("CRS_CT.json")))
+print(report.to_json())
+```
+
+See geodetic-osdudb.example.toml for every setting.
+
+### What OSDU states, and what has to be recovered from the WKT
+
+A catalogue names each CRS's coordinate system, datum and projection by
+authority code, but it defines none of them. The only place an ellipsoid's axis,
+a prime meridian's longitude, an axis order or an operation's parameters are
+stated is the record's own `OGCWellKnownText2`. Importing one CRS therefore
+means taking its WKT apart and producing everything it references that the base
+database does not already have.
+
+Two things PROJ does not carry through its PROJJSON export have to be recovered
+elsewhere, and both are places a plausible guess would produce wrong
+coordinates:
+
+- **Nested identifiers.** A datum's, ellipsoid's and prime meridian's codes are
+  read from the pyproj sub-objects, which keep them.
+- **Unit identifiers.** A unit is exported by name and conversion factor with no
+  code, so units are matched back against the `unit_of_measure` table already in
+  the database. A unit that cannot be matched is **refused**, because an
+  operation with the wrong rotation unit is wrong by a plausible-looking amount
+  rather than obviously broken.
+
+A record is imported whole or not at all. A CRS whose declared datum is not the
+datum its own WKT defines, whose axis unit cannot be resolved, or which needs an
+object belonging to an authority the build may not write, is skipped and
+reported rather than written in a weakened form.
+
+### Which authorities to import
+
+An OSDU catalogue carries two kinds of record. Those under the `OSDU` code space
+are OSDU's own, and in practice are bound CRSs: an EPSG CRS packaged with the
+one named transformation to WGS 84 that should be used with it. Those under
+`EPSG` are the EPSG dataset republished.
+
+The default is `authorities = ["OSDU"]`, which imports only the first kind.
+Adding `EPSG` also imports the catalogue's EPSG records, but only those the base
+`proj.db` does not already define, which is how a catalogue newer than the EPSG
+dataset PROJ ships with fills the gap. EPSG objects PROJ already has are never
+rewritten.
+
+### Bound CRSs
+
+OSDU's bound CRSs are the reason to build this database at all: they are early
+binding made explicit, pinning one transformation to a CRS rather than leaving
+the choice to operation selection. They are assembled here with pyproj rather
+than taken from the catalogue, which publishes no WKT for them, so the
+transformation actually embedded is one this package has inspected. A bound CRS
+over a concatenated operation is first collapsed to a single equivalent step,
+and refused if it does not compose; see `geodetic_engine.geodesy.utils.helmert`.
+
+OSDU also states a bound CRS's extent as the intersection of the extents of the
+CRS and the transformation, and gives that intersection no code. It is recorded
+under the importing authority rather than dropped, because it is the area the
+bound CRS is actually valid within.
+
+## Combining both sources in one database
+
+The two builders write the same schema through the same writer, so they can
+share a file. `--append` opens the database already at `--output` instead of
+starting from a fresh copy of the official `proj.db`, which lets a second
+source add its authority to what a first one wrote:
+
+```bash
+# Georepository first: no output exists yet, so this starts from the base
+# proj.db as usual.
+uv run geodetic-projdb build --output build/proj.db
+
+# Then OSDU into the same file, adding to it rather than replacing it.
+uv run geodetic-osdudb build CRS_CT.json --output build/proj.db --append
+```
+
+`scripts/build-projdb.sh` drives both in the right order:
+
+```bash
+# Fresh database from both sources.
+scripts/build-projdb.sh --catalog CRS_CT.json
+
+# One source only, somewhere else.
+scripts/build-projdb.sh --source georepository --output /tmp/proj.db
+
+# Add a source to a database an earlier run already built.
+scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --extend
+```
+
+The script removes the output before building unless `--extend` is given, so a
+default run is always a full rebuild rather than a silent accumulation across
+generations of definitions. Run it with `--help` for every option.
+
+A few consequences worth knowing:
+
+- **Appending to a path that does not exist is not an error.** The first build
+  of a chain has nothing to append to, so it copies the base like any other.
+  That is what makes the flag safe to pass to every build in a script.
+- **Objects the first build wrote are visible to the second.** The existing-key
+  check reads the output database, so a datum or unit the first source already
+  imported is reused rather than re-imported or collided with.
+- **A failed append leaves the earlier build intact.** The transaction is rolled
+  back, but the file is not deleted: it is not this build's to destroy.
+- **Each build keeps its own report and log.** An appending build writes
+  `<output>.projdb.report.json` or `<output>.osdudb.report.json` beside the
+  database rather than overwriting `<output>.report.json`, so the provenance of
+  every source that contributed survives.
+- **Operation selection accumulates.** In `custom_first` mode an authority
+  preference rule already naming an earlier authority is extended rather than
+  replaced, so adding OSDU does not make the Georepository operations invisible.
+
+### Overwriting rather than colliding
+
+By default a row that collides with one already in the database aborts the
+build, because a definition that changes underneath whoever is already using it
+is exactly the failure this tool exists to prevent. `--overwrite-existing`
+replaces it instead, which is what you want when re-importing a register whose
+definitions have been corrected upstream:
+
+```bash
+uv run geodetic-projdb build --output build/proj.db --append --overwrite-existing
+```
+
+This cannot reach another authority's rows even when set. The per-row authority
+guard runs first, and every object table is keyed on `(auth_name, code)`, so a
+replacement can only ever land on a row one of the build's own configured
+authorities already owns. An EPSG or PROJ definition is still unreachable.
 
 ## Talking to a Georepository instance directly
 

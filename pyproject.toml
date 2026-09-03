@@ -33,6 +33,7 @@ dev = [
 
 [project.scripts]
 geodetic-projdb = "geodetic_engine.projdb.__main__:main"
+geodetic-osdudb = "geodetic_engine.osdudb.__main__:main"
 
 [project.urls]
 Repository = "https://github.com/equinor/geodetic-engine"
