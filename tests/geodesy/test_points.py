@@ -1,17 +1,12 @@
-"""Coordinates carry their CRS and epoch, and one point is a batch of one."""
+"""Points are plain lists, tuples or numpy arrays; one point is a batch of one."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from geodetic_engine.geodesy import (
-    CoordinateReferenceSystem,
-    Position,
-    PositionSet,
-    Transformation,
-    transform,
-)
+from geodetic_engine.geodesy import CoordinateReferenceSystem, Transformation, transform
+from geodetic_engine.geodesy.transformation import _columns
 
 OSLO_XY = (10.7522, 59.9139)
 BERGEN_XY = (5.3221, 60.3913)
@@ -25,22 +20,6 @@ def test_single_point_and_batch_agree() -> None:
     assert batch.count == 2
 
 
-def test_position_wraps_into_a_one_point_set() -> None:
-    """Position delegates to PositionSet rather than duplicating the logic."""
-    crs = CoordinateReferenceSystem.from_user_input("EPSG:4326")
-    point = Position(crs, OSLO_XY)
-    assert point.as_set().count == 1
-    assert point.as_set().rows == (OSLO_XY,)
-
-
-def test_transform_accepts_a_position_set() -> None:
-    """A prepared batch can be handed straight to a transformation."""
-    crs = CoordinateReferenceSystem.from_user_input("EPSG:4326")
-    points = PositionSet.from_rows(crs, [OSLO_XY, BERGEN_XY])
-    result = Transformation("EPSG:4326", "EPSG:3395").transform(points)
-    assert result.count == 2
-
-
 def test_transform_accepts_a_numpy_array() -> None:
     """A 2D numpy array of shape (n_points, n_axes) works, one row per point."""
     rows = np.array([OSLO_XY, BERGEN_XY])
@@ -51,34 +30,27 @@ def test_transform_accepts_a_numpy_array() -> None:
     assert result.coordinates == expected.coordinates
 
 
-def test_from_rows_accepts_a_numpy_array() -> None:
-    """PositionSet.from_rows reads a numpy array the same as nested tuples."""
+def test_points_are_stored_per_axis() -> None:
+    """Values are reshaped one list per axis, which is the shape PROJ wants."""
     crs = CoordinateReferenceSystem.from_user_input("EPSG:4326")
-    rows = np.array([OSLO_XY, BERGEN_XY])
-
-    points = PositionSet.from_rows(crs, rows)
-
-    assert points.rows == (OSLO_XY, BERGEN_XY)
-    assert all(
-        isinstance(value, float) for column in points.columns for value in column
-    )
-
-
-def test_columns_are_stored_per_axis() -> None:
-    """Values are held one list per axis, which is the shape PROJ wants."""
-    crs = CoordinateReferenceSystem.from_user_input("EPSG:4326")
-    points = PositionSet.from_rows(crs, [OSLO_XY, BERGEN_XY])
-    assert points.columns == ((10.7522, 5.3221), (59.9139, 60.3913))
-    assert points.rows == (OSLO_XY, BERGEN_XY)
+    columns = _columns(crs, [OSLO_XY, BERGEN_XY])
+    assert columns == ((10.7522, 5.3221), (59.9139, 60.3913))
 
 
 def test_wrong_number_of_values_is_rejected() -> None:
     """A point must carry one value per axis the CRS declares, or one more."""
-    crs = CoordinateReferenceSystem.from_user_input("EPSG:4326")
+    tfm = Transformation("EPSG:4326", "EPSG:3395")
     with pytest.raises(ValueError, match="declares 2 axes"):
-        PositionSet.from_rows(crs, [(1.0,)])
+        tfm.transform([(1.0,)])
     with pytest.raises(ValueError, match="declares 2 axes"):
-        PositionSet.from_rows(crs, [(1.0, 2.0, 3.0, 4.0)])
+        tfm.transform([(1.0, 2.0, 3.0, 4.0)])
+
+
+def test_differing_value_counts_are_rejected() -> None:
+    """Every point in a batch must carry the same number of values."""
+    tfm = Transformation("EPSG:4326", "EPSG:3395")
+    with pytest.raises(ValueError, match="differing numbers of values"):
+        tfm.transform([OSLO_XY, (5.3221, 60.3913, 10.0)])
 
 
 def test_one_extra_value_passes_through_unchanged() -> None:
@@ -90,26 +62,6 @@ def test_one_extra_value_passes_through_unchanged() -> None:
     result = transform("EPSG:4326", "EPSG:3395", [(10.0, 60.0, 100.0)])
     assert result.coordinates[0][2] == 100.0
     assert result.target_axes == ("E", "N")
-
-
-def test_points_from_another_crs_are_rejected() -> None:
-    """A batch cannot be fed to a transformation that starts elsewhere."""
-    other = CoordinateReferenceSystem.from_user_input("EPSG:4258")
-    points = PositionSet.from_rows(other, [OSLO_XY])
-    with pytest.raises(ValueError, match="starts from"):
-        Transformation("EPSG:4326", "EPSG:3395").transform(points)
-
-
-def test_epoch_travels_with_the_points() -> None:
-    """An epoch set on the batch is used without being passed again."""
-    crs = CoordinateReferenceSystem.from_user_input("EPSG:4896")
-    points = PositionSet.from_rows(
-        crs, [(-2593197.524, 5656917.6189, -1394397.8828)], coordinate_epoch=2005.0
-    )
-    result = Transformation("EPSG:4896", "EPSG:4938", operation="EPSG:6277").transform(
-        points
-    )
-    assert result.coordinate_epoch == 2005.0
 
 
 def test_result_carries_its_provenance() -> None:

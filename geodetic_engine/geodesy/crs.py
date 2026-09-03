@@ -8,7 +8,7 @@ them is the single easiest way to ship wrong coordinates:
   module reports that order faithfully and never reinterprets it.
 * The **coordinate value order** is the order this package accepts and returns
   numbers in, which is always ``xy`` (longitude then latitude, easting then
-  northing). See :mod:`geodetic_engine.geodesy.position`.
+  northing). See :mod:`geodetic_engine.geodesy.transformation`.
 
 So for ``EPSG:4326``, :attr:`CoordinateReferenceSystem.axis_abbreviations` is
 ``("Lat", "Lon")`` while the coordinate values are ordered ``(lon, lat)``. That

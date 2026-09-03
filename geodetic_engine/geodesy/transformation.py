@@ -55,10 +55,15 @@ from geodetic_engine.geodesy.operation import (
     operation_names,
     requires_epoch,
 )
-from geodetic_engine.geodesy.position import Position, PositionSet
 from geodetic_engine.geodesy.result import TransformationResult
 
 _VERTICAL_DIRECTIONS = frozenset({"up", "down"})
+
+# PROJ transforms at most x, y, z: a fourth spatial component has no meaning to
+# it, so one extra value beyond what a CRS declares is tolerated (a height
+# alongside a 2D horizontal CRS, carried through unchanged) but no more than
+# that.
+_MAX_COORDINATE_VALUES = 3
 
 # Methods that restate axes rather than move coordinates. PROJ inserts these
 # when it normalises axis order, and they are not the method a caller means.
@@ -250,22 +255,20 @@ class Transformation:
 
     def transform(
         self,
-        points: PositionSet | Position | Iterable[Iterable[float]],
+        points: Iterable[Iterable[float]],
         *,
         coordinate_epoch: float | None = None,
     ) -> TransformationResult:
         """Transform one point or a batch of points.
 
         Args:
-            points: A :class:`~geodetic_engine.geodesy.position.PositionSet`, a
-                :class:`~geodetic_engine.geodesy.position.Position`, or an
-                iterable of coordinate iterables (a 2D numpy array of shape
-                ``(n_points, n_axes)`` works, one row per point). Bare rows
-                hold each point's values in ``xy`` order in the source CRS's
-                axis units, with one value per axis the source CRS declares.
+            points: An iterable of coordinate iterables: a list of tuples, a
+                list of lists, or a 2D numpy array of shape
+                ``(n_points, n_axes)``, one row per point. Each row holds one
+                point's values in ``xy`` order in the source CRS's axis units,
+                with one value per axis the source CRS declares.
             coordinate_epoch: Decimal year the coordinates were observed at,
                 for example ``2010.0``. Required when either CRS is dynamic.
-                Ignored if the points already carry an epoch.
 
         Returns:
             The transformed coordinates and their provenance. Output values are
@@ -273,6 +276,10 @@ class Transformation:
             axis the target CRS declares.
 
         Raises:
+            ValueError: If points disagree on how many values they carry, or
+                that count is not the source CRS's declared dimension, or one
+                more (a height alongside a 2D horizontal CRS, carried through
+                unchanged).
             MissingCoordinateEpochError: If a dynamic CRS is involved and no
                 epoch was given.
             TransformationFailedError: If PROJ could not produce a finite
@@ -286,10 +293,10 @@ class Transformation:
             >>> tfm.transform([(-144.0, 72.0, 548.4082)]).coordinates
             ((556.38...,),)
         """
-        batch = self._as_set(points, coordinate_epoch)
-        epoch = batch.coordinate_epoch
+        columns = _columns(self._source, points)
+        count = len(columns[0]) if columns else 0
 
-        if self._requires_epoch and epoch is None:
+        if self._requires_epoch and coordinate_epoch is None:
             raise MissingCoordinateEpochError(
                 f"{self._applied.name!r} reads the coordinate epoch, so one "
                 "must be supplied in decimal years; without it the result "
@@ -298,7 +305,7 @@ class Transformation:
             )
 
         try:
-            produced = self._pipeline.run(batch.columns, epoch)
+            produced = self._pipeline.run(columns, coordinate_epoch)
         except ProjError as error:
             raise TransformationFailedError(
                 f"PROJ could not transform from {_label(self._source)} to "
@@ -307,8 +314,7 @@ class Transformation:
 
         indices = _output_indices(self._target, len(produced))
         rows = tuple(
-            tuple(produced[index][point] for index in indices)
-            for point in range(batch.count)
+            tuple(produced[index][point] for index in indices) for point in range(count)
         )
         _require_finite(rows, self._source, self._target)
 
@@ -318,33 +324,8 @@ class Transformation:
             target_crs=self._target,
             operation=self._applied,
             grids=self._grids,
-            coordinate_epoch=epoch,
+            coordinate_epoch=coordinate_epoch,
             pipeline=self._pipeline.text,
-        )
-
-    def _as_set(
-        self,
-        points: PositionSet | Position | Iterable[Iterable[float]],
-        coordinate_epoch: float | None,
-    ) -> PositionSet:
-        """Normalise any accepted input shape to a batch in the source CRS."""
-        if isinstance(points, Position):
-            points = points.as_set()
-        if isinstance(points, PositionSet):
-            if points.crs != self._source:
-                raise ValueError(
-                    f"points are in {points.crs!r} but this transformation "
-                    f"starts from {self._source!r}"
-                )
-            if points.coordinate_epoch is None and coordinate_epoch is not None:
-                return PositionSet(
-                    crs=points.crs,
-                    columns=points.columns,
-                    coordinate_epoch=coordinate_epoch,
-                )
-            return points
-        return PositionSet.from_rows(
-            self._source, points, coordinate_epoch=coordinate_epoch
         )
 
     def __repr__(self) -> str:
@@ -354,10 +335,54 @@ class Transformation:
         )
 
 
+def _columns(
+    crs: CoordinateReferenceSystem, points: Iterable[Iterable[float]]
+) -> tuple[tuple[float, ...], ...]:
+    """Reshape points into one tuple of values per axis, the shape PROJ wants.
+
+    Args:
+        crs: The CRS the points are expressed in, whose declared axis count
+            bounds how many values each point may carry.
+        points: An iterable of coordinate iterables, each holding one point's
+            values in ``xy`` order. A 2D numpy array of shape
+            ``(n_points, n_axes)`` works, one row per point. A row may carry
+            one value more than ``crs`` declares -- a height alongside a 2D
+            horizontal CRS -- which is carried through unchanged rather than
+            consumed, matching how :meth:`pyproj.Transformer.transform` accepts
+            an optional ``zz`` regardless of what the CRS pair declares.
+
+    Returns:
+        One tuple of values per axis, so a whole batch crosses into PROJ in a
+        single call instead of once per point.
+
+    Raises:
+        ValueError: If points disagree on how many values they carry, or that
+            count is not ``crs``'s declared dimension, or one more.
+    """
+    # Materialised up front: points may be a one-shot iterable or a numpy array
+    # (not a Sequence), and each axis is read once below.
+    rows = [tuple(float(value) for value in point) for point in points]
+    widths = {len(row) for row in rows}
+    if len(widths) > 1:
+        raise ValueError(f"points have differing numbers of values: {sorted(widths)}")
+
+    allowed = {crs.dimension}
+    if crs.dimension < _MAX_COORDINATE_VALUES:
+        allowed.add(crs.dimension + 1)
+    width = widths.pop() if widths else crs.dimension
+    if width not in allowed:
+        raise ValueError(
+            f"points have {width} values each but {crs!r} declares "
+            f"{crs.dimension} axes; {sorted(allowed)} values are accepted "
+            "(the extra being a height PROJ carries through unchanged)"
+        )
+    return tuple(tuple(row[axis] for row in rows) for axis in range(width))
+
+
 def transform(
     source_crs: Any,
     target_crs: Any,
-    points: PositionSet | Position | Iterable[Iterable[float]],
+    points: Iterable[Iterable[float]],
     *,
     operation: str | int | None = None,
     coordinate_epoch: float | None = None,

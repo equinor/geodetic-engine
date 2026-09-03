@@ -8,14 +8,14 @@ Public entry points:
   offers between two CRSs, to choose an operation from.
 * :class:`CoordinateReferenceSystem` -- resolve a CRS and read the axis roles
   and units the EPSG dataset declares for it.
-* :class:`Position` and :class:`PositionSet` -- coordinates with their CRS and
-  coordinate epoch.
 * :class:`TransformationResult` -- coordinates with the provenance that
   produced them.
 
 Coordinate **values** are always ordered ``xy``: longitude before latitude,
 easting before northing, then height. A CRS's EPSG-declared axis order is
 reported separately, is often different, and is never silently reinterpreted.
+Points are passed and returned as plain lists, tuples or 2D numpy arrays --
+there is no coordinate wrapper type to construct first.
 
 Example:
     >>> from geodetic_engine.geodesy import transform
@@ -48,7 +48,6 @@ from geodetic_engine.geodesy.operation import (
     OperationRequest,
     OperationRoute,
 )
-from geodetic_engine.geodesy.position import Position, PositionSet
 from geodetic_engine.geodesy.result import TransformationResult
 from geodetic_engine.geodesy.transformation import (
     Transformation,
@@ -71,8 +70,6 @@ __all__ = [
     "OperationNotAvailableError",
     "OperationRequest",
     "OperationRoute",
-    "Position",
-    "PositionSet",
     "Transformation",
     "TransformationFailedError",
     "TransformationResult",
