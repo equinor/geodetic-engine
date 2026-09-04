@@ -17,7 +17,11 @@ from pathlib import Path
 import pyproj
 import pytest
 
-from geodetic_engine.geodesy import Transformation
+from geodetic_engine.geodesy import (
+    Transformation,
+    TransformationFailedError,
+    available_operations,
+)
 
 ED50_geog2D = "EPSG:4230" # ED50 Geographic 2D CRS.
 WGS84_geog2D = "EPSG:4326" # WGS 84 Geographic 2D CRS.
@@ -133,3 +137,75 @@ def test_1_3_operation_list_order_does_not_matter() -> None:
     assert forward_order.transform(*point).coordinates == reverse_order.transform(
         *point
     ).coordinates
+
+
+
+def test_available_operations_area_of_use_carries_the_bounding_box() -> None:
+    """area_of_use is the bounding box PROJ computed, not just its name.
+
+    Matches pyproj's own ``TransformerGroup`` output for the same pair, since
+    that is exactly where the box comes from.
+    """
+    from pyproj.transformer import TransformerGroup
+
+    candidate = available_operations(ED50_geog2D, WGS84_geog2D)[0]
+    expected = (
+        TransformerGroup(ED50_geog2D, WGS84_geog2D).transformers[0].area_of_use
+    )
+
+    area = candidate.area_of_use
+    assert area is not None
+    assert area.bounds == (
+        expected.west,
+        expected.south,
+        expected.east,
+        expected.north,
+    )
+    assert str(area) == expected.name
+
+
+def test_available_operations() -> None:
+    """Passing a candidate object matches naming its own reference explicitly.
+
+    Every usable candidate ``available_operations()`` offers for a pair must
+    resolve, and transform, identically whether given as the candidate object
+    itself or as its own authority code -- or its name, for the rare
+    candidate with no code, since passing the object is just shorthand that
+    parses down to one of those two. A ballpark or grid-missing candidate is
+    skipped rather than compared: ``usable`` is False for exactly the ones
+    ``Transformation`` refuses outright, on either side, so there is nothing
+    to compare there.
+    """
+
+    for candidate in available_operations(ED50_geog2D, WGS84_geog2D):
+        if not candidate.usable or candidate.area_of_use is None:
+            continue
+
+        # The centre of the area of use, not a corner
+        west, south, east, north = candidate.area_of_use.bounds
+        point = ((west + east) / 2, (south + north) / 2, 100)
+
+        by_candidate = Transformation(
+            source_crs=ED50_geog2D, target_crs=WGS84_geog2D, operation=candidate
+        )
+        by_reference = Transformation(
+            source_crs=ED50_geog2D,
+            target_crs=WGS84_geog2D,
+            operation=candidate.authority_code or candidate.name,
+        )
+        assert by_candidate.operation.authority_code == by_reference.operation.authority_code
+        assert by_candidate.operation.name == by_reference.operation.name
+
+        # A regional operation refuses a point outside the area its grid
+        # covers -- both sides run the identical pipeline, so they must
+        # refuse identically rather than one succeeding.
+        try:
+            expected = by_reference.transform(*point).coordinates[0]
+        except TransformationFailedError:
+            with pytest.raises(TransformationFailedError):
+                by_candidate.transform(*point)
+            continue
+
+        assert by_candidate.transform(*point).coordinates[0] == pytest.approx(
+            expected, abs=1e-8
+        )

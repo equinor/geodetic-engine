@@ -14,8 +14,13 @@ Public entry points:
 Coordinate **values** are always ordered ``xy``: longitude before latitude,
 easting before northing, then height. A CRS's EPSG-declared axis order is
 reported separately, is often different, and is never silently reinterpreted.
-Points are passed and returned as plain lists, tuples or 2D numpy arrays --
-there is no coordinate wrapper type to construct first.
+Points are passed as plain lists, tuples or 2D numpy arrays -- there is no
+coordinate wrapper type to construct first. A result's
+:attr:`~TransformationResult.coordinates` behaves the same way on the way out
+(indexing, iteration, equality), with
+:class:`~geodetic_engine.geodesy.result.Coordinates`'s ``to_list()``,
+``to_numpy()`` and ``to_dataframe()`` added for exporting it in a specific
+format.
 
 Example:
     >>> from geodetic_engine.geodesy import transform
@@ -43,12 +48,13 @@ from geodetic_engine.geodesy.errors import (
 )
 from geodetic_engine.geodesy.operation import (
     AppliedOperation,
+    AreaOfUse,
     GridUsage,
     OperationCandidate,
     OperationRequest,
     OperationRoute,
 )
-from geodetic_engine.geodesy.result import TransformationResult
+from geodetic_engine.geodesy.result import Coordinates, TransformationResult
 from geodetic_engine.geodesy.transformation import (
     Transformation,
     available_operations,
@@ -58,9 +64,11 @@ from geodetic_engine.geodesy.transformation import (
 __all__ = [
     "AmbiguousOperationError",
     "AppliedOperation",
+    "AreaOfUse",
     "AxisSpec",
     "BallparkTransformationError",
     "CoordinateReferenceSystem",
+    "Coordinates",
     "GeodesyError",
     "GridUsage",
     "MissingCoordinateEpochError",

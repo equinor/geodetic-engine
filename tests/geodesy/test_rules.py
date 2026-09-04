@@ -28,6 +28,7 @@ from geodetic_engine.geodesy import (
     OperationRoute,
     Transformation,
     UnresolvableCRSError,
+    available_operations,
 )
 from geodetic_engine.geodesy.operation import is_ballpark
 
@@ -262,6 +263,50 @@ def test_two_operations_fused_into_one_step_round_trip_in_reverse() -> None:
     assert lon == pytest.approx(11.12789451, abs=1e-6)
     assert lat == pytest.approx(63.58496782, abs=1e-6)
     assert height == pytest.approx(100, abs=1)
+
+
+def test_a_candidate_from_available_operations_can_be_passed_directly() -> None:
+    """An identified candidate is equivalent to naming its authority code."""
+    candidates = available_operations("EPSG:4230", "EPSG:4326")
+    named = Transformation("EPSG:4230", "EPSG:4326", operation=candidates[0].authority_code)
+    by_candidate = Transformation("EPSG:4230", "EPSG:4326", operation=candidates[0])
+
+    point = (4.0, 52.0)
+    assert by_candidate.operation.authority_code == named.operation.authority_code
+    assert by_candidate.transform(point).coordinates == named.transform(point).coordinates
+
+
+def test_an_unidentified_candidate_can_be_pinned_down_by_object() -> None:
+    """The one case naming an authority code cannot cover: no id to name.
+
+    PROJ fuses EPSG:11028 and EPSG:9484 into one step with no EPSG id of its
+    own (see the fused-step tests above), so its
+    :attr:`~geodetic_engine.geodesy.operation.OperationCandidate.authority_code`
+    is None -- there is no string that names it. Passing the candidate object
+    itself, found via its name instead, is the only way to pin it down
+    precisely rather than falling back to ``allow_any_operation=True``.
+    """
+    candidates = available_operations("EPSG:4979", "EPSG:6172")
+    unidentified = next(c for c in candidates if c.authority_code is None)
+    assert unidentified.name.startswith("Inverse of")
+
+    transformation = Transformation("EPSG:4979", "EPSG:6172", operation=unidentified)
+
+    easting, northing, height = transformation.transform(
+        (11.12789451, 63.58496782, 100)
+    ).coordinates[0]
+    assert easting == pytest.approx(605606.253, abs=1e-3)
+    assert northing == pytest.approx(7052523.904, abs=1e-3)
+    assert height == pytest.approx(61.742, abs=1e-3)
+
+
+def test_a_ballpark_candidate_is_still_refused_when_passed_by_object() -> None:
+    """Picking a candidate by object does not bypass the ballpark rule."""
+    candidates = available_operations(BALLPARK_SOURCE, BALLPARK_TARGET)
+    ballpark = next(c for c in candidates if c.ballpark)
+
+    with pytest.raises(GeodesyError):
+        Transformation(BALLPARK_SOURCE, BALLPARK_TARGET, operation=ballpark)
 
 
 def test_unresolvable_crs_raises_our_own_error() -> None:

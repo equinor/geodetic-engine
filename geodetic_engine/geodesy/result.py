@@ -9,11 +9,99 @@ numbers are separated from those facts they cannot be checked, only trusted.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+import pandas as pd
+
 from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 from geodetic_engine.geodesy.operation import AppliedOperation, GridUsage
+
+
+class Coordinates(tuple[tuple[float, ...], ...]):
+    """Transformed coordinate values, one tuple per point.
+
+    A plain tuple of tuples in every way that matters for existing code:
+    indexing (``coordinates[0]``), iteration, ``len()``, and equality against
+    a plain tuple all behave exactly as they would for the tuple it wraps.
+    The only addition is knowing the target CRS well enough to export itself
+    correctly -- in particular, to name a pandas DataFrame's columns.
+
+    Example:
+        >>> coordinates[0]
+        (10.7522, 59.9139)
+        >>> coordinates == ((10.7522, 59.9139),)
+        True
+    """
+
+    _target_crs: CoordinateReferenceSystem
+
+    def __new__(
+        cls,
+        rows: Iterable[Iterable[float]],
+        target_crs: CoordinateReferenceSystem,
+    ) -> Coordinates:
+        self = super().__new__(cls, (tuple(row) for row in rows))
+        self._target_crs = target_crs
+        return self
+
+    def to_list(self) -> list[list[float]]:
+        """Coordinates as plain nested Python lists, one list per point.
+
+        No dependency beyond the standard library; prefer this over the
+        tuples themselves only when a caller specifically needs lists, for
+        example to hand to a JSON encoder that does not accept tuples.
+
+        Returns:
+            One list of values per point, in the same order, units and axis
+            count as the wrapped tuples.
+
+        Example:
+            >>> coordinates.to_list()
+            [[10.7522, 59.9139]]
+        """
+        return [list(row) for row in self]
+
+    def to_numpy(self) -> np.ndarray:
+        """Coordinates as a 2D NumPy array, one row per point.
+
+        Returns:
+            A ``float64`` array of shape ``(n_points, n_axes)``.
+
+        Example:
+            >>> coordinates.to_numpy()  # doctest: +SKIP
+            array([[10.7522, 59.9139]])
+        """
+        return np.array(self, dtype=np.float64)
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Coordinates as a pandas DataFrame, one row per point.
+
+        Columns are named after the target CRS's declared axes, for example
+        ``["E", "N"]`` for a projected target. A row carrying one value more
+        than the target CRS declares -- a height passed through unchanged
+        alongside a 2D horizontal target -- gets one extra column, named
+        ``"h"`` for a geographic target or ``"Z"`` for a Cartesian one
+        (projected, geocentric, engineering).
+
+        Returns:
+            A DataFrame with one row per point and one column per value.
+
+        Example:
+            >>> coordinates.to_dataframe()  # doctest: +SKIP
+                    Lat      Lon
+            0  10.7522  59.9139
+        """
+        axes = self._target_crs.axis_abbreviations
+        width = len(self[0]) if self else len(axes)
+        columns = list(axes[:width])
+        if width > len(columns):
+            # _require_width allows at most one value beyond the declared
+            # axes, so there is never more than one such column to name.
+            columns.append("h" if self._target_crs.crs.is_geographic else "Z")
+        return pd.DataFrame(self, columns=columns)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +116,11 @@ class TransformationResult:
             value more than the source CRS declares -- a height alongside a 2D
             horizontal CRS -- that value is carried through unchanged as one
             extra trailing component, so :attr:`coordinates` can then hold one
-            more value per point than :attr:`target_axes` lists.
+            more value per point than :attr:`target_axes` lists. Behaves as a
+            plain tuple of tuples (indexing, iteration, equality), with
+            :meth:`Coordinates.to_list`, :meth:`~Coordinates.to_numpy` and
+            :meth:`~Coordinates.to_dataframe` for exporting it in a specific
+            format.
         source_crs: CRS the input was expressed in.
         target_crs: CRS the output is expressed in.
         operation: Which coordinate operation was applied, and how it was
@@ -52,7 +144,7 @@ class TransformationResult:
         The axes are declared latitude first, the values are longitude first.
     """
 
-    coordinates: tuple[tuple[float, ...], ...]
+    coordinates: Coordinates
     source_crs: CoordinateReferenceSystem
     target_crs: CoordinateReferenceSystem
     operation: AppliedOperation

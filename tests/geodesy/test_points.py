@@ -149,6 +149,53 @@ def test_to_json_matches_to_json_dict_and_can_be_compact() -> None:
     assert "\n" not in result.to_json(pretty=False)
 
 
+def test_to_list_is_plain_python() -> None:
+    """No dependency beyond the standard library."""
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+
+    rendered = result.coordinates.to_list()
+
+    assert rendered == [list(row) for row in result.coordinates]
+    assert all(isinstance(row, list) for row in rendered)
+
+
+def test_to_numpy_matches_coordinates() -> None:
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+
+    array = result.coordinates.to_numpy()
+
+    assert array.shape == (2, 2)
+    assert array.dtype == np.float64
+    np.testing.assert_array_equal(array, np.array(result.coordinates))
+
+
+def test_to_dataframe_columns_are_named_after_target_axes() -> None:
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+
+    frame = result.coordinates.to_dataframe()
+
+    assert list(frame.columns) == list(result.target_axes)
+    assert len(frame) == 2
+
+
+def test_to_dataframe_names_the_extra_column_z_for_a_cartesian_target() -> None:
+    """A height alongside a projected (Cartesian) 2D target is named "Z"."""
+    result = transform("EPSG:4326", "EPSG:3395", [(10.0, 60.0, 100.0)])
+
+    frame = result.coordinates.to_dataframe()
+
+    assert list(frame.columns) == ["E", "N", "Z"]
+
+
+def test_to_dataframe_names_the_extra_column_h_for_a_geographic_target() -> None:
+    """A height alongside a geographic 2D target is named "h", not "Z"."""
+    result = transform("EPSG:3395", "EPSG:4326", [(597868.38, 6642681.51, 100.0)])
+
+    frame = result.coordinates.to_dataframe()
+
+    assert list(frame.columns) == ["Lat", "Lon", "h"]
+
+
 def test_vertical_target_returns_one_value_per_point() -> None:
     """The result matches the target CRS's declared axis count, not PROJ's output."""
     result = transform(

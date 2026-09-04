@@ -45,8 +45,10 @@ from geodetic_engine.geodesy.errors import (
 )
 from geodetic_engine.geodesy.operation import (
     AppliedOperation,
+    AreaOfUse,
     GridUsage,
     OperationCandidate,
+    OperationReference,
     OperationRequest,
     OperationRoute,
     base_authority,
@@ -56,7 +58,7 @@ from geodetic_engine.geodesy.operation import (
     parse_operations,
     requires_epoch,
 )
-from geodetic_engine.geodesy.result import TransformationResult
+from geodetic_engine.geodesy.result import Coordinates, TransformationResult
 
 _VERTICAL_DIRECTIONS = frozenset({"up", "down"})
 
@@ -228,7 +230,13 @@ class Transformation:
         self,
         source_crs: Any,
         target_crs: Any,
-        operation: str | int | Sequence[str | int] | None = None,
+        operation: (
+            str
+            | int
+            | OperationReference
+            | Sequence[str | int | OperationReference]
+            | None
+        ) = None,
         *,
         allow_any_operation: bool = False,
     ) -> None:
@@ -239,14 +247,17 @@ class Transformation:
                 WKT, a PROJ string or a :class:`pyproj.CRS`.
             target_crs: CRS to produce coordinates in.
             operation: EPSG coordinate operation to apply, as ``"EPSG:15670"``,
-                a bare code, an OGC URN, or an operation name. Or several,
-                when a compound target CRS needs more than one to be pinned
-                down (a horizontal and a vertical operation, most commonly).
-                Several are a set, not a sequence: each is checked for
-                independently against whatever pipeline PROJ built, so the
-                order they are given in does not matter and does not change
-                the result. When omitted, PROJ chooses, which is only
-                permitted where no datum change is involved, unless
+                a bare code, an OGC URN, an operation name, or an
+                :class:`~geodetic_engine.geodesy.operation.OperationCandidate`
+                from :func:`available_operations` -- the latter is the only
+                way to pin down a candidate PROJ built with no EPSG id of its
+                own. Or several, when a compound target CRS needs more than
+                one to be pinned down (a horizontal and a vertical operation,
+                most commonly). Several are a set, not a sequence: each is
+                checked for independently against whatever pipeline PROJ
+                built, so the order they are given in does not matter and
+                does not change the result. When omitted, PROJ chooses, which
+                is only permitted where no datum change is involved, unless
                 ``allow_any_operation`` says otherwise.
             allow_any_operation: Lets PROJ decide and pick any operation it offers,
                 including a ballpark, when ``operation`` is omitted and a datum
@@ -440,7 +451,7 @@ class Transformation:
             _require_epoch_after_the_fact(applied, coordinate_epoch)
 
         return TransformationResult(
-            coordinates=rows,
+            coordinates=Coordinates(rows, target_crs=self._target),
             source_crs=self._source,
             target_crs=self._target,
             operation=applied,
@@ -607,7 +618,9 @@ def transform(
     y: Iterable[float] | float | None = None,
     z: Iterable[float] | float | None = None,
     *,
-    operation: str | int | Sequence[str | int] | None = None,
+    operation: (
+        str | int | OperationReference | Sequence[str | int | OperationReference] | None
+    ) = None,
     allow_any_operation: bool = False,
     coordinate_epoch: float | None = None,
 ) -> TransformationResult:
@@ -634,10 +647,13 @@ def transform(
             axes, so one height can be given once for many horizontal points
             rather than repeated.
         operation: EPSG coordinate operation to apply, for example
-            ``"EPSG:15670"``. Or several, when a compound target CRS needs
-            more than one pinned down -- order does not matter, see
-            :class:`Transformation`. Required whenever a datum change is
-            involved, unless ``allow_any_operation`` says otherwise.
+            ``"EPSG:15670"``, or an
+            :class:`~geodetic_engine.geodesy.operation.OperationCandidate`
+            from :func:`available_operations`. Or several, when a compound
+            target CRS needs more than one pinned down -- order does not
+            matter, see :class:`Transformation`. Required whenever a datum
+            change is involved, unless ``allow_any_operation`` says
+            otherwise.
         allow_any_operation: Whether PROJ may pick any operation it offers,
             including a ballpark, when ``operation`` is omitted and a datum
             change is involved. False by default. See
@@ -673,7 +689,8 @@ def transform(
     resolved = _cached_transformation(
         _cache_key(source_crs),
         _cache_key(target_crs),
-        operation if operation is None or isinstance(operation, (str, int))
+        operation
+        if operation is None or isinstance(operation, (str, int, OperationCandidate))
         else tuple(operation),
         allow_any_operation,
     )
@@ -684,10 +701,10 @@ def available_operations(
     source_crs: Any,
     target_crs: Any,
     *,
-    authority: str | None = None,
+    authority: str | None = "any",
     accuracy: float | None = None,
     allow_superseded: bool = True,
-    allow_ballpark: bool = True,
+    allow_ballpark: bool = False,
 ) -> tuple[OperationCandidate, ...]:
     """List every coordinate operation PROJ offers between two CRSs.
 
@@ -779,7 +796,17 @@ def _describe_candidate(transformer: Transformer) -> OperationCandidate:
             else None
         ),
         accuracy=transformer.accuracy if transformer.accuracy >= 0 else None,
-        area_of_use=None if area is None else area.name,
+        area_of_use=(
+            None
+            if area is None
+            else AreaOfUse(
+                west=area.west,
+                south=area.south,
+                east=area.east,
+                north=area.north,
+                name=area.name,
+            )
+        ),
         ballpark=ballpark,
         requires_epoch=requires_epoch(definition, operations),
         grids=grids,
@@ -796,7 +823,13 @@ def _cache_key(crs: Any) -> str:
 def _cached_transformation(
     source: str,
     target: str,
-    operation: str | int | tuple[str | int, ...] | None,
+    operation: (
+        str
+        | int
+        | OperationReference
+        | tuple[str | int | OperationReference, ...]
+        | None
+    ),
     allow_any_operation: bool,
 ) -> Transformation:
     """Resolve and cache a transformation by its textual inputs."""

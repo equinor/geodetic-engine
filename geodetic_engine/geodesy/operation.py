@@ -106,18 +106,25 @@ def _operation_name_matches(node_name: str, expected_name: str) -> bool:
     carrying its own "Inverse of" prefix. So a name is checked whole first,
     and against each fused part in turn if that fails.
 
+    ``expected_name`` is normalised the same way ``node_name`` is: a request
+    built directly from a candidate's own name (for example from
+    :func:`~geodetic_engine.geodesy.transformation.available_operations`) can
+    itself start with "Inverse of" when that candidate was found in the
+    reverse direction, and that prefix must not make a fused part with the
+    same base name, but not the same direction, fail to match.
+
     Example:
         >>> _operation_name_matches(
         ...     "Inverse of A (1) + B (2)", "B (2)"
         ... )
         True
     """
-    if _base_operation_name(node_name).casefold() == expected_name.casefold():
+    expected = _base_operation_name(expected_name)
+    if _base_operation_name(node_name).casefold() == expected.casefold():
         return True
     parts = node_name.split(_FUSED_NAME_SEPARATOR)
     return len(parts) > 1 and any(
-        _base_operation_name(part).casefold() == expected_name.casefold()
-        for part in parts
+        _base_operation_name(part).casefold() == expected.casefold() for part in parts
     )
 
 
@@ -269,6 +276,37 @@ class AppliedOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class AreaOfUse:
+    """The bounding box an operation or CRS is stated to be valid within.
+
+    Mirrors :class:`pyproj.aoi.AreaOfUse`, so that the bounding box PROJ
+    already computed does not have to be re-derived from the name string.
+
+    Attributes:
+        west: Western bound, in decimal degrees of longitude.
+        south: Southern bound, in decimal degrees of latitude.
+        east: Eastern bound, in decimal degrees of longitude.
+        north: Northern bound, in decimal degrees of latitude.
+        name: Human-readable description of the area, for example
+            ``"Norway - onshore."``.
+    """
+
+    west: float
+    south: float
+    east: float
+    north: float
+    name: str
+
+    @property
+    def bounds(self) -> tuple[float, float, float, float]:
+        """``(west, south, east, north)``, as accepted by most GIS tooling."""
+        return (self.west, self.south, self.east, self.north)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True, slots=True)
 class OperationCandidate:
     """One coordinate operation PROJ offers for a CRS pair, not yet applied.
 
@@ -285,7 +323,8 @@ class OperationCandidate:
         name: Name of the operation.
         method_name: Name of the operation method, when it is a single step.
         accuracy: Stated accuracy in metres, or None when PROJ reports none.
-        area_of_use: Human-readable area the operation is valid for, or None.
+        area_of_use: The area the operation is valid for, with its bounding
+            box, or None.
         ballpark: Whether this candidate is a ballpark approximation.
         requires_epoch: Whether applying it would need a coordinate epoch.
         grids: Grid files it depends on. Not all need be installed.
@@ -298,7 +337,7 @@ class OperationCandidate:
     name: str
     method_name: str | None
     accuracy: float | None
-    area_of_use: str | None
+    area_of_use: AreaOfUse | None
     ballpark: bool
     requires_epoch: bool
     grids: tuple[GridUsage, ...]
@@ -310,6 +349,14 @@ class OperationCandidate:
         if self.auth_name is None or self.code is None:
             return None
         return f"{self.auth_name}:{self.code}"
+
+
+# A candidate from available_operations(), usable as an operation reference in
+# its own right -- the only way to name a candidate PROJ built with no EPSG id
+# of its own. Kept distinct from the plain str | int forms so a signature such
+# as str | int | OperationReference reads as three genuinely different things
+# to pass, not one alias quietly standing in for all of them.
+type OperationReference = OperationCandidate
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,14 +378,19 @@ class OperationRequest:
     name: str | None
 
     @classmethod
-    def parse(cls, reference: str | int) -> OperationRequest:
+    def parse(cls, reference: str | int | OperationReference) -> OperationRequest:
         """Parse an operation reference.
 
         Args:
             reference: ``"EPSG:15670"``, a bare EPSG code such as ``15670``, an
                 OGC URN such as
-                ``"urn:ogc:def:coordinateOperation:EPSG::15670"``, or an
-                operation name such as ``"ITRF2014 to ETRF2014 (1)"``.
+                ``"urn:ogc:def:coordinateOperation:EPSG::15670"``, an
+                operation name such as ``"ITRF2014 to ETRF2014 (1)"``, or an
+                :class:`OperationCandidate` from
+                :func:`~geodetic_engine.geodesy.transformation.available_operations`
+                (its :attr:`~OperationCandidate.authority_code` is used when it
+                has one, its name otherwise -- the latter is the only way to
+                pin down a candidate PROJ built with no EPSG id of its own).
 
         Returns:
             The parsed request.
@@ -349,6 +401,8 @@ class OperationRequest:
             >>> OperationRequest.parse("ITRF2014 to ETRF2014 (1)").name
             'ITRF2014 to ETRF2014 (1)'
         """
+        if isinstance(reference, OperationCandidate):
+            reference = reference.authority_code or reference.name
         if isinstance(reference, int):
             return cls(
                 text=f"EPSG:{reference}",
@@ -441,7 +495,9 @@ class OperationRequest:
 
 
 def parse_operations(
-    reference: str | int | Iterable[str | int],
+    reference: (
+        str | int | OperationReference | Iterable[str | int | OperationReference]
+    ),
 ) -> tuple[OperationRequest, ...]:
     """Parse one operation reference, or several, into requests.
 
@@ -457,7 +513,8 @@ def parse_operations(
     Args:
         reference: A single operation reference, or an iterable of them (a
             plain string is never iterated as one, even though it is
-            technically iterable).
+            technically iterable). A reference may be an
+            :class:`OperationCandidate`.
 
     Returns:
         One parsed request per reference, in the order given.
@@ -466,7 +523,7 @@ def parse_operations(
         >>> [r.text for r in parse_operations(["EPSG:11028", "EPSG:9484"])]
         ['EPSG:11028', 'EPSG:9484']
     """
-    if isinstance(reference, (str, int)):
+    if isinstance(reference, (str, int, OperationCandidate)):
         return (OperationRequest.parse(reference),)
     return tuple(OperationRequest.parse(item) for item in reference)
 
