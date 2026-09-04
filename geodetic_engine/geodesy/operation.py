@@ -17,6 +17,7 @@ import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import lru_cache
 from typing import Any
 
 from pyproj.crs import CoordinateOperation
@@ -72,6 +73,71 @@ def base_authority(authority: str) -> str:
     return name
 
 
+_INVERSE_NAME_PREFIX = re.compile(r"^Inverse of\s+", re.IGNORECASE)
+
+# PROJ joins the names of operations it fuses into one unidentified step with
+# this exact separator, each keeping its own "Inverse of" prefix independently.
+_FUSED_NAME_SEPARATOR = " + "
+
+
+def _base_operation_name(name: str) -> str:
+    """Strip PROJ's "Inverse of" name prefix down to the underlying name.
+
+    Mirrors :func:`base_authority`: building the inverse of a named operation
+    renames it, but applying it in the reverse direction does not change which
+    operation it is.
+
+    Example:
+        >>> _base_operation_name("Inverse of ED50 to WGS 84 (1)")
+        'ED50 to WGS 84 (1)'
+    """
+    stripped = name.strip()
+    while (match := _INVERSE_NAME_PREFIX.match(stripped)) is not None:
+        stripped = stripped[match.end() :].strip()
+    return stripped
+
+
+def _operation_name_matches(node_name: str, expected_name: str) -> bool:
+    """Whether a node's name is, or fuses in, the operation named by expected_name.
+
+    A vertical shift folded into a compound target alongside a horizontal
+    datum change (each touching only part of it) is fused by PROJ into one
+    step whose name joins both operations' own names with " + ", each still
+    carrying its own "Inverse of" prefix. So a name is checked whole first,
+    and against each fused part in turn if that fails.
+
+    Example:
+        >>> _operation_name_matches(
+        ...     "Inverse of A (1) + B (2)", "B (2)"
+        ... )
+        True
+    """
+    if _base_operation_name(node_name).casefold() == expected_name.casefold():
+        return True
+    parts = node_name.split(_FUSED_NAME_SEPARATOR)
+    return len(parts) > 1 and any(
+        _base_operation_name(part).casefold() == expected_name.casefold()
+        for part in parts
+    )
+
+
+@lru_cache(maxsize=256)
+def _registered_operation_name(auth_name: str, code: str) -> str | None:
+    """The name an authority registers a coordinate operation's code under.
+
+    Args:
+        auth_name: Authority, for example ``"EPSG"``.
+        code: Code within that authority.
+
+    Returns:
+        The registered name, or None if the authority does not know this code.
+    """
+    try:
+        return CoordinateOperation.from_authority(auth_name, code).name
+    except CRSError:
+        return None
+
+
 class OperationRoute(StrEnum):
     """How the transformer that will be used was arrived at."""
 
@@ -89,6 +155,14 @@ class OperationRoute(StrEnum):
 
     PROJ_DEFAULT = "proj_default"
     """No operation was requested; PROJ chose, and the choice is recorded."""
+
+    ANY_OPERATION = "any_operation"
+    """No operation was requested and the caller allowed PROJ to pick freely.
+
+    Set only when ``allow_any_operation=True`` let a datum change through
+    without a named operation, including a ballpark; the plain, no-datum-change
+    default pick still reports :attr:`PROJ_DEFAULT`.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +200,8 @@ class AppliedOperation:
         method_name: Name of the operation method, when it is a single step.
         accuracy: Stated accuracy in metres, or None when PROJ reports none.
         route: How the transformer was arrived at.
+        ballpark: Whether the applied operation is a ballpark approximation.
+        requires_epoch: Whether the applied operation reads the coordinate epoch.
         steps: Names of the individual steps, for a concatenated operation.
     """
 
@@ -136,6 +212,19 @@ class AppliedOperation:
     method_name: str | None
     accuracy: float | None
     route: OperationRoute
+    ballpark: bool = False
+    """Whether the applied operation is a ballpark approximation.
+
+    Only ever True when the caller passed ``allow_any_operation=True``: absent
+    that, a ballpark is refused outright rather than reaching a result.
+    """
+    requires_epoch: bool = False
+    """Whether the applied operation reads the coordinate epoch.
+
+    Meaningful for the ``allow_any_operation=True`` route, where the operation
+    PROJ picks -- and so whether it is time-dependent -- is not known until a
+    point has been transformed.
+    """
     steps: tuple[str, ...] = ()
     projjson: str = field(default="", repr=False, compare=False)
     """PROJJSON of the operation applied, kept so it can be re-exported."""
@@ -298,20 +387,40 @@ class OperationRequest:
         is kept rather than the first: the wrapper can only repeat an
         identifier that a deeper, more specific node already carries.
 
+        A step that needs to touch only part of a compound target CRS (a
+        vertical shift folded into a horizontal+vertical compound, for
+        example) cannot be looked up as the registered operation as-is, so
+        PROJ rebuilds it as an unidentified "PROJ-based operation method" and
+        drops its id. Its name survives that rebuild -- plain, or prefixed
+        with "Inverse of" when applied in the reverse direction -- so a
+        request by code also falls back to matching by that code's
+        registered name.
+
         Args:
             definition: PROJJSON of the operation PROJ built.
 
         Returns:
             The matching operation node, or None if it is not present.
         """
+        expected_name = self.name
+        if (
+            expected_name is None
+            and self.auth_name is not None
+            and self.code is not None
+        ):
+            expected_name = _registered_operation_name(self.auth_name, self.code)
+
         match: dict[str, Any] | None = None
         for node in _operation_nodes(definition):
-            if self.auth_name is not None and self.code is not None:
-                if _identifier_of(node) == (self.auth_name.upper(), str(self.code)):
-                    match = node
-            elif self.name is not None and (
-                str(node.get("name", "")).casefold() == self.name.casefold()
-            ):
+            identifier_hit = (
+                self.auth_name is not None
+                and self.code is not None
+                and _identifier_of(node) == (self.auth_name.upper(), str(self.code))
+            )
+            name_hit = expected_name is not None and _operation_name_matches(
+                str(node.get("name", "")), expected_name
+            )
+            if identifier_hit or name_hit:
                 match = node
         return match
 
@@ -329,6 +438,37 @@ class OperationRequest:
 
     def __str__(self) -> str:
         return self.text
+
+
+def parse_operations(
+    reference: str | int | Iterable[str | int],
+) -> tuple[OperationRequest, ...]:
+    """Parse one operation reference, or several, into requests.
+
+    More than one is for the case where a compound target CRS needs a
+    horizontal and a vertical operation to both be pinned down: PROJ fuses
+    such pairs into a single unidentified step, so naming just one would
+    leave the other chosen silently.
+
+    Several are a set, not a sequence: each request is later checked for
+    independently against whatever pipeline PROJ built, so the order they
+    are given in here does not affect which pipeline is accepted.
+
+    Args:
+        reference: A single operation reference, or an iterable of them (a
+            plain string is never iterated as one, even though it is
+            technically iterable).
+
+    Returns:
+        One parsed request per reference, in the order given.
+
+    Example:
+        >>> [r.text for r in parse_operations(["EPSG:11028", "EPSG:9484"])]
+        ['EPSG:11028', 'EPSG:9484']
+    """
+    if isinstance(reference, (str, int)):
+        return (OperationRequest.parse(reference),)
+    return tuple(OperationRequest.parse(item) for item in reference)
 
 
 def operation_ids(definition: object) -> set[tuple[str, str]]:
