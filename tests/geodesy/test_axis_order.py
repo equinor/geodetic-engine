@@ -115,6 +115,10 @@ def test_vertical_source_reads_its_position_in_xy_order() -> None:
     because the vertical CRS declares no horizontal axes, so the pipeline reads
     it in the operation's own latitude-first order unless the wrapper corrects
     for that. Uncorrected, the geoid is interpolated at the transposed point.
+
+    Guards a PROJ workaround (``_order_horizontal_for_pipeline`` in
+    transformation.py); delete alongside it once PROJ fixes
+    this upstream, rather than adapting it.
     """
     transformation = Transformation("EPSG:3855", "EPSG:4979", operation="EPSG:3858")
     longitude, latitude, height = transformation.transform(

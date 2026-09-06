@@ -203,6 +203,10 @@ class _Pipeline:
         pipeline is the only statement of that order there is: the vertical
         CRS does not declare one, and the operation's own geographic end is not
         necessarily either CRS the caller named.
+
+        PROJ workaround, not a permanent design: see the note above
+        ``_entry_step`` below for the upstream bug and how to retire this once
+        it is fixed.
         """
         if not self.steps:
             return False
@@ -467,6 +471,8 @@ class Transformation:
 
         _require_in_range(self._source, columns)
 
+        # PROJ workaround, see the note above _entry_step: remove this call
+        # once PROJ no longer leaves a residual axisswap at a vertical end.
         columns = _order_horizontal_for_pipeline(self._source, self._pipeline, columns)
         columns = _carry_unread_horizontal(
             self._source, self._target, self._applied, self._grids, columns
@@ -1456,6 +1462,23 @@ def _output_indices(
 def _is_vertical(crs: CoordinateReferenceSystem) -> bool:
     """Whether the CRS's single axis is a height or a depth."""
     return crs.axes[0].direction.lower() in _VERTICAL_DIRECTIONS
+
+
+# ---------------------------------------------------------------------------
+# PROJ workaround, not permanent design. ``always_xy`` is supposed to
+# guarantee lon/lat, E/N in and out; it does not for a pipeline with a vertical
+# (or otherwise horizontal-axis-less) end, because there is no declared order
+# there for PROJ to normalise against, and the operation's own residual
+# ``axisswap`` survives. ``_entry_step``, ``_swaps_horizontal``,
+# ``reads_declared_horizontal`` and ``_order_horizontal_for_pipeline`` exist
+# only to detect and undo that residual swap on the way in.
+#
+#  Once PROJ strips the residual axisswap itself,
+# ``Transformation.transform`` no longer needs to call
+# ``_order_horizontal_for_pipeline`` at all, and this whole block --
+# including ``reads_declared_horizontal`` and its call site -- can be deleted
+# outright rather than adapted: nothing else in this module depends on it.
+# ---------------------------------------------------------------------------
 
 
 def _entry_step(definition: str, direction: TransformDirection) -> str:
