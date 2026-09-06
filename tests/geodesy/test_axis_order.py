@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 from pyproj import CRS, Transformer
 
-from geodetic_engine.geodesy import CoordinateReferenceSystem
+from geodetic_engine.geodesy import CoordinateReferenceSystem, Transformation
 
 # CRSs whose axis order is not the obvious one. The polar pair matters most:
 # both of their axes carry the same direction, so direction alone cannot say
@@ -106,6 +106,23 @@ def test_geocentric_crs_keeps_declared_order() -> None:
     crs = CoordinateReferenceSystem.from_user_input("EPSG:4896")
     assert crs.axis_abbreviations == ("X", "Y", "Z")
     assert crs.value_axis_order == (0, 1, 2)
+
+
+def test_vertical_source_reads_its_position_in_xy_order() -> None:
+    """A height's accompanying position is xy, even leaving a vertical CRS.
+
+    ``always_xy`` cannot normalise the horizontal pair travelling with a height
+    because the vertical CRS declares no horizontal axes, so the pipeline reads
+    it in the operation's own latitude-first order unless the wrapper corrects
+    for that. Uncorrected, the geoid is interpolated at the transposed point.
+    """
+    transformation = Transformation("EPSG:3855", "EPSG:4979", operation="EPSG:3858")
+    longitude, latitude, height = transformation.transform(
+        [(-144.0, 72.0, 556.3834421379089)]
+    ).coordinates[0]
+
+    assert (longitude, latitude) == pytest.approx((-144.0, 72.0))
+    assert height == pytest.approx(548.4082, abs=1e-4)
 
 
 def _probe_point(code: str) -> tuple[float, float]:

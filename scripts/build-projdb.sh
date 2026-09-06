@@ -14,6 +14,10 @@
 # source that wrote it, so the provenance of a combined build is not lost to
 # whichever source happened to run last.
 #
+# As a last step, scripts/patch-grid-alternatives.sh is run against the output
+# so a grid known to be missing a proj.db filename mapping upstream is not
+# misreported as unavailable; see that script for what it patches and why.
+#
 # Usage:
 #   scripts/build-projdb.sh [options]
 #
@@ -33,6 +37,7 @@ osdu_config=""
 osdu_authorities=()
 overwrite_existing=false
 skip_validation=false
+skip_grid_patch=false
 dry_run=false
 extend=false
 verbose=false
@@ -66,6 +71,9 @@ Options:
                           built by an earlier run.
       --skip-validation   Write without checking that PROJ can read the result
                           back. Not recommended.
+      --skip-grid-patch   Do not run scripts/patch-grid-alternatives.sh on the
+                          result. The database is then exactly what the
+                          builders produced, no more.
       --dry-run           Run every build and report what each would write,
                           then discard it. Nothing is left on disk.
   -v, --verbose           Log every imported object.
@@ -129,6 +137,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-validation)
             skip_validation=true
+            shift
+            ;;
+        --skip-grid-patch)
+            skip_grid_patch=true
             shift
             ;;
         --dry-run)
@@ -254,6 +266,12 @@ done
 if $dry_run; then
     echo "dry run: nothing was written to $output"
     exit 0
+fi
+
+if ! $skip_grid_patch; then
+    echo
+    echo "==> patching grid_alternatives in $output"
+    "${REPO_ROOT}/scripts/patch-grid-alternatives.sh" --db "$output"
 fi
 
 echo

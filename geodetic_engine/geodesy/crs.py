@@ -171,6 +171,15 @@ class CoordinateReferenceSystem:
         return len(self._axes)
 
     @property
+    def is_geographic(self) -> bool:
+        """Whether this CRS expresses position as latitude and longitude.
+
+        True through a bound CRS wrapping a geographic one, and through a
+        compound CRS whose horizontal part is geographic.
+        """
+        return bool(self._crs.is_geographic)
+
+    @property
     def authority_code(self) -> str | None:
         """``"AUTH:CODE"`` if the CRS is identified in an authority, else None."""
         authority = self._crs.to_authority()

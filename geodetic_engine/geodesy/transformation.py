@@ -38,6 +38,7 @@ from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 from geodetic_engine.geodesy.errors import (
     AmbiguousOperationError,
     BallparkTransformationError,
+    CoordinateOutOfRangeError,
     MissingCoordinateEpochError,
     MissingGridError,
     OperationNotAvailableError,
@@ -51,7 +52,9 @@ from geodetic_engine.geodesy.operation import (
     OperationReference,
     OperationRequest,
     OperationRoute,
+    OperationStep,
     base_authority,
+    datum_operation_count,
     grid_usages,
     is_ballpark,
     operation_names,
@@ -61,6 +64,9 @@ from geodetic_engine.geodesy.operation import (
 from geodetic_engine.geodesy.result import Coordinates, TransformationResult
 
 _VERTICAL_DIRECTIONS = frozenset({"up", "down"})
+
+# Axis directions that carry latitude in a geographic CRS.
+_NORTHINGS = frozenset({"north", "south"})
 
 # PROJ transforms at most x, y, z: a fourth spatial component has no meaning to
 # it, so one extra value beyond what a CRS declares is tolerated (a height
@@ -78,6 +84,23 @@ _BOOKKEEPING_METHODS = frozenset(
         "geographic3d to geographic2d conversion",
     }
 )
+
+# Vertical operation methods whose shift is the same everywhere. Their result
+# does not read the horizontal position, unlike a grid interpolation or
+# "Vertical Offset and Slope", so a position supplied alongside the height is
+# carried rather than interpreted as a latitude and longitude.
+_POSITION_FREE_VERTICAL_METHODS = frozenset(
+    {
+        "vertical offset",
+        "change of vertical unit",
+        "height depth reversal",
+    }
+)
+
+# What PROJ appends to the name of an operation it re-issued with normalised
+# axis order. It describes this package's calling convention, not the
+# operation, so it is stripped before a name is reported.
+_VISUALIZATION_SUFFIX = " (with axis order normalized for visualization)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +191,23 @@ class _Pipeline:
     def text(self) -> str:
         """The PROJ pipeline definition that will be executed."""
         return " | ".join(transformer.definition for transformer, _ in self.steps)
+
+    @property
+    def reads_declared_horizontal(self) -> bool:
+        """Whether the first step consumes its horizontal pair northing-first.
+
+        ``always_xy`` normalises the axis order of each end that has horizontal
+        axes. A vertical CRS has none, so the ``axisswap`` PROJ inserts for the
+        operation's own geographic order survives normalisation there and the
+        accompanying position is read latitude-first. Reading it off the
+        pipeline is the only statement of that order there is: the vertical
+        CRS does not declare one, and the operation's own geographic end is not
+        necessarily either CRS the caller named.
+        """
+        if not self.steps:
+            return False
+        transformer, direction = self.steps[0]
+        return _swaps_horizontal(_entry_step(transformer.definition, direction))
 
 
 class Transformation:
@@ -396,6 +436,9 @@ class Transformation:
                 unchanged).
             MissingCoordinateEpochError: If a dynamic CRS is involved and no
                 epoch was given.
+            CoordinateOutOfRangeError: If a latitude is outside the range the
+                source CRS's own axis unit can represent, which most often
+                means projected coordinates were passed to a geographic CRS.
             TransformationFailedError: If PROJ could not produce a finite
                 result, or cannot produce every axis the target CRS declares.
 
@@ -421,6 +464,13 @@ class Transformation:
         else:
             columns = _columns_from_axes(self._source, x, y, z)
         count = len(columns[0]) if columns else 0
+
+        _require_in_range(self._source, columns)
+
+        columns = _order_horizontal_for_pipeline(self._source, self._pipeline, columns)
+        columns = _carry_unread_horizontal(
+            self._source, self._target, self._applied, self._grids, columns
+        )
 
         if self._requires_epoch and coordinate_epoch is None:
             raise MissingCoordinateEpochError(
@@ -596,18 +646,25 @@ def _require_width(crs: CoordinateReferenceSystem, width: int) -> None:
     """Check how many values a point carries against what ``crs`` allows.
 
     Raises:
-        ValueError: If ``width`` is not ``crs``'s declared dimension, or one
+        ValueError: If ``width`` is not ``crs``'s declared dimension, one
             more (a height alongside a 2D horizontal CRS, carried through
-            unchanged).
+            unchanged), or -- for a vertical CRS -- a full ``(lon, lat, h)``
+            triple.
     """
     allowed = {crs.dimension}
     if crs.dimension < _MAX_COORDINATE_VALUES:
         allowed.add(crs.dimension + 1)
+    if crs.dimension == 1 and _is_vertical(crs):
+        # A height shifted by a geoid or vertical datum grid is only defined
+        # where the grid is read, so the horizontal position that locates it
+        # travels with it rather than being dropped for declaring no axis.
+        allowed.add(_MAX_COORDINATE_VALUES)
     if width not in allowed:
         raise ValueError(
             f"{width} values were given per point but {crs!r} declares "
             f"{crs.dimension} axes; {sorted(allowed)} values are accepted "
-            "(the extra being a height PROJ carries through unchanged)"
+            "(the extra being a height PROJ carries through unchanged, or "
+            "for a vertical CRS the horizontal position its grid is read at)"
         )
 
 
@@ -704,7 +761,7 @@ def available_operations(
     authority: str | None = "any",
     accuracy: float | None = None,
     allow_superseded: bool = True,
-    allow_ballpark: bool = False,
+    allow_ballpark: bool = True,
 ) -> tuple[OperationCandidate, ...]:
     """List every coordinate operation PROJ offers between two CRSs.
 
@@ -779,22 +836,24 @@ def _describe_candidate(transformer: Transformer) -> OperationCandidate:
         except CRSError:
             operations = ()
 
-    substantive = _substantive_operation(operations)
-    node = substantive.to_json_dict() if substantive is not None else definition
-    identifier = _identifier(node)
-    method = node.get("method")
+    steps = _substantive_steps(operations)
+    # The whole candidate's own id, which a registered concatenated operation
+    # such as EPSG:8047 carries even though it applies two Helmerts. Absent
+    # only when PROJ assembled the chain itself, and then no code may be
+    # reported: borrowing a step's would understate the rest of the pipeline.
+    identifier = _identifier(definition) or (
+        (steps[0].auth_name, steps[0].code)
+        if len(steps) == 1 and steps[0].auth_name and steps[0].code
+        else None
+    )
     area = transformer.area_of_use
     ballpark = is_ballpark(definition)
     grids = grid_usages(operations)
     return OperationCandidate(
         auth_name=None if identifier is None else identifier[0],
         code=None if identifier is None else identifier[1],
-        name=str(node.get("name") or transformer.description),
-        method_name=(
-            str(method["name"])
-            if isinstance(method, dict) and "name" in method
-            else None
-        ),
+        name=_candidate_name(definition, steps, transformer),
+        method_name=steps[0].method_name if len(steps) == 1 else None,
         accuracy=transformer.accuracy if transformer.accuracy >= 0 else None,
         area_of_use=(
             None
@@ -810,8 +869,54 @@ def _describe_candidate(transformer: Transformer) -> OperationCandidate:
         ballpark=ballpark,
         requires_epoch=requires_epoch(definition, operations),
         grids=grids,
+        steps=steps,
+        projjson=json.dumps(definition),
         usable=not ballpark and all(grid.available for grid in grids),
     )
+
+
+def _candidate_name(
+    definition: dict[str, Any],
+    steps: tuple[OperationStep, ...],
+    transformer: Transformer,
+) -> str:
+    """The candidate's name, without PROJ's axis-normalisation annotation.
+
+    Normalising axis order makes PROJ append "(with axis order normalized for
+    visualization)" to the name of the operation it wraps, which is wording
+    the caller never asked to have on a result. A single step's own name is
+    already clean; otherwise the annotation is stripped from the whole.
+    """
+    if len(steps) == 1:
+        return steps[0].name
+    name = str(definition.get("name") or transformer.description)
+    return name.removesuffix(_VISUALIZATION_SUFFIX) or " + ".join(
+        step.name for step in steps
+    )
+
+
+def _substantive_steps(
+    operations: tuple[CoordinateOperation, ...],
+) -> tuple[OperationStep, ...]:
+    """Every operation that does geodetic work, not the axis bookkeeping."""
+    return tuple(
+        OperationStep(
+            auth_name=None if identifier is None else identifier[0],
+            code=None if identifier is None else identifier[1],
+            name=str(node.get("name") or operation.name),
+            method_name=(str(operation.method_name) if operation.method_name else None),
+        )
+        for operation in operations
+        if not _is_bookkeeping(operation)
+        for node in (operation.to_json_dict(),)
+        for identifier in (_identifier(node),)
+    )
+
+
+def _is_bookkeeping(operation: CoordinateOperation) -> bool:
+    """Whether a step restates axes or units rather than moving coordinates."""
+    name = operation.method_name
+    return bool(name) and name.strip().lower() in _BOOKKEEPING_METHODS
 
 
 def _cache_key(crs: Any) -> str:
@@ -993,6 +1098,28 @@ def _from_transformer_group(
     return None
 
 
+def _grids_of(request: OperationRequest) -> tuple[GridUsage, ...]:
+    """Grids the requested operation declares, read from the registry.
+
+    The registry answers even when the operation cannot be built, which is
+    what makes it usable for explaining that failure.
+
+    Args:
+        request: The operation the caller asked for.
+
+    Returns:
+        Its grids, or empty when the request names no authority code or the
+        registry does not know it.
+    """
+    if request.auth_name is None or request.code is None:
+        return ()
+    try:
+        operation = CoordinateOperation.from_authority(request.auth_name, request.code)
+    except (CRSError, ProjError):
+        return ()
+    return grid_usages((operation,))
+
+
 def _from_operation(
     source: CoordinateReferenceSystem,
     target: CoordinateReferenceSystem,
@@ -1007,6 +1134,13 @@ def _from_operation(
     try:
         core = Transformer.from_pipeline(request.urn or request.text, always_xy=True)
     except (ProjError, CRSError) as error:
+        # PROJ reports an absent grid here as a malformed pipeline step, which
+        # says nothing about the grid. Its availability is only consulted now
+        # that building has already failed: PROJ resolves legacy grid names
+        # through proj.db's alternatives, so an operation whose grid reads as
+        # unavailable often still transforms, and checking earlier would
+        # refuse work that succeeds.
+        _require_grids(_grids_of(request), source, target)
         raise OperationNotAvailableError(
             f"{request} could not be built as a coordinate operation, and is "
             f"not among the operations PROJ offers for {_label(source)} to "
@@ -1169,17 +1303,32 @@ def _describe(
     top-level operation, appending "(with axis order normalized for
     visualization)" to its name, so using it directly would leak that wording
     into a result the caller never asked to have annotated.
+
+    Narrowing to one node is refused outright when the caller named nothing,
+    the pipeline applies more than one datum transformation, and no authority
+    publishes the whole of it. That is what a bound CRS on each side of the
+    pair produces: each names its own shift to the hub, so the identification
+    one of them supplies would understate the result by the other. A
+    registered concatenated operation such as EPSG:8047 is unaffected, since
+    the identifier is then on the top-level node, and so is an operation the
+    caller named, which is reported as asked for.
     """
     node = definition
+    unnamed_chain = (
+        not requests
+        and datum_operation_count(definition) > 1
+        and _identifier(definition) is None
+    )
     identifier_of = requests[0] if len(requests) == 1 else pipeline.identified_by
-    if identifier_of is not None:
-        matched = identifier_of.find_in(definition)
-        if matched is not None:
-            node = matched
-    elif not requests:
-        substantive = _substantive_operation(operations)
-        if substantive is not None:
-            node = substantive.to_json_dict()
+    if not unnamed_chain:
+        if identifier_of is not None:
+            matched = identifier_of.find_in(definition)
+            if matched is not None:
+                node = matched
+        elif not requests:
+            substantive = _substantive_operation(operations)
+            if substantive is not None:
+                node = substantive.to_json_dict()
 
     identifier = _identifier(node)
     steps = tuple(
@@ -1190,9 +1339,13 @@ def _describe(
         requested=None if not requests else " + ".join(r.text for r in requests),
         auth_name=None if identifier is None else identifier[0],
         code=None if identifier is None else identifier[1],
-        name=str(node.get("name") or pipeline.core.description),
+        name=str(node.get("name") or pipeline.core.description).removesuffix(
+            _VISUALIZATION_SUFFIX
+        ),
         method_name=(
-            str(method["name"])
+            None
+            if unnamed_chain
+            else str(method["name"])
             if isinstance(method, dict) and "name" in method
             else _substantive_method(operations)
         ),
@@ -1215,16 +1368,23 @@ def _substantive_operation(
     the transformation the caller cares about.
     """
     for operation in operations:
-        name = operation.method_name
-        if name and name.strip().lower() not in _BOOKKEEPING_METHODS:
+        if not _is_bookkeeping(operation):
             return operation
     return None
 
 
 def _substantive_method(operations: tuple[CoordinateOperation, ...]) -> str | None:
-    """Name of the method the substantive operation applies, if any."""
-    operation = _substantive_operation(operations)
-    return None if operation is None else str(operation.method_name)
+    """Name of the method applied, or None when more than one operation is chained.
+
+    A chain has no single method, and naming the first one would understate
+    what the other steps do.
+    """
+    substantive = [
+        operation for operation in operations if not _is_bookkeeping(operation)
+    ]
+    if len(substantive) != 1 or not substantive[0].method_name:
+        return None
+    return str(substantive[0].method_name)
 
 
 def _identifier(definition: dict[str, Any]) -> tuple[str, str] | None:
@@ -1296,6 +1456,143 @@ def _output_indices(
 def _is_vertical(crs: CoordinateReferenceSystem) -> bool:
     """Whether the CRS's single axis is a height or a depth."""
     return crs.axes[0].direction.lower() in _VERTICAL_DIRECTIONS
+
+
+def _entry_step(definition: str, direction: TransformDirection) -> str:
+    """The step a PROJ pipeline applies first when run in ``direction``.
+
+    An inverted pipeline runs its steps back to front, so its entry step is the
+    last one written. ``axisswap`` is its own inverse, so the step reads the
+    same either way.
+    """
+    steps = definition.split(" step ")
+    if len(steps) == 1:
+        return definition
+    return steps[1] if direction is TransformDirection.FORWARD else steps[-1]
+
+
+def _swaps_horizontal(step: str) -> bool:
+    """Whether a PROJ step exchanges the first two coordinate components."""
+    if "proj=axisswap" not in step:
+        return False
+    for token in step.split():
+        if token.startswith("order="):
+            order = token.removeprefix("order=").split(",")
+            return order[:2] == ["2", "1"]
+    return False
+
+
+def _order_horizontal_for_pipeline(
+    source: CoordinateReferenceSystem,
+    pipeline: _Pipeline,
+    columns: tuple[tuple[float, ...], ...],
+) -> tuple[tuple[float, ...], ...]:
+    """Hand a vertical CRS's position to PROJ in the order the pipeline reads it.
+
+    Coordinate values reach this package in ``xy`` order, and PROJ's
+    ``always_xy`` normally guarantees PROJ reads them that way. It cannot for a
+    vertical source: with no horizontal axes to normalise, the pipeline keeps
+    the ``axisswap`` belonging to the operation's own geographic end and reads
+    the accompanying position latitude-first. Left uncorrected the grid is
+    interpolated at the transposed point, which is a wrong height wherever the
+    transposed point is still inside the grid.
+
+    Args:
+        source: Source CRS.
+        pipeline: The pipeline the values are about to be run through.
+        columns: One tuple of values per axis, in ``xy`` order.
+
+    Returns:
+        The columns with the horizontal pair transposed when the pipeline reads
+        it northing-first, and unchanged otherwise.
+    """
+    if len(columns) != _MAX_COORDINATE_VALUES:
+        return columns
+    if not (source.dimension == 1 and _is_vertical(source)):
+        return columns
+    if not pipeline.reads_declared_horizontal:
+        return columns
+    return (columns[1], columns[0], columns[2])
+
+
+def _carry_unread_horizontal(
+    source: CoordinateReferenceSystem,
+    target: CoordinateReferenceSystem,
+    applied: AppliedOperation,
+    grids: tuple[GridUsage, ...],
+    columns: tuple[tuple[float, ...], ...],
+) -> tuple[tuple[float, ...], ...]:
+    """Withhold a horizontal position that the applied shift never reads.
+
+    A height travelling between two vertical CRSs is usually accompanied by
+    the horizontal position its grid is read at. Where the shift is instead
+    the same everywhere -- a plain vertical offset, a unit change, a
+    height/depth reversal -- that position is not part of the calculation,
+    and it need not even be geographic: it is commonly an engineering or
+    projected coordinate, which PROJ's ``geogoffset`` step would reject as an
+    impossible latitude. Both CRSs being vertical, the position cannot reach
+    the result either way, so it is held back rather than offered to PROJ as
+    something it is not.
+
+    Args:
+        source: Source CRS.
+        target: Target CRS.
+        applied: The operation being applied.
+        grids: Grids that operation depends on.
+        columns: One tuple of values per axis.
+
+    Returns:
+        The columns, with the horizontal pair blanked when it cannot be read,
+        and unchanged otherwise.
+    """
+    if len(columns) != _MAX_COORDINATE_VALUES or grids:
+        return columns
+    if not (source.dimension == 1 and _is_vertical(source)):
+        return columns
+    if not (target.dimension == 1 and _is_vertical(target)):
+        return columns
+    if (applied.method_name or "").strip().lower() not in (
+        _POSITION_FREE_VERTICAL_METHODS
+    ):
+        return columns
+
+    blank = (0.0,) * len(columns[0])
+    return (blank, blank, columns[2])
+
+
+def _require_in_range(
+    source: CoordinateReferenceSystem, columns: list[list[float]]
+) -> None:
+    """Refuse a latitude a geographic CRS's own axis unit cannot represent.
+
+    PROJ rejects these too, but only as "Invalid latitude", naming neither the
+    CRS nor the units nor which value it read as latitude. Since the usual
+    cause is projected coordinates in metres handed to a geographic CRS, or
+    latitude passed first, the message has to name all three to be actionable.
+
+    The limit is derived from the axis's own unit rather than assumed to be 90,
+    so a CRS declaring grads (``EPSG:4807``) is held to 100 rather than
+    wrongly refused.
+    """
+    if not source.is_geographic:
+        return
+    order = source.value_axis_order
+    for value_index, declared_index in enumerate(order[: len(columns)]):
+        axis = source.axes[declared_index]
+        if axis.direction.lower() not in _NORTHINGS:
+            continue
+        limit = (math.pi / 2) / axis.unit_conversion_factor
+        for point, value in enumerate(columns[value_index]):
+            if math.isfinite(value) and abs(value) > limit:
+                raise CoordinateOutOfRangeError(
+                    f"point {point} has {axis.name.lower()} {value} "
+                    f"{axis.unit_name}, outside the valid range "
+                    f"[-{limit:g}, {limit:g}] for {_label(source)}; values are "
+                    f"given in {source.value_axis_abbreviations} order and in "
+                    f"{source.axis_units} -- projected coordinates in metres "
+                    "need a projected CRS"
+                )
+        return
 
 
 def _require_finite(

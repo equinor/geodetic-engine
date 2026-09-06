@@ -38,6 +38,7 @@ from geodetic_engine.geodesy.crs import AxisSpec, CoordinateReferenceSystem
 from geodetic_engine.geodesy.errors import (
     AmbiguousOperationError,
     BallparkTransformationError,
+    CoordinateOutOfRangeError,
     GeodesyError,
     MissingCoordinateEpochError,
     MissingGridError,
@@ -53,6 +54,7 @@ from geodetic_engine.geodesy.operation import (
     OperationCandidate,
     OperationRequest,
     OperationRoute,
+    OperationStep,
 )
 from geodetic_engine.geodesy.result import Coordinates, TransformationResult
 from geodetic_engine.geodesy.transformation import (
@@ -67,6 +69,7 @@ __all__ = [
     "AreaOfUse",
     "AxisSpec",
     "BallparkTransformationError",
+    "CoordinateOutOfRangeError",
     "CoordinateReferenceSystem",
     "Coordinates",
     "GeodesyError",
@@ -78,6 +81,7 @@ __all__ = [
     "OperationNotAvailableError",
     "OperationRequest",
     "OperationRoute",
+    "OperationStep",
     "Transformation",
     "TransformationFailedError",
     "TransformationResult",

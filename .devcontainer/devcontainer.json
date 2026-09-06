@@ -11,6 +11,7 @@
 	},
 	"remoteUser": "vscode",
 	"postCreateCommand": "uv sync --extra dev && uv run pytest tests/test_environment.py -q",
+	"postStartCommand": "bash .devcontainer/link-local-grids.sh",
 	"customizations": {
 		"vscode": {
 			"extensions": [

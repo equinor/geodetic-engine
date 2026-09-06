@@ -6,11 +6,14 @@ it. A collapsed chain has no code, so the WKT has to come from what PROJ built.
 
 from __future__ import annotations
 
+import json
+
 import pytest
-from pyproj import CRS
+from pyproj import CRS, Transformer
 from pyproj.crs import BoundCRS, CoordinateOperation
 
-from geodetic_engine.geodesy import Transformation
+from geodetic_engine.geodesy import Transformation, available_operations
+from geodetic_engine.geodesy.operation import has_inverted_step
 from geodetic_engine.geodesy.utils import collapse_concatenated
 
 ED50_TO_WGS84 = "EPSG:1133"
@@ -127,3 +130,62 @@ def test_operation_record_stays_hashable_and_terse() -> None:
     assert isinstance(hash(operation), int)
     assert "PROJJSON" not in repr(operation)
     assert "projjson" not in repr(operation)
+
+
+def test_an_inverted_datum_shift_refuses_to_export() -> None:
+    """An export PROJ would read back as the forward operation is withheld.
+
+    PROJ marks a step it applies backwards by wrapping its authority as
+    ``INVERSE(...)``, which neither WKT2 nor PROJJSON can express. Re-reading
+    such an export silently yields the forward operation, reversing the sign
+    of the datum shift, so None is returned rather than a document that looks
+    complete and computes something else.
+    """
+    inverted = [
+        c
+        for c in available_operations("EPSG:4326", "EPSG:4267")
+        if has_inverted_step(json.loads(c.projjson))
+    ]
+    assert inverted, "expected PROJ to offer an inverted candidate for this pair"
+
+    for candidate in inverted:
+        assert candidate.to_wkt() is None
+        assert candidate.to_json_dict() is None
+        # The raw text stays reachable for anyone who needs it knowing the caveat.
+        assert candidate.projjson
+
+
+def test_an_inverted_conversion_still_exports() -> None:
+    """Only datum shifts are withheld, not inverted map projections.
+
+    An inverse conversion is analytically invertible from the same parameters,
+    so PROJ reconstructs it correctly and withholding it would lose a faithful
+    export. ``EPSG:25831`` to ``EPSG:4258`` is exactly that: one inverted
+    conversion, no datum change.
+    """
+    operation = Transformation("EPSG:25831", "EPSG:4258").operation
+    assert operation.name == "Inverse of UTM zone 31N"
+    assert "INVERSE(" in operation.projjson
+
+    wkt = operation.to_wkt()
+    assert wkt is not None
+
+    point = (590000.0, 6700000.0)
+    rebuilt = Transformer.from_pipeline(wkt).transform(*point)[:2]
+    applied = Transformation("EPSG:25831", "EPSG:4258").transform(*point)
+    assert rebuilt == pytest.approx(applied.coordinates[0][:2], abs=1e-12)
+
+
+def test_a_forward_only_operation_still_exports_and_round_trips() -> None:
+    """The guard must not withhold an export that is faithful."""
+    candidate = available_operations("EPSG:4230", "EPSG:4326")[0]
+
+    assert not has_inverted_step(candidate.to_json_dict())
+    wkt = candidate.to_wkt()
+    assert wkt is not None
+
+    rebuilt = Transformer.from_pipeline(wkt).transform(10, 60, 100)[:2]
+    applied = Transformation(
+        "EPSG:4230", "EPSG:4326", operation=candidate.authority_code
+    ).transform(10, 60, 100)
+    assert rebuilt == pytest.approx(applied.coordinates[0][:2], abs=1e-12)

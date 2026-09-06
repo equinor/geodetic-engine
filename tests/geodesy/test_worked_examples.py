@@ -18,13 +18,14 @@ import pyproj
 import pytest
 
 from geodetic_engine.geodesy import (
+    OperationRequest,
     Transformation,
     TransformationFailedError,
     available_operations,
 )
 
-ED50_geog2D = "EPSG:4230" # ED50 Geographic 2D CRS.
-WGS84_geog2D = "EPSG:4326" # WGS 84 Geographic 2D CRS.
+ED50_geog2D = "EPSG:4230"  # ED50 Geographic 2D CRS.
+WGS84_geog2D = "EPSG:4326"  # WGS 84 Geographic 2D CRS.
 
 
 def _find_build_proj_db() -> Path | None:
@@ -60,12 +61,15 @@ def osdu_registered() -> Iterator[None]:
 
 def _clear_crs_cache() -> None:
     from geodetic_engine.geodesy import crs as crs_module
+
     crs_module._cached.cache_clear()
 
 
 def test_1_1_ed50_to_wgs84_via_explicit_operation() -> None:
     """A single named operation, no datum ambiguity possible."""
-    transformation = Transformation(source_crs=ED50_geog2D, target_crs=WGS84_geog2D, operation="EPSG:1612")
+    transformation = Transformation(
+        source_crs=ED50_geog2D, target_crs=WGS84_geog2D, operation="EPSG:1612"
+    )
 
     result = transformation.transform(10, 60, 100)
 
@@ -90,6 +94,79 @@ def test_1_2_osdu_bound_crs_round_trip_through_utm(osdu_registered: None) -> Non
     assert (lon, lat, height_back) == pytest.approx((10.0, 60.0, 100.0), abs=1e-6)
 
 
+def test_1_2_an_unregistered_chain_names_every_operation_it_applies(
+    osdu_registered: None,
+) -> None:
+    """A chain PROJ assembled itself must not claim one step's code as its own.
+
+    A bound CRS on both sides of the pair leaves PROJ no published operation
+    spanning it: it applies the source's shift to the WGS 84 hub and then the
+    inverse of the target's. Reporting the first step's code as the
+    candidate's own would understate that by exactly one datum shift, so an
+    unregistered chain carries no code and names both steps instead.
+    """
+    candidates = available_operations("OSDU:4230024", "OSDU:4258001")
+    unregistered = [c for c in candidates if c.is_chained and c.authority_code is None]
+    assert unregistered, "expected an unregistered chain between two bound CRSs"
+
+    for candidate in unregistered:
+        assert candidate.method_name is None
+        assert len(candidate.references) == len(candidate.steps) > 1
+        assert candidate.references == tuple(
+            step.authority_code for step in candidate.steps
+        )
+        assert candidate.name == " + ".join(step.name for step in candidate.steps)
+
+
+def test_1_2_a_transformed_result_names_every_operation_it_applied(
+    osdu_registered: None,
+) -> None:
+    """The applied operation must not claim one step's code either.
+
+    The same understatement as the candidate case, on the result side: with a
+    bound CRS on each side and nothing named by the caller, the source's own
+    declared shift identifies the pipeline but a second shift is applied
+    alongside it. Reporting EPSG:1613 here would describe half the
+    transformation, and its WKT would look complete while computing something
+    about 1.4 m away.
+    """
+    result = Transformation("OSDU:4230024", "Equinor:1100177").transform(10, 60)
+    applied = result.operation
+
+    assert applied.authority_code is None
+    assert applied.method_name is None
+    assert applied.name == ("ED50 to WGS 84 (24) + Inverse of ST_ETRS89_WGS84_T3000034")
+    assert {"ED50 to WGS 84 (24)", "Inverse of ST_ETRS89_WGS84_T3000034"} <= set(
+        applied.steps
+    )
+    # Both Helmerts really are applied, and the second one inverted.
+    assert result.pipeline.count("proj=helmert") == 2
+    assert "step inv proj=helmert" in result.pipeline
+
+
+def test_1_2_a_registered_concatenated_operation_keeps_its_own_code() -> None:
+    """EPSG:8047 publishes a two-step chain under one code, and must report it.
+
+    The authority defines the concatenation itself, so unlike a chain PROJ
+    assembled there is a single code that names the whole of it. Its steps are
+    still listed, but naming EPSG:8047 alone pins the operation down and no
+    method is claimed, since two are applied.
+    """
+    candidate = next(
+        c for c in available_operations(ED50_geog2D, WGS84_geog2D) if c.code == "8047"
+    )
+
+    assert candidate.authority_code == "EPSG:8047"
+    assert candidate.name == "ED50 to WGS 84 (15)"
+    assert candidate.is_chained
+    assert candidate.method_name is None
+    assert candidate.references == ("EPSG:8047",)
+    assert [step.authority_code for step in candidate.steps] == [
+        "EPSG:1147",
+        "EPSG:1146",
+    ]
+
+
 def test_1_3_chained_operations_match_their_collapsed_equivalent() -> None:
     """EPSG:8047 is a concatenated operation consisting of EPSG:1147 followed by EPSG:1146.
 
@@ -102,15 +179,21 @@ def test_1_3_chained_operations_match_their_collapsed_equivalent() -> None:
     point = [4.12789451, 63.58496782, 100]
 
     chained = Transformation(
-        source_crs=ED50_geog2D, target_crs=WGS84_geog2D, operation=["EPSG:1147", "EPSG:1146"]
+        source_crs=ED50_geog2D,
+        target_crs=WGS84_geog2D,
+        operation=["EPSG:1147", "EPSG:1146"],
     )
-    collapsed = Transformation(source_crs=ED50_geog2D, target_crs=WGS84_geog2D, operation="EPSG:8047")
+    collapsed = Transformation(
+        source_crs=ED50_geog2D, target_crs=WGS84_geog2D, operation="EPSG:8047"
+    )
 
     forward_result = chained.transform(*point)
     assert forward_result.coordinates == collapsed.transform(*point).coordinates
 
     reverse = Transformation(
-        source_crs=WGS84_geog2D, target_crs=ED50_geog2D, operation=["EPSG:1147", "EPSG:1146"]
+        source_crs=WGS84_geog2D,
+        target_crs=ED50_geog2D,
+        operation=["EPSG:1147", "EPSG:1146"],
     )
     round_tripped = reverse.transform(*forward_result.coordinates[0])
     assert round_tripped.coordinates[0] == pytest.approx(tuple(point), abs=1e-6)
@@ -128,16 +211,20 @@ def test_1_3_operation_list_order_does_not_matter() -> None:
     point = [4.12789451, 63.58496782, 100]
 
     forward_order = Transformation(
-        source_crs=ED50_geog2D, target_crs=WGS84_geog2D, operation=["EPSG:1147", "EPSG:1146"]
+        source_crs=ED50_geog2D,
+        target_crs=WGS84_geog2D,
+        operation=["EPSG:1147", "EPSG:1146"],
     )
     reverse_order = Transformation(
-        source_crs=ED50_geog2D, target_crs=WGS84_geog2D, operation=["EPSG:1146", "EPSG:1147"]
+        source_crs=ED50_geog2D,
+        target_crs=WGS84_geog2D,
+        operation=["EPSG:1146", "EPSG:1147"],
     )
 
-    assert forward_order.transform(*point).coordinates == reverse_order.transform(
-        *point
-    ).coordinates
-
+    assert (
+        forward_order.transform(*point).coordinates
+        == reverse_order.transform(*point).coordinates
+    )
 
 
 def test_available_operations_area_of_use_carries_the_bounding_box() -> None:
@@ -149,9 +236,7 @@ def test_available_operations_area_of_use_carries_the_bounding_box() -> None:
     from pyproj.transformer import TransformerGroup
 
     candidate = available_operations(ED50_geog2D, WGS84_geog2D)[0]
-    expected = (
-        TransformerGroup(ED50_geog2D, WGS84_geog2D).transformers[0].area_of_use
-    )
+    expected = TransformerGroup(ED50_geog2D, WGS84_geog2D).transformers[0].area_of_use
 
     area = candidate.area_of_use
     assert area is not None
@@ -165,13 +250,15 @@ def test_available_operations_area_of_use_carries_the_bounding_box() -> None:
 
 
 def test_available_operations() -> None:
-    """Passing a candidate object matches naming its own reference explicitly.
+    """Passing a candidate object matches naming its own references explicitly.
 
     Every usable candidate ``available_operations()`` offers for a pair must
     resolve, and transform, identically whether given as the candidate object
-    itself or as its own authority code -- or its name, for the rare
-    candidate with no code, since passing the object is just shorthand that
-    parses down to one of those two. A ballpark or grid-missing candidate is
+    itself or as its
+    :attr:`~geodetic_engine.geodesy.operation.OperationCandidate.references`,
+    since passing the object is just shorthand that expands to exactly those.
+    A chained candidate has more than one, and no single code or name that
+    could stand for the whole of it. A ballpark or grid-missing candidate is
     skipped rather than compared: ``usable`` is False for exactly the ones
     ``Transformation`` refuses outright, on either side, so there is nothing
     to compare there.
@@ -191,9 +278,12 @@ def test_available_operations() -> None:
         by_reference = Transformation(
             source_crs=ED50_geog2D,
             target_crs=WGS84_geog2D,
-            operation=candidate.authority_code or candidate.name,
+            operation=candidate.references,
         )
-        assert by_candidate.operation.authority_code == by_reference.operation.authority_code
+        assert (
+            by_candidate.operation.authority_code
+            == by_reference.operation.authority_code
+        )
         assert by_candidate.operation.name == by_reference.operation.name
 
         # A regional operation refuses a point outside the area its grid
@@ -209,3 +299,69 @@ def test_available_operations() -> None:
         assert by_candidate.transform(*point).coordinates[0] == pytest.approx(
             expected, abs=1e-8
         )
+
+
+def test_an_operation_authority_keeps_the_spelling_proj_registered_it_under() -> None:
+    """A custom authority must not be uppercased on its way to PROJ.
+
+    PROJ matches authority names case-sensitively, so rewriting a request for
+    ``Equinor:3000034`` as ``EQUINOR::3000034`` makes the URN unresolvable and
+    every operation published by an authority whose registered name is not
+    uppercase unreachable. Known authorities resolve to the spelling proj.db
+    stores; an unknown one is left exactly as the caller wrote it.
+    """
+    assert OperationRequest.parse("epsg:1612").auth_name == "EPSG"
+    assert OperationRequest.parse("ESRI:1234").auth_name == "ESRI"
+    assert OperationRequest.parse("MixedCase:1234").auth_name == "MixedCase"
+    assert (
+        OperationRequest.parse("MixedCase:1234").urn
+        == "urn:ogc:def:coordinateOperation:MixedCase::1234"
+    )
+
+
+# A vertical CRS declares one axis, so a point in it is a bare height. The
+# shift applied to that height is usually read at a horizontal position, which
+# therefore has to travel with it even though the CRS declares no axis for it.
+NZVD2009 = "EPSG:4440"  # NZVD2009 height.
+AUCKLAND_1946 = "EPSG:5759"  # Auckland 1946 height.
+NZVD2009_TO_AUCKLAND = "EPSG:4442"  # Vertical Offset of +0.34 m, no grid.
+
+
+def test_a_vertical_crs_accepts_the_position_its_shift_is_read_at() -> None:
+    """A height may be given with the horizontal position that locates it.
+
+    A vertical datum shift is generally only defined where its grid is read,
+    so refusing the position for being one value more than the CRS declares
+    would make every vertical source unusable. The result is still the single
+    axis the target declares.
+    """
+    transformation = Transformation(
+        NZVD2009, AUCKLAND_1946, operation=NZVD2009_TO_AUCKLAND
+    )
+
+    result = transformation.transform([[174.76, -36.85, 25.0]])
+
+    assert result.operation.authority_code == NZVD2009_TO_AUCKLAND
+    assert result.target_axes == ("H",)
+    assert result.coordinates[0] == pytest.approx((25.34,), abs=1e-9)
+
+
+def test_a_constant_vertical_shift_never_reads_the_position_as_a_latitude() -> None:
+    """A position a constant shift cannot read is carried, not interpreted.
+
+    The offset here is the same everywhere, so the accompanying horizontal
+    values are not part of the calculation and need not be geographic -- they
+    are commonly engineering or projected coordinates. Offering them to PROJ
+    as a latitude and longitude would have it reject a perfectly good point
+    for an impossible latitude, so they are withheld instead, and the height
+    comes back shifted by exactly the same offset either way.
+    """
+    transformation = Transformation(
+        NZVD2009, AUCKLAND_1946, operation=NZVD2009_TO_AUCKLAND
+    )
+
+    geographic = transformation.transform([[174.76, -36.85, 25.0]])
+    projected = transformation.transform([[1757000.0, 5921000.0, 25.0]])
+
+    assert projected.coordinates == geographic.coordinates
+    assert projected.coordinates[0] == pytest.approx((25.34,), abs=1e-9)

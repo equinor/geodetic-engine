@@ -66,6 +66,20 @@ class TransformationFailedError(GeodesyError):
     """PROJ could not produce a finite result for one or more coordinates."""
 
 
+class CoordinateOutOfRangeError(TransformationFailedError):
+    """An input coordinate is outside the range its axis can represent.
+
+    Raised before PROJ is called, because PROJ's own message for this names
+    neither the CRS, its units, nor the value order the number was read in --
+    and the overwhelmingly common cause is passing projected coordinates in
+    metres to a geographic CRS in degrees, or passing latitude first when this
+    package reads values in ``xy`` order.
+
+    A subclass of :class:`TransformationFailedError`, so code that already
+    catches that keeps working.
+    """
+
+
 class NotCollapsibleError(GeodesyError):
     """A concatenated operation cannot be reduced to a single equivalent step.
 

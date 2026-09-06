@@ -21,16 +21,20 @@ from pyproj.transformer import TransformerGroup
 
 from geodetic_engine.geodesy import (
     AmbiguousOperationError,
+    CoordinateOutOfRangeError,
+    CoordinateReferenceSystem,
     GeodesyError,
     MissingCoordinateEpochError,
     MissingGridError,
     OperationNotAvailableError,
     OperationRoute,
     Transformation,
+    TransformationFailedError,
     UnresolvableCRSError,
     available_operations,
 )
 from geodetic_engine.geodesy.operation import is_ballpark
+from geodetic_engine.geodesy.transformation import _require_in_range
 
 # No datum shift is defined between the Puerto Rico datum and GDA94, so PROJ
 # can only offer a ballpark geographic offset between them.
@@ -268,12 +272,16 @@ def test_two_operations_fused_into_one_step_round_trip_in_reverse() -> None:
 def test_a_candidate_from_available_operations_can_be_passed_directly() -> None:
     """An identified candidate is equivalent to naming its authority code."""
     candidates = available_operations("EPSG:4230", "EPSG:4326")
-    named = Transformation("EPSG:4230", "EPSG:4326", operation=candidates[0].authority_code)
+    named = Transformation(
+        "EPSG:4230", "EPSG:4326", operation=candidates[0].authority_code
+    )
     by_candidate = Transformation("EPSG:4230", "EPSG:4326", operation=candidates[0])
 
     point = (4.0, 52.0)
     assert by_candidate.operation.authority_code == named.operation.authority_code
-    assert by_candidate.transform(point).coordinates == named.transform(point).coordinates
+    assert (
+        by_candidate.transform(point).coordinates == named.transform(point).coordinates
+    )
 
 
 def test_an_unidentified_candidate_can_be_pinned_down_by_object() -> None:
@@ -315,6 +323,60 @@ def test_unresolvable_crs_raises_our_own_error() -> None:
         Transformation("EPSG:not-a-crs", "EPSG:4326")
 
 
+def test_projected_coordinates_given_to_a_geographic_crs_are_named_as_such() -> None:
+    """PROJ's bare "Invalid latitude" is replaced by an actionable message.
+
+    Handing eastings and northings in metres to a geographic CRS is the most
+    common way to get this wrong, and PROJ's own message names neither the
+    CRS, nor its units, nor which value it read as latitude. All three have to
+    appear or the caller cannot tell what to change.
+    """
+    transformation = Transformation("EPSG:4230", "EPSG:4326", operation="EPSG:1612")
+
+    with pytest.raises(CoordinateOutOfRangeError) as raised:
+        transformation.transform(590000, 6700000)
+
+    message = str(raised.value)
+    assert "6700000" in message
+    assert "degree" in message
+    assert "EPSG:4230" in message
+    assert "'Lon', 'Lat'" in message
+
+
+def test_an_out_of_range_coordinate_stays_catchable_as_a_failed_transformation() -> (
+    None
+):
+    """The new error is a subclass, so existing handlers keep working."""
+    transformation = Transformation("EPSG:4230", "EPSG:4326", operation="EPSG:1612")
+
+    with pytest.raises(TransformationFailedError):
+        transformation.transform(590000, 6700000)
+
+
+def test_the_latitude_limit_comes_from_the_axis_unit_not_a_hard_coded_90() -> None:
+    """EPSG:4807 declares grads, where the pole is at 100, not 90.
+
+    Assuming degrees here would refuse a perfectly valid grad latitude, so the
+    limit is derived from the axis's own conversion factor.
+    """
+    ntf_paris = CoordinateReferenceSystem.from_user_input("EPSG:4807")
+    assert ntf_paris.axis_units == ("grad", "grad")
+
+    _require_in_range(ntf_paris, [[0.0], [95.0]])
+
+    with pytest.raises(CoordinateOutOfRangeError, match=r"\[-100, 100\]"):
+        _require_in_range(ntf_paris, [[0.0], [105.0]])
+
+
+def test_a_projected_crs_is_not_subject_to_the_latitude_check() -> None:
+    """A northing of millions of metres is ordinary, not out of range."""
+    transformation = Transformation("EPSG:25831", "EPSG:4258")
+
+    lon, lat = transformation.transform(590000, 6700000).coordinates[0]
+    assert lon == pytest.approx(4.634735474, abs=1e-9)
+    assert lat == pytest.approx(60.426250138, abs=1e-9)
+
+
 def test_time_dependent_operation_requires_an_epoch() -> None:
     """An operation that reads the epoch refuses to run without one."""
     transformation = Transformation("EPSG:4896", "EPSG:4938", operation="EPSG:6277")
@@ -346,6 +408,23 @@ def test_missing_grid_is_named_and_refused(tmp_path: Path) -> None:
         pytest.raises(MissingGridError, match="not installed"),
     ):
         Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3858")
+
+
+def test_a_missing_grid_is_named_even_when_no_candidate_offers_the_operation(
+    tmp_path: Path,
+) -> None:
+    """An operation built on its own still blames the grid, not the operation.
+
+    EPSG:3859 is not among the candidates PROJ offers for this pair, so it is
+    built as a pipeline of its own, and PROJ reports its absent grid as a
+    malformed pipeline step. Reporting that as "not available" would send the
+    caller looking for a different operation instead of for the grid.
+    """
+    with (
+        _without_grids(tmp_path),
+        pytest.raises(MissingGridError, match="not installed"),
+    ):
+        Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3859")
 
 
 def test_grids_are_reported_when_present() -> None:
