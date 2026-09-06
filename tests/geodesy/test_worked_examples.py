@@ -365,3 +365,135 @@ def test_a_constant_vertical_shift_never_reads_the_position_as_a_latitude() -> N
 
     assert projected.coordinates == geographic.coordinates
     assert projected.coordinates[0] == pytest.approx((25.34,), abs=1e-9)
+
+
+# Norway's NN54 height, and the two ETRS89 variants that reach it: plain
+# ETRS89 and ETRS89-NOR, its Norway-only-extent restriction of the same datum.
+# The grid this operation reads (href2008a.bin -> no_kv_href2008a.tif) ships
+# with a stock PROJ install, unlike the grids in the two cases below it.
+ETRS89_geog3D = "EPSG:4937"  # ETRS89 Geographic 3D.
+ETRS89_NOR_geog3D = "EPSG:10874"  # ETRS89-NOR Geographic 3D.
+NN54_HEIGHT = "EPSG:5776"  # NN54 height.
+UTM32N_NN54_HEIGHT = "EPSG:6172"  # ETRS89-NOR / UTM zone 32N + NN54 height.
+UTM32N_NN2000_HEIGHT = "EPSG:5972"  # ETRS89-NOR / UTM zone 32N + NN2000 height.
+ETRS89_TO_NN54 = "EPSG:9484"  # ETRS89-NOR to NN54 height (1).
+
+
+def test_a_named_vertical_operation_reaches_a_compound_target() -> None:
+    """A vertical operation composes with the conversion PROJ adds for a compound target.
+
+    EPSG:9484 reads the NN54 geoid grid at a geographic position; naming it
+    against the *compound* UTM+height target still reaches it, with PROJ's own
+    UTM conversion applied around it. The composite pipeline has no authority
+    code of its own -- only the named vertical operation inside it does.
+    """
+    transformation = Transformation(
+        ETRS89_geog3D, UTM32N_NN54_HEIGHT, operation=ETRS89_TO_NN54
+    )
+
+    result = transformation.transform([[11.12789451, 63.58496782, 100]])
+
+    assert result.operation.authority_code is None
+    assert result.coordinates[0] == pytest.approx(
+        (605606.253, 7052523.904, 61.7415), abs=1e-3
+    )
+
+
+def test_the_same_operation_against_a_vertical_only_target_agrees_on_height() -> None:
+    """The height alone, from the same operation, matches the compound case above.
+
+    Confirms that height is not an artefact of the UTM conversion above: asked
+    for the vertical CRS alone through the same operation, it agrees to the
+    operation's own precision.
+    """
+    transformation = Transformation(
+        ETRS89_geog3D, NN54_HEIGHT, operation=ETRS89_TO_NN54
+    )
+
+    result = transformation.transform([[10.65894583, 60.93562145, 62.458]])
+
+    assert result.operation.authority_code == ETRS89_TO_NN54
+    assert result.coordinates[0] == pytest.approx((23.5988,), abs=1e-3)
+
+
+def test_etrs89_nor_reaches_the_same_operation_as_plain_etrs89() -> None:
+    """ETRS89-NOR is ETRS89 restricted to Norway's extent, not a different datum.
+
+    The compound-to-geographic-3D reverse of the first case above, but named
+    from ETRS89-NOR: the same operation applies, and round-trips the original
+    point back out.
+    """
+    transformation = Transformation(
+        UTM32N_NN54_HEIGHT, ETRS89_NOR_geog3D, operation=ETRS89_TO_NN54
+    )
+
+    result = transformation.transform([[605606.253, 7052523.904, 61.742]])
+
+    assert result.coordinates[0] == pytest.approx(
+        (11.1278945, 63.5849678, 100.0005), abs=1e-3
+    )
+
+
+def test_proj_finds_its_own_path_when_two_named_operations_cannot_be_chained() -> None:
+    """Letting PROJ choose succeeds exactly where naming both operations by hand fails.
+
+    NN2000-height compound to NN54-height compound has no single registered
+    operation spanning it; naming both EPSG:9485 and EPSG:9484 explicitly is
+    refused, because chaining two named operations by hand is not supported
+    (see ``proj_issues.md`` and ``tests/local_tests/failing_local_test.md``,
+    cause C). Left to search freely, PROJ finds its own equivalent composite
+    path and produces the same number that naming both operations would have.
+    """
+    transformation = Transformation(
+        UTM32N_NN2000_HEIGHT, UTM32N_NN54_HEIGHT, allow_any_operation=True
+    )
+
+    result = transformation.transform([[621786.686, 7049822.720, 88.454]])
+
+    assert result.operation.authority_code is None
+    assert result.coordinates[0] == pytest.approx(
+        (621786.686, 7049822.720, 88.2847), abs=1e-3
+    )
+
+
+# WGS 84 to EGM2008 height: the 2.5' grid, which ships with a stock PROJ
+# install. The 1' grid (EPSG:3859) needs the opt-in grid file in local_grids/
+# (see scripts/patch-grid-alternatives.sh) and is deliberately not exercised
+# here, so this file runs unchanged in an environment that never set that up.
+WGS84_geog3D = "EPSG:4979"  # WGS 84 Geographic 3D.
+WGS84_EGM2008_HEIGHT = "EPSG:9518"  # WGS 84 + EGM2008 height.
+WGS84_TO_EGM2008_25 = "EPSG:3858"  # WGS 84 to EGM2008 height (1), 2.5' grid.
+
+
+def test_egm2008_25_minute_operation_agrees_forward_reverse_and_vertical_only() -> None:
+    """Compound forward, compound reverse, and the vertical-only target, all agree.
+
+    Three ways of asking the same 2.5' EGM2008 operation for the same height
+    must produce the same number: forward through the compound CRS, backward
+    from the same expected point, and forward again against the vertical CRS
+    alone rather than the compound one.
+    """
+    point = (-33.246545678, 56.41950283, 167.467)
+    expected_height = 106.0259
+
+    forward = Transformation(
+        WGS84_geog3D, WGS84_EGM2008_HEIGHT, operation=WGS84_TO_EGM2008_25
+    )
+    assert forward.transform([point]).coordinates[0] == pytest.approx(
+        (point[0], point[1], expected_height), abs=1e-3
+    )
+
+    reverse = Transformation(
+        WGS84_EGM2008_HEIGHT, WGS84_geog3D, operation=WGS84_TO_EGM2008_25
+    )
+    reverse_point = (point[0], point[1], expected_height)
+    assert reverse.transform([reverse_point]).coordinates[0] == pytest.approx(
+        point, abs=1e-3
+    )
+
+    vertical_only = Transformation(
+        WGS84_geog3D, "EPSG:3855", operation=WGS84_TO_EGM2008_25
+    )
+    assert vertical_only.transform([point]).coordinates[0] == pytest.approx(
+        (expected_height,), abs=1e-3
+    )
