@@ -98,6 +98,10 @@ ipython_config.py
 #   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
+
+# Local regression data and the tests that read it: proprietary coordinates
+# and CRS codes that must not be published alongside this package.
+tests/local_tests/
 # uv.lock
 
 # poetry
@@ -219,6 +223,11 @@ __marimo__/
 
 # Mics
 tmp/
+
+# Grid files for local testing of custom/missing grids. Never committed: large
+# binaries that belong in proj.db's grid_alternatives, not in git.
+local_grids/
+
 # Local environment overrides / secrets
 .env
 
