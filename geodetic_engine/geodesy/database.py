@@ -22,6 +22,7 @@ import logging
 import os
 import sqlite3
 from collections.abc import Mapping
+from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
 
@@ -87,7 +88,7 @@ def _definitions(data_dir: str) -> Mapping[tuple[str, str], str]:
 
 def _read_into(found: dict[tuple[str, str], str], database: Path) -> None:
     """Collect the bound CRS rows of one database into ``found``."""
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         for table in _CRS_TABLES:
             if not _has_text_definition(connection, table):
                 continue

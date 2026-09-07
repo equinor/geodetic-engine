@@ -15,7 +15,7 @@ import logging
 import sqlite3
 import sys
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -311,7 +311,7 @@ def _show_config(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _inspect(database: Path) -> dict[str, Any]:
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         metadata = dict(connection.execute("SELECT key, value FROM metadata"))
         authorities = {
             str(auth): int(count)

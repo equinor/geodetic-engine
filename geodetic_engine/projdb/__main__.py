@@ -13,7 +13,7 @@ import logging
 import sqlite3
 import sys
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from geodetic_engine.errors import GeodeticEngineError
@@ -284,7 +284,7 @@ def _show_config(config_file: Path | None) -> dict[str, object]:
 
 
 def _inspect(database: Path) -> dict[str, object]:
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         metadata = dict(connection.execute("SELECT key, value FROM metadata"))
         authorities = {
             str(auth): int(count)

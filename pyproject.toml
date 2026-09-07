@@ -75,3 +75,9 @@ markers = [
 [tool.mypy]
 python_version = "3.13"
 strict = true
+
+# pyproj re-exports through its packages without an explicit __all__, so strict
+# mode reads every one of them as private. The imports are real public API.
+[[tool.mypy.overrides]]
+module = ["pyproj.*"]
+implicit_reexport = true

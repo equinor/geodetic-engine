@@ -27,7 +27,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
 from pyproj import CRS, Transformer
 from pyproj.crs import CoordinateOperation
@@ -455,7 +455,8 @@ class Transformation:
             axis the target CRS declares.
 
         Raises:
-            TypeError: If ``z`` was given without ``y``.
+            TypeError: If ``z`` was given without ``y``, or ``x`` is a lone
+                number while ``y`` is omitted, which names no point.
             ValueError: If points disagree on how many values they carry, or
                 that count is not the source CRS's declared dimension, or one
                 more (a height alongside a 2D horizontal CRS, carried through
@@ -486,9 +487,19 @@ class Transformation:
                     "z was given without y; pass x, y and z as separate "
                     "per-axis values, or x alone as the whole set of points"
                 )
+            if isinstance(x, int | float):
+                raise TypeError(
+                    "a single number is not a point; give every value of the "
+                    "point, for example (lon, lat), or pass x, y and z as "
+                    "separate per-axis values"
+                )
             columns = _columns(self._source, x)
         else:
-            columns = _columns_from_axes(self._source, x, y, z)
+            # Giving y selects pyproj's per-axis convention, under which x is
+            # one axis's values and never the whole batch of points.
+            columns = _columns_from_axes(
+                self._source, cast("Iterable[float] | float", x), y, z
+            )
         count = len(columns[0]) if columns else 0
 
         _require_in_range(self._source, columns)
@@ -609,8 +620,9 @@ def _columns(
             count is not ``crs``'s declared dimension, or one more.
     """
     # Materialised up front: points may be a one-shot iterable or a numpy array
-    # (not a Sequence), and each axis is read once below.
-    materialized = list(points)
+    # (not a Sequence), and each axis is read once below. Whether an element is
+    # a point or one value of a single flat point is only known at runtime.
+    materialized: list[Any] = list(points)
     if materialized and not isinstance(materialized[0], Iterable):
         # A lone point given flat, e.g. (lon, lat), rather than [(lon, lat)].
         # Unambiguous whenever a point has more than one value: only a single
@@ -659,18 +671,19 @@ def _columns_from_axes(
     axes = (x, y) if z is None else (x, y, z)
     _require_width(crs, len(axes))
 
-    values = [
-        tuple(float(v) for v in axis) if isinstance(axis, Iterable) else None
+    values: list[tuple[float, ...] | float] = [
+        tuple(float(value) for value in axis)
+        if isinstance(axis, Iterable)
+        else float(axis)
         for axis in axes
     ]
-    lengths = {len(column) for column in values if column is not None}
+    lengths = {len(column) for column in values if isinstance(column, tuple)}
     if len(lengths) > 1:
         raise ValueError(f"axes have differing batch sizes: {sorted(lengths)}")
     count = lengths.pop() if lengths else 1
 
     return tuple(
-        column if column is not None else (float(axis),) * count
-        for column, axis in zip(values, axes, strict=True)
+        column if isinstance(column, tuple) else (column,) * count for column in values
     )
 
 
@@ -1728,7 +1741,7 @@ def _carry_unread_horizontal(
 
 
 def _require_in_range(
-    source: CoordinateReferenceSystem, columns: list[list[float]]
+    source: CoordinateReferenceSystem, columns: tuple[tuple[float, ...], ...]
 ) -> None:
     """Refuse a latitude a geographic CRS's own axis unit cannot represent.
 

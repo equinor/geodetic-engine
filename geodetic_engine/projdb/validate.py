@@ -30,7 +30,7 @@ import shutil
 import sqlite3
 import tempfile
 from collections.abc import Generator, Iterable, Sequence
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -88,7 +88,7 @@ def validate(
     authority_list = sorted(authorities)
     logger.info("validating %s for %s", database, authority_list)
 
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         _check_integrity(connection)
         _check_foreign_keys(connection)
         logger.info("integrity and foreign key checks passed")

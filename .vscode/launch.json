@@ -20,6 +20,15 @@
             "args": ["${workspaceFolder}/tests/geodesy/test_worked_examples.py", "-vv"],
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: test_pipeline_replay.py (pytest)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${workspaceFolder}/tests/geodesy/test_pipeline_replay.py", "-vv"],
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ]
 }

@@ -158,9 +158,6 @@ class OperationRoute(StrEnum):
     TRANSFORMER_GROUP = "transformer_group"
     """Selected from the candidates PROJ offers for the CRS pair."""
 
-    DIRECT = "direct"
-    """Built from the requested operation, which spans the CRS pair itself."""
-
     CHAINED = "chained"
     """Built from the requested operation, wrapped in same-datum conversions."""
 
@@ -752,27 +749,6 @@ def parse_operations(
             item.references if isinstance(item, OperationCandidate) else (item,)
         )
     )
-
-
-def operation_ids(definition: object) -> set[tuple[str, str]]:
-    """Collect the authority codes of every coordinate operation in a tree.
-
-    Walks a PROJJSON operation, including the steps of a concatenated
-    operation, and returns the identifier of each step. Identifiers belonging
-    to nested CRS definitions are excluded, so a projected CRS's own map
-    projection conversion cannot be mistaken for the operation being applied.
-
-    Args:
-        definition: PROJJSON of an operation, as a dict.
-
-    Returns:
-        Set of ``(authority, code)`` pairs, both upper-case strings.
-    """
-    return {
-        identifier
-        for node in _operation_nodes(definition)
-        if (identifier := _identifier_of(node)) is not None
-    }
 
 
 def operation_names(definition: object) -> set[str]:

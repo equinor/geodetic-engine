@@ -114,6 +114,13 @@ def test_differing_value_counts_are_rejected() -> None:
         tfm.transform([OSLO_XY, (5.3221, 60.3913, 10.0)])
 
 
+def test_a_lone_number_is_not_a_point() -> None:
+    """Naming the shape expected, rather than failing on iterating a float."""
+    tfm = Transformation("EPSG:4326", "EPSG:3395")
+    with pytest.raises(TypeError, match="a single number is not a point"):
+        tfm.transform(10.7522)
+
+
 def test_one_extra_value_passes_through_unchanged() -> None:
     """A height alongside a 2D horizontal CRS is carried through, not dropped.
 
