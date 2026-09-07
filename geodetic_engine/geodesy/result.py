@@ -47,6 +47,11 @@ class Coordinates(tuple[tuple[float, ...], ...]):
         self._target_crs = target_crs
         return self
 
+    def __getnewargs__(self) -> tuple[Any, ...]:
+        # tuple's own __getnewargs__ drops the target CRS, which __new__
+        # requires, so pickle and deepcopy would both fail without this.
+        return (tuple(self), self._target_crs)
+
     def to_list(self) -> list[list[float]]:
         """Coordinates as plain nested Python lists, one list per point.
 
@@ -79,22 +84,24 @@ class Coordinates(tuple[tuple[float, ...], ...]):
     def to_dataframe(self) -> pd.DataFrame:
         """Coordinates as a pandas DataFrame, one row per point.
 
-        Columns are named after the target CRS's declared axes, for example
-        ``["E", "N"]`` for a projected target. A row carrying one value more
-        than the target CRS declares -- a height passed through unchanged
-        alongside a 2D horizontal target -- gets one extra column, named
-        ``"h"`` for a geographic target or ``"Z"`` for a Cartesian one
-        (projected, geocentric, engineering).
+        Columns are named after the target CRS's axes in coordinate value
+        order, not in EPSG-declared order, so that each column label names the
+        axis whose value the column actually holds: ``["Lon", "Lat"]`` for
+        ``EPSG:4326``, whose declared order is ``("Lat", "Lon")``. A row
+        carrying one value more than the target CRS declares -- a height passed
+        through unchanged alongside a 2D horizontal target -- gets one extra
+        column, named ``"h"`` for a geographic target or ``"Z"`` for a
+        Cartesian one (projected, geocentric, engineering).
 
         Returns:
             A DataFrame with one row per point and one column per value.
 
         Example:
             >>> coordinates.to_dataframe()  # doctest: +SKIP
-                    Lat      Lon
+                   Lon      Lat
             0  10.7522  59.9139
         """
-        axes = self._target_crs.axis_abbreviations
+        axes = self._target_crs.value_axis_abbreviations
         width = len(self[0]) if self else len(axes)
         columns = list(axes[:width])
         if width > len(columns):

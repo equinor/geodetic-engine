@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -818,17 +819,18 @@ def available_operations(
     """
     source = CoordinateReferenceSystem.from_user_input(source_crs)
     target = CoordinateReferenceSystem.from_user_input(target_crs)
-    group = TransformerGroup(
-        source.crs,
-        target.crs,
-        always_xy=True,
-        authority=authority,
-        accuracy=accuracy,
-        allow_ballpark=allow_ballpark,
-        allow_superseded=allow_superseded,
-        crs_extent_use="none",
-        grid_check="none",
-    )
+    with _proj_construction(source, target):
+        group = TransformerGroup(
+            source.crs,
+            target.crs,
+            always_xy=True,
+            authority=authority,
+            accuracy=accuracy,
+            allow_ballpark=allow_ballpark,
+            allow_superseded=allow_superseded,
+            crs_extent_use="none",
+            grid_check="none",
+        )
     return tuple(_describe_candidate(transformer) for transformer in group.transformers)
 
 
@@ -949,6 +951,26 @@ def _cached_transformation(
     )
 
 
+@contextmanager
+def _proj_construction(
+    source: CoordinateReferenceSystem, target: CoordinateReferenceSystem
+) -> Iterator[None]:
+    """Report PROJ's refusal to build anything for a CRS pair as a package error.
+
+    PROJ raises for pairs it has no notion of a path between at all, such as a
+    vertical CRS to a geographic one. That is a real failure and is not hidden,
+    but it reaches the caller as :class:`OperationNotAvailableError` naming both
+    CRSs rather than as a bare ``ProjError`` from inside pyproj.
+    """
+    try:
+        yield
+    except (ProjError, CRSError) as error:
+        raise OperationNotAvailableError(
+            f"PROJ cannot build a transformation from {_label(source)} to "
+            f"{_label(target)}: {error}"
+        ) from error
+
+
 def _resolve(
     source: CoordinateReferenceSystem,
     target: CoordinateReferenceSystem,
@@ -999,18 +1021,20 @@ def _resolve_without_request(
                 "made here (pass allow_any_operation=True to let PROJ choose "
                 "anyway)"
             )
-        transformer = Transformer.from_crs(
-            source.crs, target.crs, always_xy=True, allow_ballpark=True
-        )
+        with _proj_construction(source, target):
+            transformer = Transformer.from_crs(
+                source.crs, target.crs, always_xy=True, allow_ballpark=True
+            )
         return _Pipeline(
             steps=((transformer, TransformDirection.FORWARD),),
             core=transformer,
             route=OperationRoute.ANY_OPERATION,
             skip_introspection=True,
         )
-    transformer = Transformer.from_crs(
-        source.crs, target.crs, always_xy=True, allow_ballpark=False
-    )
+    with _proj_construction(source, target):
+        transformer = Transformer.from_crs(
+            source.crs, target.crs, always_xy=True, allow_ballpark=False
+        )
     return _Pipeline(
         steps=((transformer, TransformDirection.FORWARD),),
         core=transformer,
@@ -1088,15 +1112,16 @@ def _from_transformer_group(
     operation is not hidden merely because its grid is missing. A missing grid
     is then reported as a missing grid rather than as a missing operation.
     """
-    group = TransformerGroup(
-        source.crs,
-        target.crs,
-        always_xy=True,
-        allow_ballpark=False,
-        allow_superseded=True,
-        crs_extent_use="none",
-        grid_check="none",
-    )
+    with _proj_construction(source, target):
+        group = TransformerGroup(
+            source.crs,
+            target.crs,
+            always_xy=True,
+            allow_ballpark=False,
+            allow_superseded=True,
+            crs_extent_use="none",
+            grid_check="none",
+        )
     for transformer in group.transformers:
         definition = transformer.to_json_dict()
         if all(request.is_satisfied_by(definition) for request in requests):

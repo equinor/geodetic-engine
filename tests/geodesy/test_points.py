@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import pickle
 
 import numpy as np
 import pytest
@@ -193,7 +195,33 @@ def test_to_dataframe_names_the_extra_column_h_for_a_geographic_target() -> None
 
     frame = result.coordinates.to_dataframe()
 
-    assert list(frame.columns) == ["Lat", "Lon", "h"]
+    assert list(frame.columns) == ["Lon", "Lat", "h"]
+
+
+def test_to_dataframe_columns_are_in_value_order_not_declared_order() -> None:
+    """EPSG:4326 declares (Lat, Lon) but values are (lon, lat): labels follow values."""
+    projected = transform("EPSG:4326", "EPSG:3395", [OSLO_XY]).coordinates
+    result = transform("EPSG:3395", "EPSG:4326", projected)
+
+    frame = result.coordinates.to_dataframe()
+
+    assert result.target_axes == ("Lat", "Lon")
+    assert list(frame.columns) == ["Lon", "Lat"]
+    assert frame["Lon"][0] == pytest.approx(OSLO_XY[0], abs=1e-9)
+    assert frame["Lat"][0] == pytest.approx(OSLO_XY[1], abs=1e-9)
+
+
+def test_result_survives_a_pickle_round_trip() -> None:
+    """External services cache results and cross process boundaries with them."""
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+
+    restored = pickle.loads(pickle.dumps(result))
+
+    assert restored.coordinates == result.coordinates
+    assert restored.coordinates.to_dataframe().columns.tolist() == (
+        result.coordinates.to_dataframe().columns.tolist()
+    )
+    assert copy.deepcopy(result.coordinates) == result.coordinates
 
 
 def test_vertical_target_returns_one_value_per_point() -> None:
