@@ -231,3 +231,28 @@ def test_vertical_target_returns_one_value_per_point() -> None:
     )
     assert result.target_crs.dimension == 1
     assert len(result.coordinates[0]) == 1
+
+
+@pytest.mark.parametrize("point", [(100.0,), (10.0, 100.0)])
+def test_a_vertical_source_refuses_a_point_without_its_position(
+    point: tuple[float, ...],
+) -> None:
+    """A lone height would reach PROJ as a longitude, so the shape is refused.
+
+    Values go to PROJ in x, y, z order whatever the source CRS declares, so
+    fewer than three values put the height in the wrong slot. Refusing names
+    the input shape; letting it through blames the coordinates instead.
+    """
+    tfm = Transformation("EPSG:3855", "EPSG:4979", operation="EPSG:3858")
+
+    with pytest.raises(ValueError, match="is a vertical CRS"):
+        tfm.transform([point])
+
+
+def test_a_vertical_source_accepts_the_full_triple() -> None:
+    """The documented (lon, lat, h) form is what a vertical source takes."""
+    result = transform(
+        "EPSG:3855", "EPSG:4979", [(-144.0, 72.0, 20.0)], operation="EPSG:3858"
+    )
+
+    assert len(result.coordinates[0]) == 3

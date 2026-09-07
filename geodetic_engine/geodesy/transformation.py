@@ -75,6 +75,10 @@ _NORTHINGS = frozenset({"north", "south"})
 # that.
 _MAX_COORDINATE_VALUES = 3
 
+# PROJ's flag for running a step backwards. A bare token, never a parameter
+# with a value, so it can be added or removed by name.
+_INVERSE_FLAG = "inv"
+
 # Methods that restate axes rather than move coordinates. PROJ inserts these
 # when it normalises axis order, and they are not the method a caller means.
 _BOOKKEEPING_METHODS = frozenset(
@@ -189,9 +193,26 @@ class _Pipeline:
         return None if value is None or value < 0 else float(value)
 
     @property
-    def text(self) -> str:
-        """The PROJ pipeline definition that will be executed."""
-        return " | ".join(transformer.definition for transformer, _ in self.steps)
+    def text(self) -> str | None:
+        """The whole chain as one PROJ pipeline definition, ready to be rebuilt.
+
+        Every step is flattened into a single ``proj=pipeline``, and a step
+        that was applied backwards is written out with PROJ's ``inv`` flag and
+        its own steps reversed, so what comes back is what ran rather than a
+        listing of the parts. Rebuild it with
+        :meth:`pyproj.Transformer.from_pipeline`.
+
+        It reads and writes PROJ's own components in PROJ's own order, which
+        at a vertical end is not the caller's ``xy`` order; see
+        ``_order_horizontal_for_pipeline``.
+
+        Returns:
+            The definition, or None when the steps cannot be written as one
+            pipeline without changing what they do. Provenance that cannot be
+            replayed is worse than none, so nothing is reported rather than a
+            string that only looks executable.
+        """
+        return _compose_pipeline(self.steps)
 
     @property
     def reads_declared_horizontal(self) -> bool:
@@ -474,9 +495,11 @@ class Transformation:
 
         # PROJ workaround, see the note above _entry_step: remove this call
         # once PROJ no longer leaves a residual axisswap at a vertical end.
-        columns = _order_horizontal_for_pipeline(self._source, self._pipeline, columns)
+        ordered, swapped = _order_horizontal_for_pipeline(
+            self._source, self._pipeline, columns
+        )
         columns = _carry_unread_horizontal(
-            self._source, self._target, self._applied, self._grids, columns
+            self._source, self._target, self._applied, self._grids, ordered
         )
 
         if self._requires_epoch and coordinate_epoch is None:
@@ -506,6 +529,8 @@ class Transformation:
         if self._pipeline.skip_introspection:
             applied, grids, pipeline_text = self._resolve_applied()
             _require_epoch_after_the_fact(applied, coordinate_epoch)
+        if swapped:
+            pipeline_text = _report_horizontal_swap(pipeline_text)
 
         return TransformationResult(
             coordinates=Coordinates(rows, target_crs=self._target),
@@ -519,7 +544,7 @@ class Transformation:
 
     def _resolve_applied(
         self,
-    ) -> tuple[AppliedOperation, tuple[GridUsage, ...], str]:
+    ) -> tuple[AppliedOperation, tuple[GridUsage, ...], str | None]:
         """Read back the operation PROJ chose, now that a transform has run.
 
         Only for the ``allow_any_operation=True`` route, where PROJ selects
@@ -653,25 +678,34 @@ def _require_width(crs: CoordinateReferenceSystem, width: int) -> None:
     """Check how many values a point carries against what ``crs`` allows.
 
     Raises:
-        ValueError: If ``width`` is not ``crs``'s declared dimension, one
+        ValueError: If ``width`` is not ``crs``'s declared dimension or one
             more (a height alongside a 2D horizontal CRS, carried through
-            unchanged), or -- for a vertical CRS -- a full ``(lon, lat, h)``
-            triple.
+            unchanged); or, for a vertical CRS, anything other than a full
+            ``(lon, lat, h)`` triple.
     """
-    allowed = {crs.dimension}
-    if crs.dimension < _MAX_COORDINATE_VALUES:
-        allowed.add(crs.dimension + 1)
     if crs.dimension == 1 and _is_vertical(crs):
         # A height shifted by a geoid or vertical datum grid is only defined
         # where the grid is read, so the horizontal position that locates it
-        # travels with it rather than being dropped for declaring no axis.
-        allowed.add(_MAX_COORDINATE_VALUES)
+        # has to be given even though the CRS declares no axis for it. The
+        # values go to PROJ in x, y, z order, so a lone height would be read
+        # as a longitude rather than as a height.
+        if width != _MAX_COORDINATE_VALUES:
+            raise ValueError(
+                f"{width} values were given per point but {crs!r} is a vertical "
+                f"CRS; exactly {_MAX_COORDINATE_VALUES} are accepted, "
+                "(lon, lat, h), because the height is only defined at the "
+                "horizontal position its grid is read at"
+            )
+        return
+
+    allowed = {crs.dimension}
+    if crs.dimension < _MAX_COORDINATE_VALUES:
+        allowed.add(crs.dimension + 1)
     if width not in allowed:
         raise ValueError(
             f"{width} values were given per point but {crs!r} declares "
             f"{crs.dimension} axes; {sorted(allowed)} values are accepted "
-            "(the extra being a height PROJ carries through unchanged, or "
-            "for a vertical CRS the horizontal position its grid is read at)"
+            "(the extra being a height PROJ carries through unchanged)"
         )
 
 
@@ -1450,6 +1484,72 @@ def _apply(
     return [list(component) for component in produced[: len(values)]]
 
 
+def _compose_pipeline(
+    steps: Sequence[tuple[Transformer, TransformDirection]],
+) -> str | None:
+    """Write a sequence of transformers out as one runnable PROJ pipeline.
+
+    Running several pipelines back to back is the same as running one pipeline
+    holding all of their steps in order, so the chain can be stated as a single
+    definition rather than as a list of parts a caller would have to reassemble
+    to reproduce a result.
+
+    Args:
+        steps: The transformers and the direction each one is applied in.
+
+    Returns:
+        A definition :meth:`pyproj.Transformer.from_pipeline` accepts, or None
+        when a step carries pipeline-level parameters, which PROJ applies to
+        every step of their own pipeline and which would silently reach the
+        other steps once merged.
+    """
+    composed: list[str] = []
+    for transformer, direction in steps:
+        flattened = _pipeline_steps(transformer.definition)
+        if flattened is None:
+            return None
+        if direction is TransformDirection.INVERSE:
+            flattened = [_inverted_step(step) for step in reversed(flattened)]
+        composed.extend(flattened)
+    if not composed:
+        return "proj=noop"
+    return " ".join(["proj=pipeline", *(f"step {step}" for step in composed)])
+
+
+def _pipeline_steps(definition: str) -> list[str] | None:
+    """Split one PROJ definition into its steps, without the ``step`` keywords.
+
+    Returns:
+        One entry per step, a definition that is not a pipeline being a single
+        step in itself, or None when the pipeline carries parameters outside
+        any step.
+    """
+    tokens = [token.removeprefix("+") for token in definition.split()]
+    if not tokens:
+        return None
+    if tokens[0] != "proj=pipeline":
+        return [" ".join(tokens)]
+
+    steps: list[list[str]] = []
+    for token in tokens[1:]:
+        if token == "step":
+            steps.append([])
+        elif not steps:
+            return None
+        else:
+            steps[-1].append(token)
+    return [" ".join(step) for step in steps if step]
+
+
+def _inverted_step(step: str) -> str:
+    """The same PROJ step run backwards, by adding or removing its ``inv`` flag."""
+    tokens = step.split()
+    if _INVERSE_FLAG in tokens:
+        tokens.remove(_INVERSE_FLAG)
+        return " ".join(tokens)
+    return f"{_INVERSE_FLAG} {step}"
+
+
 def _output_indices(
     target: CoordinateReferenceSystem, produced: int
 ) -> tuple[int, ...]:
@@ -1534,7 +1634,7 @@ def _order_horizontal_for_pipeline(
     source: CoordinateReferenceSystem,
     pipeline: _Pipeline,
     columns: tuple[tuple[float, ...], ...],
-) -> tuple[tuple[float, ...], ...]:
+) -> tuple[tuple[tuple[float, ...], ...], bool]:
     """Hand a vertical CRS's position to PROJ in the order the pipeline reads it.
 
     Coordinate values reach this package in ``xy`` order, and PROJ's
@@ -1552,15 +1652,34 @@ def _order_horizontal_for_pipeline(
 
     Returns:
         The columns with the horizontal pair transposed when the pipeline reads
-        it northing-first, and unchanged otherwise.
+        it northing-first, and unchanged otherwise, and whether it transposed
+        them. The caller reports the transposition as a step of the pipeline,
+        so it needs to be told rather than left to compare tuples.
     """
     if len(columns) != _MAX_COORDINATE_VALUES:
-        return columns
+        return columns, False
     if not (source.dimension == 1 and _is_vertical(source)):
-        return columns
+        return columns, False
     if not pipeline.reads_declared_horizontal:
-        return columns
-    return (columns[1], columns[0], columns[2])
+        return columns, False
+    return (columns[1], columns[0], columns[2]), True
+
+
+def _report_horizontal_swap(pipeline: str | None) -> str | None:
+    """Write the transposition above into the pipeline that gets reported.
+
+    The reordering happens in Python, before PROJ is handed the values, so a
+    pipeline rebuilt from the reported text alone would read the caller's
+    ``xy`` values transposed and interpolate the grid at the wrong point.
+    Stating it as the ``axisswap`` step it is keeps the reported pipeline
+    reproducing the result from the values the caller actually gave.
+    """
+    if pipeline is None:
+        return None
+    body = pipeline.removeprefix("proj=pipeline ")
+    if body == pipeline:
+        body = f"step {pipeline}"
+    return f"proj=pipeline step proj=axisswap order=2,1 {body}"
 
 
 def _carry_unread_horizontal(

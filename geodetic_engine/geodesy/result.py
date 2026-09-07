@@ -138,7 +138,11 @@ class TransformationResult:
             ``"xy"``; present so that a caller reading
             :attr:`target_axes` as ``("Lat", "Lon")`` cannot mistake the
             declared axis order for the value order.
-        pipeline: The PROJ pipeline definition that was executed.
+        pipeline: The whole chain as one PROJ pipeline definition, ready to be
+            rebuilt with :meth:`pyproj.Transformer.from_pipeline`, or None when
+            it cannot be written as a single pipeline. It reads and writes
+            PROJ's own components in PROJ's own order, which at a vertical end
+            is not this package's ``xy`` value order.
 
     Example:
         >>> result.target_axes
