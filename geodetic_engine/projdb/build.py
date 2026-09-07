@@ -9,15 +9,13 @@ alias and supersession rows that annotate it.
 from __future__ import annotations
 
 import logging
-import sqlite3
-from datetime import UTC, datetime
 from typing import Any
 
 from geodetic_engine.georepository.client import GeorepositoryClient
 from geodetic_engine.projdb import (
     annotate,
-    authority,
     bound,
+    common,
     coordinate_system,
     crs,
     datum,
@@ -27,7 +25,6 @@ from geodetic_engine.projdb import (
 from geodetic_engine.projdb.alias import AliasCollector
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.context import BuildContext
-from geodetic_engine.projdb.errors import MissingReferencedObjectError
 from geodetic_engine.projdb.records import UsageAccumulator
 from geodetic_engine.projdb.report import BuildReport, log_summary
 from geodetic_engine.projdb.writer import ProjDbWriter
@@ -102,10 +99,11 @@ def build(
             # in the database for the usage rows to resolve.
             annotate.collect_foreign_annotations(context)
 
-            _write_usage(context)
-            _write_aliases(context)
+            common.write_annotations(
+                context, source_described="The Georepository instance"
+            )
             dropped = _write_supersessions(context)
-            preferences = _write_authority_preferences(context)
+            preferences = common.write_authority_preferences(context)
 
             report = _report(config, context, dropped)
             report.authority_preferences = preferences
@@ -122,74 +120,6 @@ def build(
             client.close()
 
     return report
-
-
-def _write_usage(context: BuildContext) -> None:
-    """Write scope, extent and usage rows, in that foreign key order."""
-    accumulator = context.usage
-    new_scopes = [
-        row
-        for key, row in accumulator.scopes.items()
-        if context.is_new("scope", key[0], key[1])
-    ]
-    new_extents = [
-        row
-        for key, row in accumulator.extents.items()
-        if context.is_new("extent", key[0], key[1])
-    ]
-
-    foreign = [
-        row
-        for row in (*new_scopes, *new_extents)
-        if str(row["auth_name"]).casefold()
-        not in {name.casefold() for name in context.config.authorities}
-    ]
-    if foreign:
-        described = ", ".join(
-            f"{row['auth_name']}:{row['code']}" for row in foreign[:5]
-        )
-        raise MissingReferencedObjectError(
-            f"{len(foreign)} scope or extent objects belong to another authority "
-            f"but are not in the base proj.db ({described}). The Georepository "
-            "instance and the EPSG dataset in proj.db are at different versions."
-        )
-
-    context.writer.insert("scope", new_scopes)
-    context.writer.insert("extent", new_extents)
-    for row in new_scopes:
-        context.known_keys("scope").add((row["auth_name"], str(row["code"])))
-    for row in new_extents:
-        context.known_keys("extent").add((row["auth_name"], str(row["code"])))
-
-    context.writer.insert("usage", accumulator.usages)
-
-
-def _write_aliases(context: BuildContext) -> None:
-    context.writer.insert("alias_name", context.alias.rows)
-
-
-def _write_authority_preferences(context: BuildContext) -> list[dict[str, str]]:
-    """Register the custom authorities and write their selection preferences."""
-    connection = context.writer.connection
-    builtin = authority.builtin_rows(
-        context.config.authorities, authority.read_builtin(connection)
-    )
-    context.writer.insert(authority.BUILTIN_TABLE, builtin)
-    for row in builtin:
-        logger.info("registered authority %s with PROJ", row["auth_name"])
-
-    existing = authority.read_existing(connection)
-    rows = authority.preference_rows(context.config, existing)
-    context.writer.upsert_authority_preferences(rows)
-    logger.info("authority preferences: %d rows written", len(rows))
-    return [
-        {
-            "source": str(row["source_auth_name"]),
-            "target": str(row["target_auth_name"]),
-            "allowed_authorities": str(row["allowed_authorities"]),
-        }
-        for row in rows
-    ]
 
 
 # Object tables a superseded object may be replaced by, grouped by kind. A CRS
@@ -298,46 +228,12 @@ def _report(
     context: BuildContext,
     dropped: list[dict[str, str]],
 ) -> BuildReport:
-    with sqlite3.connect(
-        f"file:{config.base_proj_db}?mode=ro", uri=True
-    ) as base_connection:
-        base_metadata = schema.metadata(base_connection)
-        layout = schema.database_layout_version(base_connection)
-
-    deprecated = {
-        (key.table, key.auth_name, key.code) for key in context.deprecated_keys
-    }
-    return BuildReport(
-        built_at=datetime.now(UTC).isoformat(),
-        proj_version=base_metadata.get("PROJ.VERSION", "unknown"),
-        epsg_version=base_metadata.get("EPSG.VERSION", "unknown"),
-        proj_data_version=base_metadata.get("PROJ_DATA.VERSION", "unknown"),
-        database_layout_version=layout,
+    report = common.base_report(
+        context,
         source=config.api_url,
         source_version=config.georepository_version,
-        authorities=sorted(config.authorities),
         include_deprecated=config.include_deprecated,
-        base_proj_db=str(config.base_proj_db),
-        output_db=str(config.output_db),
-        imported=[
-            {"table": key.table, "auth_name": key.auth_name, "code": key.code}
-            for key in context.imported_keys
-        ],
-        deprecated_imported=[
-            {"table": table, "auth_name": auth, "code": code}
-            for table, auth, code in sorted(deprecated)
-        ],
-        skipped=[
-            {
-                "table": item.table,
-                "auth_name": item.auth_name,
-                "code": item.code,
-                "name": item.name,
-                "deprecated": item.deprecated,
-                "reason": item.reason,
-            }
-            for item in context.skipped
-        ],
-        supersessions_written=len(context.supersessions) - len(dropped),
-        supersessions_dropped=dropped,
     )
+    report.supersessions_written = len(context.supersessions) - len(dropped)
+    report.supersessions_dropped = dropped
+    return report

@@ -6,16 +6,36 @@ and cross references shaped as ``{"AuthorityCode": {"Authority", "Code"}}``.
 That envelope is read here. What each kind of record says about geodesy is
 stated only in its WKT, and is taken apart in
 :mod:`geodetic_engine.osdudb.definition`.
+
+:func:`text` and :func:`number` are re-exported from
+:mod:`geodetic_engine.projdb.common`, since reading a string or a float out of
+JSON means the same thing whatever the source.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any
 
+from geodetic_engine.projdb.common import JsonObject, number, text
 from geodetic_engine.projdb.records import Extent, Scope
 
-JsonObject = dict[str, Any]
+__all__ = [
+    "WKT_KEYS",
+    "JsonObject",
+    "aliases",
+    "auth_name",
+    "authority_code",
+    "code",
+    "deprecated_flag",
+    "extent_of",
+    "is_deprecated",
+    "naming_system",
+    "number",
+    "scope_of",
+    "text",
+    "usages",
+    "wkt",
+]
 
 # Keys the WKT2 definition has been published under. OSDU 1.x uses
 # ``OGCWellKnownText2``; some exports carry ``Wkt2Ogc`` instead, and a record
@@ -63,30 +83,6 @@ def authority_code(link: JsonObject | None) -> tuple[str | None, str | None]:
     authority = str(pair.get("Authority") or "").strip() or None
     raw = pair.get("Code")
     return authority, None if raw in (None, "") else str(raw)
-
-
-def text(obj: JsonObject, *keys: str) -> str | None:
-    """Return the first non-empty string among the given keys."""
-    for key in keys:
-        value = obj.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def number(obj: JsonObject, key: str) -> float | None:
-    """Return a numeric field as a float, or None when absent or unparseable.
-
-    Values are kept in the units the catalogue reports them in; unit conversion
-    is the responsibility of the caller that knows the unit of measure.
-    """
-    value = obj.get(key)
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def wkt(obj: JsonObject) -> str | None:

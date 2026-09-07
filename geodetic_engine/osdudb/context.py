@@ -25,6 +25,7 @@ from geodetic_engine.osdudb.config import OsduBuildConfig
 from geodetic_engine.osdudb.definition import Identifier, UnitResolver
 from geodetic_engine.osdudb.errors import MissingReferencedObjectError
 from geodetic_engine.projdb.alias import AliasCollector
+from geodetic_engine.projdb.common import SkippedObject
 from geodetic_engine.projdb.records import ObjectKey, UsageAccumulator
 from geodetic_engine.projdb.writer import ProjDbWriter
 
@@ -58,23 +59,6 @@ WRITE_ORDER: tuple[str, ...] = (
 )
 
 Staged = tuple[str, dict[str, Any]]
-
-
-@dataclass(slots=True)
-class SkippedObject:
-    """An object deliberately not imported, and why.
-
-    Whether it was deprecated matters when reading the report: a deprecated
-    object that could not be imported is usually of no consequence, while an
-    active one is a gap in the database.
-    """
-
-    table: str
-    auth_name: str
-    code: str
-    name: str | None
-    reason: str
-    deprecated: bool = False
 
 
 @dataclass(slots=True)

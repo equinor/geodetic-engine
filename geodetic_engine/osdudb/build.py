@@ -10,17 +10,13 @@ is read and written in one transaction at the end; see
 from __future__ import annotations
 
 import logging
-import sqlite3
-from datetime import UTC, datetime
-from typing import Any
 
 from geodetic_engine.osdudb import bound, crs, operation
 from geodetic_engine.osdudb.catalog import OsduCatalog
 from geodetic_engine.osdudb.config import OsduBuildConfig
 from geodetic_engine.osdudb.context import OsduBuildContext, write_staged
 from geodetic_engine.osdudb.definition import UnitResolver
-from geodetic_engine.osdudb.errors import MissingReferencedObjectError
-from geodetic_engine.projdb import authority, schema
+from geodetic_engine.projdb import common
 from geodetic_engine.projdb.alias import AliasCollector
 from geodetic_engine.projdb.records import UsageAccumulator
 from geodetic_engine.projdb.report import BuildReport, log_summary
@@ -87,9 +83,8 @@ def build(
         bound.collect_bound(context)
 
         write_staged(context)
-        _write_usage(context)
-        _write_aliases(context)
-        preferences = _write_authority_preferences(context)
+        common.write_annotations(context, source_described="The catalogue")
+        preferences = common.write_authority_preferences(context)
 
         report = _report(config, context, catalog)
         report.authority_preferences = preferences
@@ -105,116 +100,12 @@ def build(
     return report
 
 
-def _write_usage(context: OsduBuildContext) -> None:
-    """Write scope, extent and usage rows, in that foreign key order."""
-    accumulator = context.usage
-    new_scopes = [
-        row
-        for key, row in accumulator.scopes.items()
-        if context.is_new("scope", key[0], key[1])
-    ]
-    new_extents = [
-        row
-        for key, row in accumulator.extents.items()
-        if context.is_new("extent", key[0], key[1])
-    ]
-
-    allowed = {name.casefold() for name in context.config.authorities}
-    foreign = [
-        row
-        for row in (*new_scopes, *new_extents)
-        if str(row["auth_name"]).casefold() not in allowed
-    ]
-    if foreign:
-        described = ", ".join(
-            f"{row['auth_name']}:{row['code']}" for row in foreign[:5]
-        )
-        raise MissingReferencedObjectError(
-            f"{len(foreign)} scope or extent objects belong to another authority "
-            f"but are not in the base proj.db ({described}). The catalogue and "
-            "the EPSG dataset in proj.db are at different versions."
-        )
-
-    context.writer.insert("scope", new_scopes)
-    context.writer.insert("extent", new_extents)
-    for row in new_scopes:
-        context.known_keys("scope").add((row["auth_name"], str(row["code"])))
-    for row in new_extents:
-        context.known_keys("extent").add((row["auth_name"], str(row["code"])))
-
-    context.writer.insert("usage", accumulator.usages)
-
-
-def _write_aliases(context: OsduBuildContext) -> None:
-    context.writer.insert("alias_name", context.alias.rows)
-
-
-def _write_authority_preferences(context: OsduBuildContext) -> list[dict[str, str]]:
-    """Register the imported authorities and write their selection preferences."""
-    connection = context.writer.connection
-    builtin = authority.builtin_rows(
-        context.config.authorities, authority.read_builtin(connection)
-    )
-    context.writer.insert(authority.BUILTIN_TABLE, builtin)
-    for row in builtin:
-        logger.info("registered authority %s with PROJ", row["auth_name"])
-
-    existing = authority.read_existing(connection)
-    rows = authority.preference_rows(context.config, existing)
-    context.writer.upsert_authority_preferences(rows)
-    logger.info("authority preferences: %d rows written", len(rows))
-    return [
-        {
-            "source": str(row["source_auth_name"]),
-            "target": str(row["target_auth_name"]),
-            "allowed_authorities": str(row["allowed_authorities"]),
-        }
-        for row in rows
-    ]
-
-
 def _report(
     config: OsduBuildConfig, context: OsduBuildContext, catalog: OsduCatalog
 ) -> BuildReport:
-    with sqlite3.connect(
-        f"file:{config.base_proj_db}?mode=ro", uri=True
-    ) as base_connection:
-        base_metadata = schema.metadata(base_connection)
-        layout = schema.database_layout_version(base_connection)
-
-    deprecated = {
-        (key.table, key.auth_name, key.code) for key in context.deprecated_keys
-    }
-    skipped: list[dict[str, Any]] = [
-        {
-            "table": item.table,
-            "auth_name": item.auth_name,
-            "code": item.code,
-            "name": item.name,
-            "deprecated": item.deprecated,
-            "reason": item.reason,
-        }
-        for item in context.skipped
-    ]
-    return BuildReport(
-        built_at=datetime.now(UTC).isoformat(),
-        proj_version=base_metadata.get("PROJ.VERSION", "unknown"),
-        epsg_version=base_metadata.get("EPSG.VERSION", "unknown"),
-        proj_data_version=base_metadata.get("PROJ_DATA.VERSION", "unknown"),
-        database_layout_version=layout,
+    return common.base_report(
+        context,
         source=str(catalog.path or config.catalog),
         source_version=config.catalog_version,
-        authorities=sorted(config.authorities),
         include_deprecated=config.include_deprecated,
-        base_proj_db=str(config.base_proj_db),
-        output_db=str(config.output_db),
-        imported=[
-            {"table": key.table, "auth_name": key.auth_name, "code": key.code}
-            for key in context.imported_keys
-        ],
-        deprecated_imported=[
-            {"table": table, "auth_name": auth, "code": code}
-            for table, auth, code in sorted(deprecated)
-        ],
-        skipped=skipped,
     )

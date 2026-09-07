@@ -104,6 +104,22 @@ def default_base_proj_db() -> Path:
     return Path(get_data_dir()) / "proj.db"
 
 
+def check_build_target(output_db: Path, base_proj_db: Path) -> None:
+    """Refuse a build that would write over the database it starts from.
+
+    Raises:
+        ConfigurationError: If the two paths name the same file. The official
+            proj.db is copied and added to, never modified in place, so that a
+            failed build cannot leave the installed PROJ with a database no
+            configuration describes.
+    """
+    if output_db.resolve() == base_proj_db.resolve():
+        raise ConfigurationError(
+            "output_db must not be the base proj.db; the official database "
+            "is never modified in place"
+        )
+
+
 def as_set(raw: Any) -> frozenset[str]:
     """Coerce a comma separated string or a sequence into a set of names."""
     if raw is None:

@@ -6,17 +6,33 @@ the deprecation, usage, alias and supersession handling that every concept needs
 lives here. Concept-specific shapes live in the concept modules.
 
 The proj.db row types these produce are source-neutral and live in
-:mod:`geodetic_engine.projdb.records`.
+:mod:`geodetic_engine.projdb.records`, and :func:`text` and :func:`number` are
+re-exported from :mod:`geodetic_engine.projdb.common`, since reading a string or
+a float out of JSON means the same thing whatever the source.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any
 
+from geodetic_engine.projdb.common import JsonObject, number, text
 from geodetic_engine.projdb.records import Extent, ObjectKey, Scope
 
-JsonObject = dict[str, Any]
+__all__ = [
+    "JsonObject",
+    "auth_name",
+    "code",
+    "deprecated_flag",
+    "epoch",
+    "extent_of",
+    "href",
+    "is_deprecated",
+    "link_code",
+    "number",
+    "scope_of",
+    "supersession_candidates",
+    "text",
+]
 
 
 def auth_name(obj: JsonObject) -> str:
@@ -46,19 +62,6 @@ def href(link: JsonObject | None) -> str | None:
     return str(value) if value else None
 
 
-def text(obj: JsonObject, *keys: str) -> str | None:
-    """Return the first non-empty string among the given keys.
-
-    Georepository is inconsistent about ``Remark`` versus ``Remarks`` versus
-    ``Description`` depending on the object type.
-    """
-    for key in keys:
-        value = obj.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
 def is_deprecated(obj: JsonObject) -> bool:
     """Whether an object carries any deprecation record."""
     return bool(obj.get("Deprecations"))
@@ -67,21 +70,6 @@ def is_deprecated(obj: JsonObject) -> bool:
 def deprecated_flag(obj: JsonObject) -> int:
     """Return proj.db's 0/1 deprecated flag for an object."""
     return 1 if is_deprecated(obj) else 0
-
-
-def number(obj: JsonObject, key: str) -> float | None:
-    """Return a numeric field as a float, or None when absent or unparseable.
-
-    Values are kept in the units the API reports them in; unit conversion is the
-    responsibility of the caller that knows the associated unit of measure.
-    """
-    value = obj.get(key)
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def epoch(obj: JsonObject, key: str) -> str | None:

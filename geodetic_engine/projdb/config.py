@@ -37,6 +37,7 @@ from geodetic_engine.projdb.settings import (
     as_preference,
     as_set,
     as_tuple,
+    check_build_target,
     default_base_proj_db,
     find_env_file,
     load_env_file,
@@ -157,11 +158,7 @@ class ProjDbBuildConfig:
                 f"{ENV_PREFIX}AUTHORITIES in the environment, to name the "
                 "authority whose objects should be imported"
             )
-        if self.output_db.resolve() == self.base_proj_db.resolve():
-            raise ConfigurationError(
-                "output_db must not be the base proj.db; the official database "
-                "is never modified in place"
-            )
+        check_build_target(self.output_db, self.base_proj_db)
         if not self.naming_systems:
             object.__setattr__(self, "naming_systems", self.authorities)
 

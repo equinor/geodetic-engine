@@ -13,6 +13,7 @@ from typing import Any
 from geodetic_engine.georepository.client import GeorepositoryClient
 from geodetic_engine.projdb import translate as tr
 from geodetic_engine.projdb.alias import AliasCollector
+from geodetic_engine.projdb.common import SkippedObject
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.errors import MissingReferencedObjectError
 from geodetic_engine.projdb.records import ObjectKey, UsageAccumulator
@@ -21,23 +22,6 @@ from geodetic_engine.projdb.writer import ProjDbWriter
 logger = logging.getLogger(__name__)
 
 JsonObject = dict[str, Any]
-
-
-@dataclass(slots=True)
-class SkippedObject:
-    """An object deliberately not imported, and why.
-
-    Whether it was deprecated matters when reading the report: a deprecated
-    object that could not be imported is usually of no consequence, while an
-    active one is a gap in the database.
-    """
-
-    table: str
-    auth_name: str
-    code: str
-    name: str | None
-    reason: str
-    deprecated: bool = False
 
 
 @dataclass(slots=True)

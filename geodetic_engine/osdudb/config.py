@@ -30,6 +30,7 @@ from geodetic_engine.projdb.settings import (
     as_preference,
     as_set,
     as_tuple,
+    check_build_target,
     default_base_proj_db,
     find_config_file,
     load_env_file,
@@ -136,11 +137,7 @@ class OsduBuildConfig:
             raise ConfigurationError(
                 f"the OSDU catalogue {str(self.catalog)!r} does not exist"
             )
-        if self.output_db.resolve() == self.base_proj_db.resolve():
-            raise ConfigurationError(
-                "output_db must not be the base proj.db; the official database "
-                "is never modified in place"
-            )
+        check_build_target(self.output_db, self.base_proj_db)
         if not self.naming_systems:
             object.__setattr__(self, "naming_systems", self.authorities)
 
