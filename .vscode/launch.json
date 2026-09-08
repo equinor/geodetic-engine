@@ -29,6 +29,15 @@
             "args": ["${workspaceFolder}/tests/geodesy/test_pipeline_replay.py", "-vv"],
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: Local tests ",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${workspaceFolder}/tests/local_tests", "-vv"],
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ]
 }
