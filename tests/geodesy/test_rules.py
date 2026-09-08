@@ -17,6 +17,8 @@ from pathlib import Path
 import pyproj
 import pytest
 from pyproj import CRS
+from pyproj.crs import CoordinateOperation
+from pyproj.crs.crs import BoundCRS
 from pyproj.transformer import TransformerGroup
 
 from geodetic_engine.geodesy import (
@@ -401,6 +403,7 @@ def test_static_operation_does_not_demand_an_epoch() -> None:
     assert transformation.transform([(4.0, 52.0)]).count == 1
 
 
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
 def test_missing_grid_is_named_and_refused(tmp_path: Path) -> None:
     """A grid-based operation refuses to run when its grid is not installed."""
     with (
@@ -410,6 +413,7 @@ def test_missing_grid_is_named_and_refused(tmp_path: Path) -> None:
         Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3858")
 
 
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
 def test_a_missing_grid_is_named_even_when_no_candidate_offers_the_operation(
     tmp_path: Path,
 ) -> None:
@@ -432,6 +436,66 @@ def test_grids_are_reported_when_present() -> None:
     transformation = Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3858")
     assert [grid.name for grid in transformation.grids] == ["us_nga_egm08_25.tif"]
     assert all(grid.available for grid in transformation.grids)
+
+
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
+def test_a_superseded_grid_filename_is_not_reported_missing() -> None:
+    """A grid PROJ ships under a different name than the authority published.
+
+    EPSG:15851 cites the NADCON pair ``conus.las``/``conus.los``, which PROJ
+    no longer distributes; it reads the installed ``us_noaa_conus.tif``
+    instead, resolved through proj.db's ``grid_alternatives``. The registry
+    still reports the published names as missing, so believing it refuses a
+    transformation PROJ performs perfectly well -- the missing-grid rule
+    failing in the opposite direction to the one it exists to prevent.
+
+    Built from stock EPSG codes rather than from a registry CRS, so the case
+    stands on the official database alone.
+    """
+    wgs84 = CRS.from_epsg(4326)
+    nad83 = BoundCRS(
+        CRS.from_epsg(4269), wgs84, CoordinateOperation.from_authority("EPSG", 1188)
+    )
+    nad27 = BoundCRS(
+        CRS.from_epsg(4267), wgs84, CoordinateOperation.from_authority("EPSG", 15851)
+    )
+
+    transformation = Transformation(nad83, nad27, allow_any_operation=True)
+
+    assert [grid.name for grid in transformation.grids] == ["conus.las", "conus.los"]
+    assert all(grid.available for grid in transformation.grids)
+    # The pipeline names what is actually read, which is neither of those.
+    assert "us_noaa_conus.tif" in (
+        transformation.transform([(-95.0, 30.0)]).pipeline or ""
+    )
+
+
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
+def test_two_bound_crss_chain_without_being_told_which_operation() -> None:
+    """Early binding applies when the withheld candidate is the declared one.
+
+    Both CRSs name their own transformation to WGS 84, so the datum change is
+    not ambiguous and must not be reported as such. PROJ chains them readily,
+    but ``TransformerGroup`` withholds that one candidate as not instantiable
+    over the ``conus.las`` the authority published, rather than the installed
+    ``us_noaa_conus.tif`` it would read. Falling back to the candidate search
+    there leaves early binding with nothing to apply.
+    """
+    wgs84 = CRS.from_epsg(4326)
+    nad83 = BoundCRS(
+        CRS.from_epsg(4269), wgs84, CoordinateOperation.from_authority("EPSG", 1188)
+    )
+    nad27 = BoundCRS(
+        CRS.from_epsg(4267), wgs84, CoordinateOperation.from_authority("EPSG", 15851)
+    )
+
+    transformation = Transformation(nad83, nad27)
+
+    assert transformation.operation.route == OperationRoute.BOUND
+    assert transformation.operation.ballpark is False
+    result = transformation.transform([(-95.0, 30.0)])
+    assert "us_noaa_conus.tif" in (result.pipeline or "")
+    assert result.coordinates[0] == pytest.approx((-94.99979514, 29.99978169), abs=1e-8)
 
 
 @contextmanager

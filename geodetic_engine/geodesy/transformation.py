@@ -25,7 +25,7 @@ import json
 import math
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any, cast
 
@@ -379,7 +379,7 @@ class Transformation:
             )
 
         operations = _constituent_operations(pipeline, definition)
-        self._grids = grid_usages(operations)
+        self._grids = _confirm_installed(grid_usages(operations), pipeline)
         _require_grids(self._grids, self._source, self._target)
 
         self._requires_epoch = requires_epoch(definition, operations)
@@ -1111,10 +1111,17 @@ def _from_bound_crs(
         The pipeline, or None if neither CRS is bound, in which case the datum
         change really is ambiguous.
     """
-    request = _bound_operation(source) or _bound_operation(target)
-    if request is None:
+    requests = tuple(
+        request
+        for request in (_bound_operation(source), _bound_operation(target))
+        if request is not None
+    )
+    if not requests:
         return None
+    request = requests[0]
     found = _from_transformer_group(source, target, (request,))
+    if found is None:
+        found = _bound_transformer(source, target, requests)
     if found is None:
         return None
     return _Pipeline(
@@ -1123,6 +1130,36 @@ def _from_bound_crs(
         route=OperationRoute.BOUND,
         identified_by=request,
     )
+
+
+def _bound_transformer(
+    source: CoordinateReferenceSystem,
+    target: CoordinateReferenceSystem,
+    requests: tuple[OperationRequest, ...],
+) -> Transformer | None:
+    """Chain the bound CRSs' own transformations without the candidate search.
+
+    ``TransformerGroup`` withholds a candidate PROJ reports as not
+    instantiable, and it judges that on the grid name the authority published
+    rather than on the one it would actually read: the NADCON pair binding
+    EPSG:1188 to EPSG:15851 is withheld over ``conus.las`` while PROJ builds it
+    perfectly well from the installed ``us_noaa_conus.tif``. Early binding is
+    then left with nothing to apply and the caller is told the datum change is
+    ambiguous, when both CRSs had in fact declared their operation.
+
+    Building the pair outright goes through the same early binding without that
+    filter. Ballpark remains refused, and the result is accepted only once
+    every declared operation is confirmed present in what PROJ built, so this
+    cannot quietly substitute a different one.
+    """
+    with _proj_construction(source, target):
+        transformer = Transformer.from_crs(
+            source.crs, target.crs, always_xy=True, allow_ballpark=False
+        )
+    definition = transformer.to_json_dict()
+    if all(request.is_satisfied_by(definition) for request in requests):
+        return transformer
+    return None
 
 
 def _bound_operation(
@@ -1293,6 +1330,63 @@ def _datum_names(crs: CRS) -> frozenset[str]:
         if datum is not None:
             names.add(datum.name)
     return frozenset(names)
+
+
+def _mandatory_pipeline_grids(pipeline: _Pipeline) -> set[str]:
+    """Grid files the compiled pipeline must read, under PROJ's own filenames.
+
+    A name prefixed with ``@`` is one PROJ will run without, so it proves
+    nothing about what is installed and is not returned here.
+    """
+    found: set[str] = set()
+    for token in (pipeline.text or "").split():
+        if not token.startswith("grids="):
+            continue
+        found.update(
+            name
+            for name in token.removeprefix("grids=").split(",")
+            if name and not name.startswith("@")
+        )
+    return found
+
+
+def _confirm_installed(
+    grids: tuple[GridUsage, ...], pipeline: _Pipeline
+) -> tuple[GridUsage, ...]:
+    """Correct the registry's account of what is installed with the pipeline's.
+
+    The registry names the grid the authority published; PROJ substitutes its
+    own distribution of it through proj.db's ``grid_alternatives``. EPSG:15851
+    cites ``conus.las`` and ``conus.los``, neither of which PROJ ships any
+    more: it reads the installed ``us_noaa_conus.tif`` instead, while the
+    registry still reports the published names as missing. Believing the
+    registry there refuses a transformation that demonstrably runs, which is
+    the same failure in the opposite direction to the one
+    :func:`_require_grids` exists to prevent.
+
+    A grid the registry calls missing is therefore taken as satisfied only when
+    the compiled pipeline reads some *other* file in its place. A pipeline that
+    reads the very same name the registry calls missing says nothing new, and
+    is left reported missing: PROJ keeps opened grids in memory, so compiling
+    is not by itself proof that the file is still on disk.
+
+    Args:
+        grids: What the registry says the applied operations depend on.
+        pipeline: The pipeline that was compiled from them.
+
+    Returns:
+        The same grids, with availability taken from the pipeline where the
+        pipeline substituted a different file.
+    """
+    substitutes = _mandatory_pipeline_grids(pipeline)
+    if not substitutes or all(grid.available for grid in grids):
+        return grids
+    return tuple(
+        grid
+        if grid.available or grid.name in substitutes
+        else replace(grid, available=True)
+        for grid in grids
+    )
 
 
 def _constituent_operations(
