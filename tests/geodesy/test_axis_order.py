@@ -32,6 +32,7 @@ AWKWARD = [
     "EPSG:3032",  # Australian Antarctic Polar Stereographic
     "EPSG:2049",  # Hartebeesthoek94 Lo29, west and south
     "EPSG:22277",  # Cape Lo27, west and south
+    "EPSG:5513",  # S-JTSK Krovak, south then west; PROJ leaves it unswapped
     "EPSG:4896",  # geocentric, X/Y/Z
 ]
 

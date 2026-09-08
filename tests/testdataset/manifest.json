@@ -31,15 +31,15 @@
     },
     "horizontal_datum_shift.jsonl": {
       "description": "Datum change by analytic method (Helmert, Molodensky-Badekas).",
-      "cases": 9131,
-      "gold": 7045,
-      "silver": 2086
+      "cases": 9324,
+      "gold": 7187,
+      "silver": 2137
     },
     "horizontal_grid.jsonl": {
       "description": "Datum change that consumed a PROJ grid file. Requires those grids.",
-      "cases": 2410,
-      "gold": 1715,
-      "silver": 695
+      "cases": 2416,
+      "gold": 1724,
+      "silver": 692
     },
     "horizontal_3d.jsonl": {
       "description": "Three-dimensional geographic or geocentric coordinates.",
@@ -63,5 +63,5 @@
       "reference": 234
     }
   },
-  "total_cases": 11944
+  "total_cases": 12143
 }

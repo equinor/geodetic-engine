@@ -35,8 +35,11 @@ logger = logging.getLogger(__name__)
 # records that by giving the datum a reference epoch. An ensemble or a static
 # datum has no such key.
 _DYNAMIC_MARKER = "frame_reference_epoch"
-_EASTINGS = frozenset({"east", "west"})
-_NORTHINGS = frozenset({"north", "south"})
+# PROJ's always_xy only reorders a literal north+east pair into east+north; a
+# south/west axis (Krovak, Cape/Hartebeesthoek Lo grids) is left in its
+# declared order, so those directions must not be bucketed in here too.
+_EASTINGS = frozenset({"east"})
+_NORTHINGS = frozenset({"north"})
 _VERTICALS = frozenset({"up", "down"})
 
 
