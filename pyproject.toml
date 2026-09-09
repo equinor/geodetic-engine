@@ -16,9 +16,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: GIS",
 ]
 dependencies = [
-    "pyproj>=3.7.2",
+    "pyproj==3.8.0",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "filelock>=3.16",
     "numpy>=1.26",
     "pandas>=2.0",
 ]
@@ -40,13 +41,6 @@ geodetic-osdudb = "geodetic_engine.osdudb.__main__:main"
 
 [project.urls]
 Repository = "https://github.com/equinor/geodetic-engine"
-
-# pyproj is built from source against the pinned system PROJ rather than taken
-# from a wheel, which would bundle its own PROJ and defeat the version pin.
-# This lives in [tool.uv.sources] and not in [project.dependencies] because PyPI
-# rejects direct reference URLs in published metadata.
-[tool.uv.sources]
-pyproj = { git = "https://github.com/pyproj4/pyproj", rev = "a11a0f3b863d05c9b7705fc1832be38f45ed52da" }
 
 [tool.uv]
 no-binary-package = ["pyproj"]
