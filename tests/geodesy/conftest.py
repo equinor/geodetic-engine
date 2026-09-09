@@ -81,16 +81,18 @@ def dataset_params(filename: str, sample: int = DEFAULT_SAMPLE) -> list[Any]:
     params = []
     for index, record in enumerate(records):
         marks = [] if index in chosen else [pytest.mark.dataset]
-        if "PROJ" not in (record.get("agreeing") or []):
-            # This library computes with PROJ, so a consensus reached without
-            # PROJ is a record of PROJ disagreeing with the other engines.
-            # Not strict: many are still within tolerance, and those report as
-            # xpass rather than being quietly skipped.
+        if record.get("proj_expectation") == "xfail":
+            # PROJ could not produce this record when the dataset was built.
+            # Absence from "agreeing" is not the same thing: a longitude
+            # rotation reported unwrapped past 180 degrees excludes PROJ there
+            # while still being the same point to the nanometre.
+            # Not strict: a record that starts working (a grid installed, a
+            # PROJ fix) reports as xpass rather than being quietly skipped.
             marks.append(
                 pytest.mark.xfail(
                     reason=(
-                        "expected value agreed by "
-                        f"{record.get('agreeing')} without PROJ"
+                        "PROJ was unsuccessful when the dataset was generated: "
+                        f"{record.get('proj_failure_reason')}"
                     ),
                     strict=False,
                 )
