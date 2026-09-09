@@ -23,6 +23,12 @@ Features:
 
 ## Development environment
 
+The library requires **pyproj 3.8.0**. Version 0.2.0 tightens previously
+permissive behavior: unnamed datum changes are refused even when
+`allow_any_operation=True`, and dynamic CRSs require a finite coordinate epoch.
+The compatibility keyword remains accepted but cannot bypass either rule.
+Name every datum operation, or use a CRS with an explicit bound operation.
+
 The environment is pinned deliberately, because the EPSG dataset baked into
 `proj.db` is part of every answer this library gives. Two properties must hold,
 and both are asserted by `tests/test_environment.py`:
@@ -60,9 +66,9 @@ uv run pytest tests/test_environment.py
 is load-bearing: when `proj.db` is embedded into `libproj`, a custom database on
 disk can be silently ignored, which would defeat the workflow below.
 
-`pyproj` is pinned by commit SHA in `[tool.uv.sources]` rather than in
-`[project.dependencies]`, because PyPI rejects direct reference URLs in
-published package metadata.
+`pyproj==3.8.0` is pinned in the published dependencies and the lockfile.
+`uv` builds that release from source against the installed PROJ; it does not
+use a development Git checkout or a wheel with a different bundled PROJ.
 
 Verify an existing environment at any time:
 
@@ -397,6 +403,9 @@ print(report.to_json())
 
 ### Using the result
 
+When multiple databases are on PROJ's search path, subsequent builds require
+an explicit `base_proj_db`. The builder refuses to guess which is the base.
+
 The enriched database is a drop-in replacement for the official one. Point PROJ
 at the directory containing it, keeping the installed PROJ directory on the
 search path so grids and `proj.ini` are still found:
@@ -413,6 +422,19 @@ datadir.set_data_dir(os.pathsep.join(["/path/to/build", datadir.get_data_dir()])
 ```
 
 ### Provenance
+
+Builds use a locked staging database and validate it in an isolated subprocess
+before atomically replacing the published database. A failed build or dry run
+leaves the previous database unchanged. Python `build()` calls follow the
+same workflow as the CLI. `skip_validation=True` is an explicit, recorded opt-out.
+
+Each successful database includes an append-only
+`geodetic_engine_build_history` table containing its reports; sidecar JSON
+reports are convenience exports. Transformation results snapshot SHA-256
+database fingerprints and serialize full CRS definitions and operation safety
+metadata. Resolution caches distinguish database paths and generations.
+Applications changing PROJ's global search path must serialize that change
+against their own pyproj calls; validation does not change the caller's context.
 
 Every build writes `<output>.report.json` recording the PROJ version, the EPSG
 dataset version, the proj.db layout version, where the definitions came from and
@@ -541,9 +563,10 @@ scripts/build-projdb.sh --source georepository --output /tmp/proj.db
 scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --extend
 ```
 
-The script removes the output before building unless `--extend` is given, so a
-default run is always a full rebuild rather than a silent accumulation across
-generations of definitions. Run it with `--help` for every option.
+The script stages the complete source chain, including grid patches, and
+replaces the output only after every step succeeds. Without `--extend` it starts
+from the base database; with `--extend` it stages the existing output. A dry run
+validates that same chain without publishing. Run it with `--help` for options.
 
 A few consequences worth knowing:
 
@@ -553,8 +576,9 @@ A few consequences worth knowing:
 - **Objects the first build wrote are visible to the second.** The existing-key
   check reads the output database, so a datum or unit the first source already
   imported is reused rather than re-imported or collided with.
-- **A failed append leaves the earlier build intact.** The transaction is rolled
-  back, but the file is not deleted: it is not this build's to destroy.
+- **A failed append leaves the earlier build intact.** Staging is discarded,
+  including when validation fails after its transaction commits. The published
+  file is never modified in place.
 - **Each build keeps its own report and log.** An appending build writes
   `<output>.projdb.report.json` or `<output>.osdudb.report.json` beside the
   database rather than overwriting `<output>.report.json`, so the provenance of
@@ -565,20 +589,19 @@ A few consequences worth knowing:
 
 ### Overwriting rather than colliding
 
-By default a row that collides with one already in the database aborts the
-build, because a definition that changes underneath whoever is already using it
-is exactly the failure this tool exists to prevent. `--overwrite-existing`
-replaces it instead, which is what you want when re-importing a register whose
-definitions have been corrected upstream:
+Importers normally reuse existing objects; duplicate rows reaching the writer
+are rejected. `--overwrite-existing` explicitly updates eligible objects from
+the configured authorities, including dependent axes and steps. It is useful
+when re-importing a register whose definitions were corrected upstream:
 
 ```bash
 uv run geodetic-projdb build --output build/proj.db --append --overwrite-existing
 ```
 
-This cannot reach another authority's rows even when set. The per-row authority
-guard runs first, and every object table is keyed on `(auth_name, code)`, so a
-replacement can only ever land on a row one of the build's own configured
-authorities already owns. An EPSG or PROJ definition is still unreachable.
+Objects present in the configured base database cannot be replaced, even when
+their authority is configured for import. The authority guard also prevents
+updates to other authorities' objects. Use a fresh official base when updating
+objects from an earlier enriched output.
 
 ## Talking to a Georepository instance directly
 
