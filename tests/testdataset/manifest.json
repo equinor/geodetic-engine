@@ -2,9 +2,9 @@
   "schema_version": 1,
   "source": "out/agreed.jsonl",
   "environment": {
-    "provenance_id": "sha256:5047c1d3f1aa49b2bc41abe54c1627b119f9543c33f0c4f7ca77466f4c0ac0c3",
+    "provenance_id": "sha256:dc3ff991a9acc0157afa62d5b91e70fc62ef5ab3cce116d75e764677ddc448e5",
     "proj_version": "9.8.1",
-    "pyproj_version": "3.7.2",
+    "pyproj_version": "3.8.0",
     "gdal_version": null,
     "grid_file_count": 475,
     "grid_inventory_sha256": "1757fa14241e44225f095904f0cfde309931e82cb8baac04aeb50adae6f6f8bc",
@@ -15,53 +15,66 @@
   "tier_meaning": {
     "gold": "three or more independent lineages agreed",
     "silver": "exactly two independent lineages agreed",
-    "reference": "one lineage only (PROJ); catches plumbing errors, does not establish correctness"
+    "reference": "PROJ-generated regression baseline; expected coordinates recomputed locally with PROJ, not copied from upstream PROJ internal tests"
   },
-  "note": "expected values are a consensus across engines, not a recording of any one engine; compare with tolerance_m, never for equality",
+  "note": "gold and silver expected values are a consensus across independent lineages; reference values come from PROJ alone and do not establish correctness; compare with tolerance_m, never for equality",
   "field_meaning": {
     "coordinate_epoch": "the epoch to supply with the source coordinates; required to reproduce any record that carries it",
-    "source_frame_epoch": "reference epoch of the source dynamic frame, descriptive only; using it as the coordinate epoch moves the answer by up to a metre"
+    "source_frame_epoch": "reference epoch of the source dynamic frame, descriptive only; using it as the coordinate epoch moves the answer by up to a metre",
+    "proj_expectation": "pass: PROJ agreed or supplied a reference baseline; xfail: PROJ was unsuccessful during generation, retained to detect future support.",
+    "expected_value_source": "proj_generated_regression_baseline: EPSG-derived input case, expected values computed by the installed PROJ through pyproj; no upstream PROJ test-file provenance is asserted"
   },
   "files": {
     "horizontal_conversion.jsonl": {
       "description": "Same datum; projection and unit maths only.",
       "cases": 360,
       "gold": 350,
-      "silver": 10
+      "silver": 10,
+      "proj_expected_failures": 0
     },
     "horizontal_datum_shift.jsonl": {
       "description": "Datum change by analytic method (Helmert, Molodensky-Badekas).",
-      "cases": 9324,
-      "gold": 7187,
-      "silver": 2137
+      "cases": 9381,
+      "gold": 7259,
+      "silver": 2122,
+      "proj_expected_failures": 53
     },
     "horizontal_grid.jsonl": {
       "description": "Datum change that consumed a PROJ grid file. Requires those grids.",
-      "cases": 2416,
+      "cases": 3637,
       "gold": 1724,
-      "silver": 692
+      "silver": 1913,
+      "proj_expected_failures": 0
     },
     "horizontal_3d.jsonl": {
       "description": "Three-dimensional geographic or geocentric coordinates.",
       "cases": 42,
-      "gold": 39,
-      "silver": 3
+      "gold": 42,
+      "silver": 0,
+      "proj_expected_failures": 0
     },
     "dynamic.jsonl": {
       "description": "Epoch-dependent; source or target is a dynamic reference frame.",
       "cases": 163,
       "gold": 0,
       "silver": 0,
+      "proj_expected_failures": 0,
       "reference": 163,
       "epoch_sensitive": 147
     },
     "vertical.jsonl": {
       "description": "Vertical or compound target.",
-      "cases": 235,
+      "cases": 236,
       "gold": 0,
       "silver": 1,
-      "reference": 234
+      "proj_expected_failures": 0,
+      "reference": 235
     }
   },
-  "total_cases": 12143
+  "total_cases": 13819,
+  "export_policy": {
+    "description": "Keep consensus values reproduced by PROJ within tolerance (including equivalent wrapped longitudes) and explicit PROJ expected failures; exclude successful numerical dissent and absent PROJ evidence.",
+    "excluded_cases": 133,
+    "proj_expected_failures": 53
+  }
 }
