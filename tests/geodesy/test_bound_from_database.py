@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 
 import pyproj
@@ -58,7 +59,7 @@ def proj_data_with_bound_crs(tmp_path: Path) -> Iterator[Path]:
     database = directory / "proj.db"
     shutil.copyfile(Path(pyproj.datadir.get_data_dir()) / "proj.db", database)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             "INSERT INTO geodetic_crs (auth_name, code, name, description, type, "
             "coordinate_system_auth_name, coordinate_system_code, datum_auth_name, "

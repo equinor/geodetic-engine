@@ -10,6 +10,8 @@ fixture written from the same misunderstanding would not catch.
 from __future__ import annotations
 
 import math
+from contextlib import closing
+from copy import deepcopy
 
 import pytest
 from pyproj import CRS, Transformer
@@ -120,6 +122,48 @@ def test_a_single_step_operation_is_not_collapsible() -> None:
         collapse_concatenated(operation)
 
 
+@pytest.mark.parametrize("tolerance", [0, -1, math.nan, math.inf])
+def test_invalid_tolerance_is_refused(tolerance: float) -> None:
+    with pytest.raises(NotCollapsibleError, match="tolerance"):
+        collapse_concatenated(_operation(CHAIN), tolerance_m=tolerance)
+
+
+def test_geocentric_collapse_measures_surface_error_in_metres() -> None:
+    first = _operation(FIRST_STEP).to_json_dict()
+    first.pop("id", None)
+    first.pop("bbox", None)
+    first["source_crs"] = CRS(4978).to_json_dict()
+    first["target_crs"] = CRS(4936).to_json_dict()
+    first["method"] = {
+        "name": "Position Vector transformation (geocentric domain)",
+        "id": {"authority": "EPSG", "code": 1033},
+    }
+    for parameter in first["parameters"]:
+        code = int(parameter["id"]["code"])
+        parameter["value"] = 100 if code == 8605 else 0
+        if code in (8608, 8609, 8610):
+            parameter["unit"] = {
+                "type": "AngularUnit",
+                "name": "arc-second",
+                "conversion_factor": math.pi / 648000,
+            }
+            parameter["value"] = 60 if code == 8608 else 0
+    second = deepcopy(first)
+    second["source_crs"] = first["target_crs"]
+    second["target_crs"] = CRS(4896).to_json_dict()
+    chain = CoordinateOperation.from_json_dict(
+        {
+            "type": "ConcatenatedOperation",
+            "name": "Geocentric regression",
+            "source_crs": first["source_crs"],
+            "target_crs": second["target_crs"],
+            "steps": [first, second],
+        }
+    )
+    with pytest.raises(NotCollapsibleError, match="more than"):
+        collapse_concatenated(chain, tolerance_m=0.001)
+
+
 def test_a_grid_chain_is_refused() -> None:
     """A chain containing anything but a plain Helmert must be refused.
 
@@ -184,7 +228,7 @@ def _concatenated_codes() -> list[int]:
     import pyproj
 
     database = os.path.join(pyproj.datadir.get_data_dir(), "proj.db")
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         return [
             int(row[0])
             for row in connection.execute(

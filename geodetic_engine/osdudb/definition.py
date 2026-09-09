@@ -173,6 +173,7 @@ class UnitResolver:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._by_name: dict[tuple[str, str], Identifier] = {}
         self._by_factor: list[tuple[str, float, Identifier]] = []
+        self._definitions: dict[Identifier, tuple[str, float | None]] = {}
         statement = (
             "SELECT auth_name, code, name, type, conv_factor FROM unit_of_measure "
             # EPSG first so a unit that several authorities define resolves to
@@ -181,6 +182,10 @@ class UnitResolver:
         )
         for auth_name, code, name, unit_type, factor in connection.execute(statement):
             identifier = Identifier(str(auth_name), str(code))
+            self._definitions[identifier] = (
+                str(unit_type),
+                None if factor is None else float(factor),
+            )
             self._by_name.setdefault((str(unit_type), str(name).casefold()), identifier)
             if factor is not None:
                 self._by_factor.append((str(unit_type), float(factor), identifier))
@@ -219,17 +224,32 @@ class UnitResolver:
         if not isinstance(unit, dict):
             return None
 
-        if (identifier := identifier_of(unit)) is not None:
-            return identifier
-
         unit_type = UNIT_TYPES.get(str(unit.get("type") or ""))
         if unit_type is None:
             return None
         name = str(unit.get("name") or "").casefold()
-        if (by_name := self._by_name.get((unit_type, name))) is not None:
-            return by_name
-
         factor = unit.get("conversion_factor")
+        if factor is not None and (
+            not isinstance(factor, int | float)
+            or not math.isfinite(factor)
+            or factor <= 0
+        ):
+            return None
+        identified = identifier_of(unit)
+        by_name = self._by_name.get((unit_type, name))
+        candidate = identified or by_name
+        if candidate is not None:
+            definition = self._definitions.get(candidate)
+            if definition is None or definition[0] != unit_type:
+                return None
+            if factor is not None and (
+                definition[1] is None
+                or not math.isclose(definition[1], factor, rel_tol=_FACTOR_TOLERANCE)
+            ):
+                return None
+            if identified and by_name and self._definitions[by_name] != definition:
+                return None
+            return candidate
         if not isinstance(factor, int | float):
             return None
         for candidate_type, candidate_factor, identifier in self._by_factor:

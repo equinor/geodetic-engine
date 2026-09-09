@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,34 @@ def test_uncommitted_build_is_discarded(config: ProjDbBuildConfig) -> None:
     with ProjDbWriter(config) as writer:
         writer.insert("scope", [_SCOPE_ROW])
     assert not config.output_db.exists()
+
+
+def test_dry_run_preserves_existing_output(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.insert("scope", [_SCOPE_ROW])
+        writer.commit()
+    before = config.output_db.read_bytes()
+    with ProjDbWriter(config) as writer:
+        writer.insert("scope", [_SCOPE_ROW | {"code": "2"}])
+    assert config.output_db.read_bytes() == before
+
+
+def test_validation_failure_does_not_publish(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.insert("scope", [_SCOPE_ROW])
+        writer.commit()
+    before = config.output_db.read_bytes()
+
+    def reject(database: Path) -> None:
+        assert database != config.output_db
+        raise ValueError("invalid staged database")
+
+    with (
+        pytest.raises(ValueError, match="invalid staged"),
+        ProjDbWriter(config) as writer,
+    ):
+        writer.commit(validate=reject)
+    assert config.output_db.read_bytes() == before
 
 
 def test_existing_keys_reads_the_base_database(config: ProjDbBuildConfig) -> None:
@@ -150,7 +179,7 @@ def test_overwrite_existing_replaces_only_its_own_authority(
         writer.insert("scope", [_SCOPE_ROW | {"scope": "Rewritten"}])
         writer.commit()
 
-    with sqlite3.connect(config.output_db) as connection:
+    with closing(sqlite3.connect(config.output_db)) as connection:
         (scope,) = connection.execute(
             "SELECT scope FROM scope WHERE auth_name = 'Example' AND code = '1'"
         ).fetchone()
@@ -177,7 +206,7 @@ def _scopes(database: Path) -> set[tuple[str, str]]:
     The stock proj.db ships scopes for IGNF, NKG and others; only the rows
     these tests write are of interest.
     """
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         return {
             (str(auth), str(code))
             for auth, code in connection.execute(

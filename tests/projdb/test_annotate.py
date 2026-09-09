@@ -8,6 +8,7 @@ touched, and must never point at an object the database does not hold.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import Any
 
 from geodetic_engine.georepository.client import GeorepositoryClient
@@ -91,7 +92,9 @@ def _build(config: ProjDbBuildConfig, fake: FakeGeorepository):
 
 
 def _query(config: ProjDbBuildConfig, sql: str, *args: Any) -> list[tuple[Any, ...]]:
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         return connection.execute(sql, args).fetchall()
 
 
@@ -114,7 +117,9 @@ def test_the_epsg_object_itself_is_not_rewritten(config: ProjDbBuildConfig) -> N
     """Annotating must not re-import or alter another authority's row."""
     report = _build(config, _register(scope_authority=AUTHORITY))
 
-    with sqlite3.connect(f"file:{config.base_proj_db}?mode=ro", uri=True) as base:
+    with closing(
+        sqlite3.connect(f"file:{config.base_proj_db}?mode=ro", uri=True)
+    ) as base:
         before = base.execute(
             "SELECT COUNT(*) FROM geodetic_crs WHERE auth_name = 'EPSG'"
         ).fetchall()

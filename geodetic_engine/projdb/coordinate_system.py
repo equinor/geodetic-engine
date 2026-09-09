@@ -38,7 +38,7 @@ def collect(context: BuildContext) -> None:
         obj = context.client.detail(summary)
         auth = tr.auth_name(obj)
         code = tr.code(obj)
-        if not context.is_new(TABLE, auth, code):
+        if not context.should_import(TABLE, auth, code):
             continue
         assert code is not None
 

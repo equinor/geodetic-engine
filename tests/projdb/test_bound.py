@@ -9,6 +9,7 @@ cannot embed is collapsed first, or refused and reported.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import Any
 
 import pytest
@@ -92,7 +93,9 @@ def _build(config: ProjDbBuildConfig, fake: FakeGeorepository):
 
 
 def _rows(config: ProjDbBuildConfig) -> list[tuple[Any, ...]]:
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         return connection.execute(
             "SELECT code, coordinate_system_auth_name, datum_auth_name, "
             "text_definition FROM geodetic_crs WHERE auth_name = ?",

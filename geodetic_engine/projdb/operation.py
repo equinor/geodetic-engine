@@ -104,7 +104,7 @@ def collect_transformations(context: BuildContext) -> None:
             continue
         parameters = _parameters(obj)
         table = pm.classify(parameters)
-        if not context.is_new(table, auth, code):
+        if not context.should_import(table, auth, code):
             continue
 
         method = obj.get("Method") or {}
@@ -316,7 +316,7 @@ def _candidates(
     ):
         obj = context.client.detail(summary)
         auth, code = tr.auth_name(obj), tr.code(obj)
-        if code is None or not context.is_new(table, auth, code):
+        if code is None or not context.should_import(table, auth, code):
             continue
         yield obj, auth, code
 

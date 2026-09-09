@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,7 @@ from .conftest import (
 
 @pytest.fixture
 def connection(base_proj_db: Path) -> Iterator[sqlite3.Connection]:
-    with sqlite3.connect(f"file:{base_proj_db}?mode=ro", uri=True) as handle:
+    with closing(sqlite3.connect(f"file:{base_proj_db}?mode=ro", uri=True)) as handle:
         yield handle
 
 
@@ -49,6 +50,18 @@ class TestParsing:
 
 
 class TestUnitResolver:
+    @pytest.mark.parametrize("extra", [{}, {"id": {"authority": "EPSG", "code": 9001}}])
+    def test_conflicting_unit_factors_are_refused(
+        self, units: df.UnitResolver, extra: dict[str, object]
+    ) -> None:
+        unit = {
+            "type": "LinearUnit",
+            "name": "metre",
+            "conversion_factor": 0.3048,
+        } | extra
+        with pytest.raises(UnreadableDefinitionError):
+            units.resolve(unit, described="test")
+
     def test_the_shorthand_units_resolve(self, units: df.UnitResolver) -> None:
         assert units.resolve("metre", described="x") == df.Identifier("EPSG", "9001")
         assert units.resolve("degree", described="x") == df.Identifier("EPSG", "9102")

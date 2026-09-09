@@ -70,6 +70,6 @@ jobs:
             check "mypy"        uv run --no-sync mypy geodetic_engine
             # -o addopts="" also runs the cross-engine sweep over
             # tests/testdataset, which the default run excludes by marker.
-            check "pytest"      uv run --no-sync pytest -o addopts="" -n logical -q
+            check "pytest"      uv run --no-sync pytest -o addopts="" -n logical -q --cov=geodetic_engine --cov-fail-under=80
             exit $status
           '

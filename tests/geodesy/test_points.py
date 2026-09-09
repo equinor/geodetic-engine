@@ -178,6 +178,42 @@ def test_to_numpy_matches_coordinates() -> None:
     np.testing.assert_array_equal(array, np.array(result.coordinates))
 
 
+@pytest.mark.parametrize(
+    "source,target,operation,width",
+    [
+        ("EPSG:4326", "EPSG:3857", None, 2),
+        ("EPSG:4979", "EPSG:3855", "EPSG:3858", 1),
+    ],
+)
+def test_empty_numpy_export_preserves_width(
+    source: str, target: str, operation: str | None, width: int
+) -> None:
+    result = transform(source, target, [], operation=operation)
+    assert result.coordinates.to_numpy().shape == (0, width)
+
+
+def test_equal_crss_are_unhashable() -> None:
+    first = CoordinateReferenceSystem.from_user_input("EPSG:4326")
+    second = CoordinateReferenceSystem.from_user_input(first.crs.to_wkt())
+    assert first == second
+    with pytest.raises(TypeError):
+        hash(first)
+
+
+def test_serialization_preserves_operation_and_crs_definitions() -> None:
+    result = transform("EPSG:4230", "EPSG:4326", (10, 60), operation="EPSG:1133")
+    serialized = result.to_json_dict()
+    assert serialized["operation"]["ballpark"] is False
+    assert serialized["operation"]["requires_epoch"] is False
+    assert serialized["operation"]["definition"] == json.loads(
+        result.operation.projjson
+    )
+    assert (
+        CoordinateReferenceSystem.from_user_input(serialized["source_crs_wkt"])
+        == result.source_crs
+    )
+
+
 def test_to_dataframe_columns_are_named_after_target_axes() -> None:
     result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
 

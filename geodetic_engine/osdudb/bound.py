@@ -61,7 +61,7 @@ def collect_bound(context: OsduBuildContext) -> None:
             continue
 
         table = "projected_crs" if base.is_projected else "geodetic_crs"
-        if not context.is_new(table, record.auth_name, record.code):
+        if not context.should_import(table, record.auth_name, record.code):
             continue
 
         row = {

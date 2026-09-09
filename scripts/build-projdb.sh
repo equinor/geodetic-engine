@@ -218,21 +218,19 @@ done
 
 common_args=()
 $skip_validation && common_args+=(--skip-validation)
-$dry_run && common_args+=(--dry-run)
 $overwrite_existing && common_args+=(--overwrite-existing)
 verbose_args=()
 $verbose && verbose_args+=(--verbose)
 
-if ! $extend && ! $dry_run; then
-    # Sidecars too: a report describing a database that no longer exists is
-    # worse than no report, because it still reads as a description of this one.
-    for stale in "$output" "$output".*.report.json "$output".*.log \
-        "$output".report.json "$output".log; do
-        if [[ -e "$stale" ]]; then
-            echo "removing $stale"
-            rm -f -- "$stale"
-        fi
-    done
+published_output="$output"
+mkdir -p -- "$(dirname "$published_output")"
+exec {publication_lock}>"${published_output}.lock"
+flock "$publication_lock"
+staging="$(mktemp -d "$(dirname "$published_output")/.geodetic-build.XXXXXX")"
+trap 'rm -rf -- "$staging"' EXIT
+output="${staging}/proj.db"
+if $extend && [[ -f "$published_output" ]]; then
+    cp -- "$published_output" "$output"
 fi
 
 # The first build to run creates the database; every one after it adds to what
@@ -263,11 +261,6 @@ for source in "${sources[@]}"; do
     append=true
 done
 
-if $dry_run; then
-    echo "dry run: nothing was written to $output"
-    exit 0
-fi
-
 if ! $skip_grid_patch; then
     echo
     echo "==> patching grid_alternatives in $output"
@@ -277,3 +270,15 @@ fi
 echo
 echo "==> $output now holds:"
 "${runner[@]}" geodetic-projdb inspect "$output"
+
+if $dry_run; then
+    echo "dry run: validated staging; nothing was published to $published_output"
+    exit 0
+fi
+
+for sidecar in "$output"*.report.json "$output"*.log; do
+    [[ -f "$sidecar" ]] || continue
+    mv -- "$sidecar" "${published_output}${sidecar#"$output"}"
+done
+mv -f -- "$output" "$published_output"
+echo "published $published_output"

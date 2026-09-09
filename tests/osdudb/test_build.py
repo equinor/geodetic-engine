@@ -10,7 +10,8 @@ from __future__ import annotations
 import os
 import sqlite3
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from geodetic_engine.osdudb.catalog import (
     PROJECTED_CRS,
     OsduCatalog,
 )
+from geodetic_engine.projdb.errors import ProjDbBuildError
 from geodetic_engine.projdb.report import BuildReport
 from geodetic_engine.projdb.settings import AuthorityPreference
 from geodetic_engine.projdb.validate import validate
@@ -41,6 +43,97 @@ from .conftest import (
 )
 
 Build = Callable[..., BuildReport]
+
+
+def test_failed_append_validation_preserves_published_artifacts(
+    base_proj_db: Path,
+    output_db: Path,
+    catalog_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_catalog(catalog_path, geographic())
+    config = make_config(base_proj_db, output_db, catalog_path)
+    build(config)
+    before = output_db.read_bytes()
+    sidecar = output_db.with_suffix(".db.report.json")
+    report_before = sidecar.read_bytes()
+
+    def reject(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise ProjDbBuildError("validation regression")
+
+    monkeypatch.setattr("geodetic_engine.projdb.common.validate", reject)
+    with pytest.raises(ProjDbBuildError, match="validation regression"):
+        build(replace(config, append=True))
+    assert output_db.read_bytes() == before
+    assert sidecar.read_bytes() == report_before
+
+
+def test_overwrite_updates_crs_and_projection(
+    base_proj_db: Path, output_db: Path, catalog_path: Path
+) -> None:
+    write_catalog(
+        catalog_path,
+        geographic(
+            NameAlias=[
+                {
+                    "AliasName": "Old alias",
+                    "AliasNameTypeID": "ns:reference-data--AliasNameType:OSDU:",
+                }
+            ]
+        ),
+        projected(),
+    )
+    config = make_config(base_proj_db, output_db, catalog_path)
+    build(config)
+    write_catalog(
+        catalog_path,
+        geographic(Name="Corrected"),
+        projected(OGCWellKnownText2=CUSTOM_PROJECTED_WKT.replace("500000", "600000")),
+    )
+    report = build(replace(config, append=True, overwrite_existing=True))
+    assert report.validation["status"] == "passed"
+    with closing(sqlite3.connect(output_db)) as connection:
+        assert (
+            connection.execute(
+                "SELECT 1 FROM alias_name WHERE auth_name='OSDU' AND code=4100 AND alt_name='Old alias'"
+            ).fetchone()
+            is None
+        )
+        assert (
+            connection.execute(
+                "SELECT name FROM geodetic_crs WHERE auth_name='OSDU' AND code=4100"
+            ).fetchone()[0]
+            == "Corrected"
+        )
+        assert (
+            connection.execute(
+                "SELECT param4_value FROM conversion_table WHERE auth_name='OSDU' AND code=17100"
+            ).fetchone()[0]
+            == 600000
+        )
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"Method": authority_code("EPSG", 9607)},
+        {"SourceCRS": authority_code("EPSG", 4326)},
+        {"TargetCRS": authority_code("EPSG", 4258)},
+    ],
+)
+def test_operation_metadata_cannot_contradict_wkt(
+    base_proj_db: Path, output_db: Path, catalog_path: Path, fields: dict[str, Any]
+) -> None:
+    write_catalog(catalog_path, geographic(), helmert(**fields))
+    report = build(make_config(base_proj_db, output_db, catalog_path))
+    assert any("contradict" in str(item["reason"]) for item in report.skipped)
+    with closing(sqlite3.connect(output_db)) as connection:
+        assert (
+            connection.execute(
+                "SELECT 1 FROM helmert_transformation_table WHERE auth_name='OSDU' AND code=9100"
+            ).fetchone()
+            is None
+        )
 
 
 def geographic(**fields: Any) -> dict[str, Any]:
@@ -124,7 +217,7 @@ def run(base_proj_db: Path, output_db: Path, catalog_path: Path) -> Build:
 
 
 def rows(database: Path, statement: str, *parameters: Any) -> list[tuple[Any, ...]]:
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         return connection.execute(statement, parameters).fetchall()
 
 

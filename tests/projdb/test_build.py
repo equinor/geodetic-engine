@@ -8,6 +8,7 @@ real path to WGS 84, and one deprecated CRS that is superseded by the first.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import Any
 
 import pytest
@@ -235,7 +236,9 @@ def test_epsg_objects_are_not_reimported(report) -> None:
 
 
 def test_no_dangling_references(config: ProjDbBuildConfig, report) -> None:
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -243,7 +246,9 @@ def test_deprecated_crs_is_flagged_and_superseded(
     config: ProjDbBuildConfig, report
 ) -> None:
     """This is what turns 'CRS not found' into 'deprecated, superseded by X'."""
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         deprecated = connection.execute(
             "SELECT deprecated FROM geodetic_crs WHERE auth_name = ? AND code = ?",
             (AUTHORITY, str(DEPRECATED_CRS)),
@@ -263,7 +268,9 @@ def test_deprecated_crs_is_flagged_and_superseded(
 def test_aliases_are_imported_for_configured_naming_systems(
     config: ProjDbBuildConfig, report
 ) -> None:
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         aliases = connection.execute(
             "SELECT alt_name FROM alias_name WHERE auth_name = ?", (AUTHORITY,)
         ).fetchall()
@@ -272,7 +279,9 @@ def test_aliases_are_imported_for_configured_naming_systems(
 
 def test_datum_aliases_are_imported(config: ProjDbBuildConfig, report) -> None:
     """Datums were previously the one object type whose aliases were dropped."""
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         aliases = connection.execute(
             "SELECT alt_name FROM alias_name "
             "WHERE table_name = 'geodetic_datum' AND auth_name = ?",
@@ -284,7 +293,9 @@ def test_datum_aliases_are_imported(config: ProjDbBuildConfig, report) -> None:
 def test_aliases_from_other_naming_systems_are_ignored(
     config: ProjDbBuildConfig, report
 ) -> None:
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         sources = connection.execute(
             "SELECT DISTINCT source FROM alias_name WHERE auth_name = ?", (AUTHORITY,)
         ).fetchall()
@@ -295,7 +306,9 @@ def test_authority_preferences_make_custom_operations_selectable(
     config: ProjDbBuildConfig, report
 ) -> None:
     """Without these rows PROJ never considers a custom authority's operations."""
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         rows = dict(
             connection.execute(
                 "SELECT source_auth_name || '>' || target_auth_name, "
@@ -373,7 +386,9 @@ def test_grid_transformation_is_written_despite_the_missing_grid(
     report = build(config, client=client)
 
     assert report.rows_by_table["grid_transformation"] == 1
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         stored = connection.execute(
             "SELECT grid_name FROM grid_transformation WHERE auth_name = ?",
             (AUTHORITY,),
@@ -407,7 +422,9 @@ def test_all_naming_systems_can_be_imported(
     )
     build(wildcard, client=client)
 
-    with sqlite3.connect(f"file:{wildcard.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{wildcard.output_db}?mode=ro", uri=True)
+    ) as connection:
         sources = {
             row[0]
             for row in connection.execute(
@@ -476,7 +493,9 @@ def test_derived_vertical_crs_inherits_the_base_datum(
     report = build(config, client=client)
 
     assert [s for s in report.skipped if s["table"] == "vertical_crs"] == []
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         row = connection.execute(
             "SELECT coordinate_system_code, datum_auth_name, datum_code "
             "FROM vertical_crs WHERE auth_name = ? AND code = ?",
@@ -554,7 +573,9 @@ def test_derived_geodetic_crs_inherits_the_base_datum(
     report = build(config, client=client)
 
     assert [s for s in report.skipped if s["table"] == "geodetic_crs"] == []
-    with sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True) as connection:
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
         row = connection.execute(
             "SELECT datum_auth_name, datum_code FROM geodetic_crs "
             "WHERE auth_name = ? AND code = ?",

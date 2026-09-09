@@ -25,7 +25,7 @@ format.
 Example:
     >>> from geodetic_engine.geodesy import transform
     >>> result = transform(
-    ...     "EPSG:4326", "EPSG:25832", [(10.7522, 59.9139)],
+    ...     "EPSG:4258", "EPSG:25832", [(10.7522, 59.9139)],
     ...     operation="EPSG:16032",
     ... )
     >>> result.operation.authority_code

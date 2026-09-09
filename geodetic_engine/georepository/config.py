@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
+import httpx
+
 from geodetic_engine.georepository.errors import GeorepositoryConfigError
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,15 @@ class GeorepositoryConfig:
             )
         if not self.token_url:
             object.__setattr__(self, "token_url", f"{self.api_url}/auth/connect/token")
+        for name, value in (("api_url", self.api_url), ("token_url", self.token_url)):
+            try:
+                url = httpx.URL(value)
+            except httpx.InvalidURL as exc:
+                raise GeorepositoryConfigError(f"invalid {name}") from exc
+            if url.scheme != "https" or not url.host or url.userinfo or url.fragment:
+                raise GeorepositoryConfigError(
+                    f"{name} must be an absolute https URL without userinfo or fragment"
+                )
         if self.page_size < 1:
             raise GeorepositoryConfigError("page_size must be positive")
 

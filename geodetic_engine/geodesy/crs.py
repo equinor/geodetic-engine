@@ -26,7 +26,11 @@ from typing import Any
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.database import bound_definition
+from geodetic_engine.geodesy.database import (
+    DatabaseIdentity,
+    bound_definition,
+    database_identity,
+)
 from geodetic_engine.geodesy.errors import UnresolvableCRSError
 
 logger = logging.getLogger(__name__)
@@ -136,7 +140,7 @@ class CoordinateReferenceSystem:
             return value
         if isinstance(value, CRS):
             return cls(_rebound(value), value.srs)
-        return _cached(_normalize(value))
+        return _cached(_normalize(value), database_identity())
 
     @property
     def crs(self) -> CRS:
@@ -257,9 +261,6 @@ class CoordinateReferenceSystem:
             return NotImplemented
         return bool(self._crs == other._crs)
 
-    def __hash__(self) -> int:
-        return hash(self._definition)
-
     def __repr__(self) -> str:
         return f"CoordinateReferenceSystem({self.authority_code or self.name!r})"
 
@@ -277,7 +278,7 @@ def _normalize(value: Any) -> str:
 
 
 @lru_cache(maxsize=256)
-def _cached(definition: str) -> CoordinateReferenceSystem:
+def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceSystem:
     """Resolve and cache a CRS by its textual definition."""
     try:
         crs = CRS.from_user_input(definition)

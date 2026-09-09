@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -104,8 +106,17 @@ class BuildReport:
         return json.dumps(self.as_dict(), indent=indent, sort_keys=False)
 
     def write(self, path: Path) -> None:
-        """Write the report next to the database it describes."""
-        path.write_text(self.to_json(), encoding="utf-8")
+        """Atomically export the report next to the database it describes."""
+        descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        staging = Path(name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(self.to_json())
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(staging, path)
+        finally:
+            staging.unlink(missing_ok=True)
 
 
 def log_summary(report: BuildReport) -> None:

@@ -76,6 +76,16 @@ class OsduBuildContext:
     skipped: list[SkippedObject] = field(default_factory=list)
     deprecated_keys: set[ObjectKey] = field(default_factory=set)
     imported_keys: list[ObjectKey] = field(default_factory=list)
+    processed: set[ObjectKey] = field(default_factory=set)
+
+    def should_import(self, table: str, auth: str, code: str | None) -> bool:
+        """Select new or explicitly replaceable objects, never base definitions."""
+        if code is None or ObjectKey(table, auth, str(code)) in self.processed:
+            return False
+        return self.is_new(table, auth, code) or (
+            self.config.overwrite_existing
+            and not self.writer.is_base_object(table, auth, str(code))
+        )
 
     def candidates(self, *types: str) -> Iterator[Record]:
         """Yield the records of the given types this build should consider.
@@ -135,6 +145,7 @@ class OsduBuildContext:
         """Register an object as imported and return its key."""
         key = ObjectKey(table=table, auth_name=auth, code=str(code))
         self.imported_keys.append(key)
+        self.processed.add(key)
         self.known_keys(table).add((auth, str(code)))
         return key
 
@@ -146,6 +157,9 @@ class OsduBuildContext:
         replacement for an inactive record, so a deprecated object is flagged
         but cannot be linked to whatever superseded it.
         """
+        self.writer.clear_annotations(
+            key.table, key.auth_name, key.code, self.config.naming_systems
+        )
         if tr.is_deprecated(record.data):
             self.deprecated_keys.add(key)
         for index, usage in enumerate(tr.usages(record.data), start=1):
@@ -262,7 +276,7 @@ class OsduBuildContext:
                 f"{described} references a {table} the WKT does not identify, so "
                 "it cannot be recorded under a code anything could resolve"
             )
-        if not self.is_new(table, identifier.auth_name, identifier.code):
+        if not self.should_import(table, identifier.auth_name, identifier.code):
             return False
         self.require_writable(table, identifier, described)
         return True

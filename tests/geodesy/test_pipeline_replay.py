@@ -140,7 +140,7 @@ def test_a_pure_conversion_reports_a_runnable_pipeline() -> None:
     """No datum change either: the map projection alone has to replay too."""
     point = (10.7522, 59.9139)
 
-    result = transform("EPSG:4326", "EPSG:25832", point, operation="EPSG:16032")
+    result = transform("EPSG:4258", "EPSG:25832", point, operation="EPSG:16032")
 
     assert result.pipeline is not None
     replayed = Transformer.from_pipeline(result.pipeline).transform(*point)
@@ -218,7 +218,7 @@ THREE_DIMENSIONAL = [
         id="geocentric to geographic",
     ),
     pytest.param(
-        "EPSG:4326",
+        "EPSG:4258",
         "EPSG:25832",
         "EPSG:16032",
         (10.75, 59.91, 150.0),
@@ -245,20 +245,20 @@ THREE_DIMENSIONAL = [
         id="geoid height as the source",
     ),
     pytest.param(
-        "EPSG:4979",
-        "EPSG:5972",
-        None,
+        "EPSG:4937",
+        "EPSG:6172",
+        "EPSG:9484",
         (10.75, 59.91, 150.0),
         None,
         (0, 1, 2),
         id="compound projected target",
     ),
     pytest.param(
-        "EPSG:7912",
-        "EPSG:4937",
-        None,
-        (10.75, 59.91, 150.0),
-        2015.0,
+        "EPSG:4896",
+        "EPSG:4938",
+        "EPSG:6277",
+        (-2593197.524, 5656917.6189, -1394397.8828),
+        1994.0,
         (0, 1, 2),
         id="dynamic frame at a coordinate epoch",
     ),
@@ -278,9 +278,7 @@ def test_the_reported_pipeline_reproduces_a_3d_result(
     components: tuple[int, ...],
 ) -> None:
     """The height has to come back out of the reported pipeline as well."""
-    transformation = Transformation(
-        source, target, operation=operation, allow_any_operation=operation is None
-    )
+    transformation = Transformation(source, target, operation=operation)
 
     result = transformation.transform([point], coordinate_epoch=epoch)
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -136,7 +137,7 @@ def test_the_output_need_not_be_called_proj_db(catalog: Path, tmp_path: Path) ->
     assert main(["build", str(catalog), "--output", str(output)]) == 0
     report = json.loads(sidecar(output, ".report.json").read_text(encoding="utf-8"))
     assert report["status"] == "passed"
-    with sqlite3.connect(f"file:{output}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{output}?mode=ro", uri=True)) as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM geodetic_crs WHERE auth_name = ?", (AUTHORITY,)
         ).fetchone() == (1,)
@@ -168,7 +169,7 @@ def test_append_extends_a_database_rather_than_rebuilding_it(
     )
     assert main(["build", str(second), "--output", str(output), "--append"]) == 0
 
-    with sqlite3.connect(f"file:{output}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{output}?mode=ro", uri=True)) as connection:
         codes = {
             str(code)
             for (code,) in connection.execute(
@@ -197,7 +198,7 @@ def test_a_second_build_without_append_starts_over(
     empty = write_catalog(tmp_path / "empty.json")
     assert main(["build", str(empty), "--output", str(output)]) == 0
 
-    with sqlite3.connect(f"file:{output}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{output}?mode=ro", uri=True)) as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM geodetic_crs WHERE auth_name = ?", (AUTHORITY,)
         ).fetchone() == (0,)

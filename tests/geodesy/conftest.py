@@ -23,7 +23,12 @@ from typing import Any
 import pytest
 from pyproj import Geod
 
-from geodetic_engine.geodesy import CoordinateReferenceSystem
+from geodetic_engine.geodesy import (
+    CoordinateReferenceSystem,
+    MissingGridError,
+    OperationNotAvailableError,
+    TransformationFailedError,
+)
 
 DATASET = Path(__file__).parent.parent / "testdataset"
 
@@ -86,15 +91,19 @@ def dataset_params(filename: str, sample: int = DEFAULT_SAMPLE) -> list[Any]:
             # Absence from "agreeing" is not the same thing: a longitude
             # rotation reported unwrapped past 180 degrees excludes PROJ there
             # while still being the same point to the nanometre.
-            # Not strict: a record that starts working (a grid installed, a
-            # PROJ fix) reports as xpass rather than being quietly skipped.
+            # Unexpected successes and unrelated exception types fail the gate.
             marks.append(
                 pytest.mark.xfail(
                     reason=(
                         "PROJ was unsuccessful when the dataset was generated: "
                         f"{record.get('proj_failure_reason')}"
                     ),
-                    strict=False,
+                    strict=True,
+                    raises=(
+                        MissingGridError,
+                        OperationNotAvailableError,
+                        TransformationFailedError,
+                    ),
                 )
             )
         params.append(pytest.param(record, id=record["case_id"], marks=marks))
@@ -138,91 +147,6 @@ def to_declared(
     return tuple(restored)
 
 
-def ordering_defect(
-    transformation: Any,
-    source: CoordinateReferenceSystem,
-    target: CoordinateReferenceSystem,
-    record: dict[str, Any],
-) -> str | None:
-    """Whether transposing a record's axes reproduces its expected values.
-
-    The dataset does not consistently store coordinates in the CRS's declared
-    axis order. It honours EPSG for geographic CRSs and for projected ones
-    whose axes are abbreviated ``N`` and ``E``, but stores the easting first
-    for the ~808 records whose projected CRS is abbreviated ``X``/``Y``,
-    ``x``/``y`` or not at all, even where EPSG declares the northing first.
-    ``EPSG:2207`` holds ``[10509478.826, 4007198.7562]`` labelled
-    ``["X", "Y"]``, yet 10509478 is a Gauss-Kruger zone 10 easting, false
-    easting 10500000, which EPSG declares to be that CRS's ``Y``.
-
-    Called only after a record has already failed in EPSG order, so a record
-    that agrees with EPSG is never reinterpreted. The wrapper's own axis
-    ordering is proved independently against PROJ in ``test_axis_order.py``,
-    so a transposition here is evidence about the fixture rather than about
-    the wrapper.
-
-    Args:
-        transformation: The already-built transformation for this record.
-        source: Source CRS.
-        target: Target CRS.
-        record: The dataset record.
-
-    Returns:
-        Which side the dataset transposes, or None if no transposition
-        reproduces the expected values.
-    """
-    epoch = record.get("coordinate_epoch")
-    tolerance = record["tolerance_m"]
-
-    # "stored-xy" covers a CRS whose declared order differs from xy, where the
-    # dataset used xy. "reversed" covers one whose declared order already is xy
-    # and the dataset reversed it anyway, which no permutation can express.
-    inputs = {
-        "epsg": lambda row: to_xy(source, row),
-        "stored-xy": tuple,
-        "reversed": lambda row: _swap_horizontal(to_xy(source, row)),
-    }
-    outputs = {
-        "epsg": tuple,
-        "stored-xy": lambda expected: to_declared(target, expected),
-        "reversed": _swap_horizontal,
-    }
-
-    for input_name, as_input in inputs.items():
-        for output_name, as_declared in outputs.items():
-            if input_name == "epsg" and output_name == "epsg":
-                continue
-            try:
-                produced = transformation.transform(
-                    [as_input(row) for row in record["source"]],
-                    coordinate_epoch=epoch,
-                ).coordinates
-            except Exception:
-                continue
-            if all(
-                residual_metres(target, to_declared(target, got), as_declared(expected))
-                <= tolerance
-                for got, expected in zip(produced, record["expected"], strict=True)
-            ):
-                sides = [
-                    name
-                    for name, differs in (
-                        ("source", input_name != "epsg"),
-                        ("target", output_name != "epsg"),
-                    )
-                    if differs
-                ]
-                return " and ".join(sides)
-    return None
-
-
-def _swap_horizontal(values: Sequence[float]) -> tuple[float, ...]:
-    """Exchange the first two values, leaving any height alone."""
-    if len(values) < 2:
-        return tuple(values)
-    return (values[1], values[0], *values[2:])
-
-
 def residual_metres(
     crs: CoordinateReferenceSystem,
     produced: Sequence[float],
@@ -256,7 +180,10 @@ def residual_metres(
         if axes[east].unit_name.lower() in _ANGULAR:
             geod = crs.crs.get_geod() or _FALLBACK_GEOD
             _, _, distance = geod.inv(
-                produced[east], produced[north], expected[east], expected[north]
+                math.degrees(produced[east] * axes[east].unit_conversion_factor),
+                math.degrees(produced[north] * axes[north].unit_conversion_factor),
+                math.degrees(expected[east] * axes[east].unit_conversion_factor),
+                math.degrees(expected[north] * axes[north].unit_conversion_factor),
             )
             offsets.append(distance)
         else:

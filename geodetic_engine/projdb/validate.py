@@ -24,10 +24,13 @@ which is what is under test.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
 import sqlite3
+import subprocess
+import sys
 import tempfile
 from collections.abc import Generator, Iterable, Sequence
 from contextlib import closing, contextmanager
@@ -85,6 +88,41 @@ def validate(
         >>> validate(Path("build/proj.db"), authorities=["Example"])  # doctest: +SKIP
         {'crs_checked': 195, 'operations_checked': 191, 'grids': [...]}
     """
+    from pyproj import datadir
+
+    request = {
+        "database": str(database.resolve()),
+        "authorities": list(authorities),
+        "imported": None if imported is None else list(imported),
+        "data_dir": datadir.get_data_dir(),
+    }
+    try:
+        process = subprocess.run(
+            [sys.executable, "-m", "geodetic_engine.projdb._validate_worker"],
+            input=json.dumps(request),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        response = json.loads(process.stdout)
+    except (OSError, ValueError) as error:
+        raise ProjDbBuildError(
+            f"database validation process failed: {error}"
+        ) from error
+    if process.returncode or "error" in response:
+        raise ProjDbBuildError(str(response.get("error") or process.stderr))
+    if process.stderr.strip():
+        logger.warning("%s", process.stderr.strip())
+    return dict(response)
+
+
+def _validate_in_process(
+    database: Path,
+    *,
+    authorities: Iterable[str],
+    imported: Iterable[tuple[str, str, str]] | None = None,
+) -> dict[str, Any]:
+    """Validate within the worker's isolated PROJ context."""
     authority_list = sorted(authorities)
     logger.info("validating %s for %s", database, authority_list)
 

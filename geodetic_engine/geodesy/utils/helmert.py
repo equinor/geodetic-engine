@@ -35,7 +35,9 @@ from pyproj import CRS, Transformer
 from pyproj.crs import CoordinateOperation
 from pyproj.exceptions import CRSError, ProjError
 
+from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 from geodetic_engine.geodesy.errors import NotCollapsibleError
+from geodetic_engine.geodesy.operation import has_inverted_step
 
 # Radians per arc-second, the unit EPSG states Helmert rotations in and the unit
 # PROJ's "+proj=helmert +rx=" expects. Parameter values are never assumed to be
@@ -296,6 +298,10 @@ def is_collapsible(operation: CoordinateOperation) -> bool:
 def _chain(operation: CoordinateOperation) -> tuple[list[HelmertParameters], _Domain]:
     """Validate the structure of a concatenated operation and read its steps."""
     definition = operation.to_json_dict()
+    if has_inverted_step(definition):
+        raise NotCollapsibleError(
+            "an inverted Helmert export cannot be verified faithfully"
+        )
     steps = definition.get("steps")
     if not isinstance(steps, list) or len(steps) < 2:
         raise NotCollapsibleError(
@@ -370,6 +376,10 @@ def collapse_concatenated(
         >>> collapsed.towgs84[0]
         -84.491...
     """
+    if not math.isfinite(tolerance_m) or tolerance_m <= 0:
+        raise NotCollapsibleError("tolerance_m must be finite and positive")
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples < 4:
+        raise NotCollapsibleError("samples must be an integer of at least four")
     steps, domain = _chain(operation)
 
     combined = steps[0]
@@ -464,27 +474,67 @@ def _verify(
 ) -> None:
     """Refuse a collapse that does not reproduce the original chain."""
     try:
-        reference = Transformer.from_pipeline(original.to_wkt())
-        candidate = Transformer.from_pipeline(collapsed.to_wkt())
+        reference = Transformer.from_pipeline(original.to_wkt(), always_xy=True)
+        candidate = Transformer.from_pipeline(collapsed.to_wkt(), always_xy=True)
     except (CRSError, ProjError) as error:
         raise NotCollapsibleError(
             f"{_label(original)} and its collapsed form could not both be built "
             f"as transformers, so the collapse cannot be verified: {error}"
         ) from error
 
+    source_info = CoordinateReferenceSystem.from_user_input(source)
+    target_info = CoordinateReferenceSystem.from_user_input(target)
+    source_units = [
+        source_info.axes[index].unit_conversion_factor
+        for index in source_info.value_axis_order
+    ]
+    cartesian = None
+    if source.is_geocentric:
+        ellipsoid = source.ellipsoid
+        if ellipsoid is None:
+            raise NotCollapsibleError("verification source has no ellipsoid")
+        cartesian = Transformer.from_pipeline(
+            f"+proj=cart +a={ellipsoid.semi_major_metre:.17g} "
+            f"+b={ellipsoid.semi_minor_metre:.17g}"
+        )
+    elif not source.is_geographic:
+        raise NotCollapsibleError(
+            "verification requires geographic or geocentric coordinates"
+        )
     worst = 0.0
-    geod = target.get_geod() or source.get_geod()
+    checked = 0
     for longitude, latitude in _sample_points(original, source, samples):
-        try:
-            got = reference.transform(latitude, longitude, 0.0, errcheck=True)
-            expected = candidate.transform(latitude, longitude, 0.0, errcheck=True)
-        except ProjError:
-            # Outside the domain of one of the two; it proves nothing either way.
-            continue
-        if not all(math.isfinite(value) for value in (*got, *expected)):
-            continue
-        worst = max(worst, _separation(geod, got, expected))
-
+        for height in (0.0, 1000.0):
+            try:
+                if cartesian is not None:
+                    metres = cartesian.transform(
+                        longitude, latitude, height, errcheck=True
+                    )
+                    point = tuple(
+                        value / unit
+                        for value, unit in zip(metres, source_units, strict=True)
+                    )
+                else:
+                    point = (
+                        math.radians(longitude) / source_units[0],
+                        math.radians(latitude) / source_units[1],
+                        height / source_units[2] if len(source_units) > 2 else height,
+                    )
+                got = reference.transform(point[0], point[1], point[2], errcheck=True)
+                expected = candidate.transform(
+                    point[0], point[1], point[2], errcheck=True
+                )
+            except ProjError as error:
+                raise NotCollapsibleError(
+                    "a verification sample could not be transformed"
+                ) from error
+            residual = _separation(target_info, got, expected)
+            if not math.isfinite(residual):
+                raise NotCollapsibleError("verification produced a non-finite residual")
+            checked += 1
+            worst = max(worst, residual)
+    if checked < 4:
+        raise NotCollapsibleError("too few successful verification samples")
     if worst > tolerance_m:
         raise NotCollapsibleError(
             f"collapsing {_label(original)} into a single Helmert moves "
@@ -494,14 +544,39 @@ def _verify(
 
 
 def _separation(
-    geod: Any, got: tuple[float, ...], expected: tuple[float, ...]
+    target: CoordinateReferenceSystem,
+    got: tuple[float, ...],
+    expected: tuple[float, ...],
 ) -> float:
     """Ground distance in metres between two transformed positions."""
-    horizontal = 0.0
-    if geod is not None:
-        _, _, horizontal = geod.inv(got[1], got[0], expected[1], expected[0])
-        horizontal = abs(horizontal)
-    vertical = abs(got[2] - expected[2]) if len(got) > 2 and len(expected) > 2 else 0.0
+    if not all(math.isfinite(value) for value in (*got, *expected)):
+        return math.inf
+    units = [
+        target.axes[index].unit_conversion_factor for index in target.value_axis_order
+    ]
+    if target.crs.is_geocentric:
+        return math.sqrt(
+            sum(
+                ((actual - reference) * unit) ** 2
+                for actual, reference, unit in zip(got, expected, units, strict=True)
+            )
+        )
+    if not target.is_geographic:
+        raise NotCollapsibleError("verification target is not geographic or geocentric")
+    geod = target.crs.get_geod()
+    if geod is None:
+        raise NotCollapsibleError("verification target has no ellipsoid")
+    _, _, horizontal = geod.inv(
+        math.degrees(got[0] * units[0]),
+        math.degrees(got[1] * units[1]),
+        math.degrees(expected[0] * units[0]),
+        math.degrees(expected[1] * units[1]),
+    )
+    vertical = (
+        abs(got[2] - expected[2]) * (units[2] if len(units) > 2 else 1.0)
+        if len(got) > 2
+        else 0.0
+    )
     return math.hypot(horizontal, vertical)
 
 

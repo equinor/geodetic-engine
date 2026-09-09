@@ -339,7 +339,7 @@ def _candidates(
     ):
         obj = context.client.detail(summary)
         auth, code = tr.auth_name(obj), tr.code(obj)
-        if code is None or not context.is_new(table, auth, code):
+        if code is None or not context.should_import(table, auth, code):
             continue
         yield obj, auth, code
 

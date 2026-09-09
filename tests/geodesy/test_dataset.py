@@ -13,17 +13,29 @@ import pytest
 
 from geodetic_engine.geodesy import (
     CoordinateReferenceSystem,
-    MissingGridError,
+    MissingCoordinateEpochError,
+    OperationNotAvailableError,
     OperationRoute,
     Transformation,
-    TransformationFailedError,
 )
 from tests.geodesy.conftest import (
     dataset_params,
-    ordering_defect,
     residual_metres,
     to_declared,
     to_xy,
+)
+
+INCOMPLETE_OPERATION_CASES = frozenset(
+    {
+        "5bb3094db926bfa0",
+        "7a2697d9d2a9215a",
+        "bd56bfe492ecc08c",
+        "849b69950e77f90f",
+        "f305de87fcc21b7c",
+        "715790dbf5979703",
+        "6bdeb69247ba3e2d",
+        "1ade3025e49dc9fb",
+    }
 )
 
 
@@ -32,23 +44,28 @@ def check(record: dict[str, Any]) -> None:
     target = CoordinateReferenceSystem.from_user_input(record["target_crs"])
     source = CoordinateReferenceSystem.from_user_input(record["source_crs"])
 
-    try:
-        transformation = Transformation(
-            record["source_crs"], record["target_crs"], record["operation"]
-        )
-    except MissingGridError as error:
-        pytest.xfail(f"grid not installed on this machine: {error}")
+    if record["case_id"] in INCOMPLETE_OPERATION_CASES:
+        with pytest.raises(
+            OperationNotAvailableError, match="additional, unrequested datum change"
+        ):
+            Transformation(
+                record["source_crs"], record["target_crs"], record["operation"]
+            )
+        return
+    transformation = Transformation(
+        record["source_crs"], record["target_crs"], record["operation"]
+    )
+    points = [to_xy(source, row) for row in record["source"]]
+    if (source.is_dynamic or target.is_dynamic) and record.get(
+        "coordinate_epoch"
+    ) is None:
+        with pytest.raises(MissingCoordinateEpochError):
+            transformation.transform(points)
+        return
 
-    try:
-        result = transformation.transform(
-            [to_xy(source, row) for row in record["source"]],
-            coordinate_epoch=record.get("coordinate_epoch"),
-        )
-    except TransformationFailedError as error:
-        # Feeding a transposed record in EPSG order can put the point outside
-        # the projection's domain, which PROJ rejects outright.
-        _xfail_if_transposed(transformation, source, target, record)
-        raise AssertionError(f"PROJ rejected the point: {error}") from error
+    result = transformation.transform(
+        points, coordinate_epoch=record.get("coordinate_epoch")
+    )
 
     if record["operation"] is not None:
         assert result.operation.authority_code == record["operation"]
@@ -70,28 +87,11 @@ def check(record: dict[str, Any]) -> None:
     ]
     worst = max(residuals)
     if worst > tolerance:
-        _xfail_if_transposed(transformation, source, target, record)
         index = residuals.index(worst)
         raise AssertionError(
             f"point {index} is {worst:.6g} m out, tolerance {tolerance} m; "
             f"produced {to_declared(target, result.coordinates[index])}, "
             f"expected {tuple(record['expected'][index])}"
-        )
-
-
-def _xfail_if_transposed(
-    transformation: Transformation,
-    source: CoordinateReferenceSystem,
-    target: CoordinateReferenceSystem,
-    record: dict[str, Any],
-) -> None:
-    """Mark the record xfail if transposing its axes reproduces it exactly."""
-    transposed = ordering_defect(transformation, source, target, record)
-    if transposed is not None:
-        pytest.xfail(
-            f"dataset stores {transposed} coordinates against the EPSG "
-            f"declared axis order {record['source_axes']} -> "
-            f"{record['target_axes']}"
         )
 
 

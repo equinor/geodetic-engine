@@ -15,6 +15,7 @@ import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from geodetic_engine.projdb import authority, schema
@@ -23,6 +24,7 @@ from geodetic_engine.projdb.errors import MissingReferencedObjectError
 from geodetic_engine.projdb.records import ObjectKey, UsageAccumulator
 from geodetic_engine.projdb.report import BuildReport
 from geodetic_engine.projdb.settings import PreferenceSettings
+from geodetic_engine.projdb.validate import validate
 from geodetic_engine.projdb.writer import ProjDbWriter
 
 logger = logging.getLogger(__name__)
@@ -114,6 +116,7 @@ class AnyBuildContext(Protocol):
     def known_keys(self, table: str) -> set[tuple[str, str]]: ...
 
     def is_new(self, table: str, auth: str, code: str | None) -> bool: ...
+    def should_import(self, table: str, auth: str, code: str | None) -> bool: ...
 
 
 def write_annotations(context: AnyBuildContext, *, source_described: str) -> None:
@@ -137,12 +140,12 @@ def write_annotations(context: AnyBuildContext, *, source_described: str) -> Non
     new_scopes = [
         row
         for key, row in accumulator.scopes.items()
-        if context.is_new("scope", key[0], key[1])
+        if context.should_import("scope", key[0], key[1])
     ]
     new_extents = [
         row
         for key, row in accumulator.extents.items()
-        if context.is_new("extent", key[0], key[1])
+        if context.should_import("extent", key[0], key[1])
     ]
 
     allowed = {name.casefold() for name in context.config.authorities}
@@ -265,3 +268,47 @@ def base_report(
             for item in context.skipped
         ],
     )
+
+
+def finish_build(
+    context: AnyBuildContext, report: BuildReport, *, source: str, skip_validation: bool
+) -> None:
+    """Validate staging and publish its embedded provenance with the database.
+
+    Dry runs exercise the same validation but never publish. Sidecar reports
+    are convenience exports; the database's build history is authoritative.
+    """
+
+    def check(database: Path) -> None:
+        report.validation = (
+            {"status": "skipped"}
+            if skip_validation
+            else {
+                "status": "passed",
+                **validate(
+                    database,
+                    authorities=context.config.authorities,
+                    imported=report.imported_objects(),
+                ),
+            }
+        )
+        connection = context.writer.connection
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS geodetic_engine_build_history "
+            "(sequence INTEGER PRIMARY KEY, report TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO geodetic_engine_build_history (report) VALUES (?)",
+            (report.to_json(),),
+        )
+
+    context.writer.commit(validate=check, publish=not report.dry_run)
+    if not report.dry_run:
+        output = context.config.output_db
+        tag = f".{source}" if context.config.append else ""
+        try:
+            report.write(output.with_suffix(output.suffix + tag + ".report.json"))
+        except OSError:
+            logger.exception(
+                "database published with embedded history; sidecar export failed"
+            )

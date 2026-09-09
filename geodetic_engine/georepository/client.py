@@ -87,6 +87,7 @@ class GeorepositoryClient:
         )
         self._client = httpx.Client(timeout=config.request_timeout, transport=transport)
         self._object_cache: dict[str, JsonObject] = {}
+        self._wkt_cache: dict[str, str] = {}
 
     def close(self) -> None:
         """Close the HTTP connection pools."""
@@ -126,6 +127,20 @@ class GeorepositoryClient:
         params: dict[str, Any] | None = None,
         accept: str = "application/json",
     ) -> httpx.Response:
+        try:
+            destination = httpx.URL(url)
+        except httpx.InvalidURL as exc:
+            raise GeorepositoryApiError("invalid API resource URL") from exc
+        origin = httpx.URL(self._config.api_url)
+        if (
+            destination.scheme != "https"
+            or (destination.host, destination.port) != (origin.host, origin.port)
+            or destination.userinfo
+            or destination.fragment
+        ):
+            raise GeorepositoryApiError(
+                "refusing an API URL outside the trusted origin"
+            )
         last_error: str = ""
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
@@ -272,13 +287,18 @@ class GeorepositoryClient:
         href = self.self_href(item)
         if href is None:
             return None
-        payload = self._request_text(_export_url(href), {"format": _WKT_FORMAT})
+        export_url = _export_url(href)
+        if export_url in self._wkt_cache:
+            return self._wkt_cache[export_url]
+        payload = self._request_text(export_url, {"format": _WKT_FORMAT})
         # A JSON-quoted string is returned by some deployments; a bare WKT body
         # by others. Both start with the object keyword once unwrapped.
         text = payload.strip()
         if text.startswith('"') and text.endswith('"'):
             with contextlib.suppress(ValueError):
                 text = str(json.loads(text))
+        if text:
+            self._wkt_cache[export_url] = text
         return text or None
 
     def iter_collection(

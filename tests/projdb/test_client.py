@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
 from geodetic_engine.georepository.client import GeorepositoryClient
 from geodetic_engine.georepository.config import GeorepositoryConfig
-from geodetic_engine.georepository.errors import PaginationTruncatedError
+from geodetic_engine.georepository.errors import (
+    GeorepositoryApiError,
+    GeorepositoryConfigError,
+    PaginationTruncatedError,
+)
 from tests.projdb.conftest import FakeGeorepository
 
 
@@ -161,3 +166,41 @@ def test_wkt_is_none_when_the_body_is_empty(
 
     with _client(georepository_config, fake) as client:
         assert client.wkt(client.get_object(url)) is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://untrusted.example/object",
+        "http://example.test/object",
+        "https://example.test:444/object",
+        "https://user@example.test/object",
+    ],
+)
+def test_untrusted_links_never_trigger_authentication(
+    georepository_config: GeorepositoryConfig, url: str
+) -> None:
+    fake = FakeGeorepository({})
+    with (
+        _client(georepository_config, fake) as client,
+        pytest.raises(GeorepositoryApiError, match="trusted origin"),
+    ):
+        client.resolve({"href": url})
+    assert fake.requests == []
+
+
+def test_http_token_endpoint_is_rejected(
+    georepository_config: GeorepositoryConfig,
+) -> None:
+    with pytest.raises(GeorepositoryConfigError, match="https"):
+        replace(georepository_config, token_url="http://identity.example/token")
+
+
+def test_wkt_exports_are_cached(georepository_config: GeorepositoryConfig) -> None:
+    fake = FakeGeorepository({})
+    url = fake.add_object("/api/v1/CoordRefSystem/4230", {"Code": 4230})
+    fake.add_export("/api/v1/CoordRefSystem/4230", 'GEOGCRS["ED50",...]')
+    with _client(georepository_config, fake) as client:
+        item = client.get_object(url)
+        assert client.wkt(item) == client.wkt(item)
+    assert sum("/export" in str(request) for request in fake.requests) == 1

@@ -14,9 +14,12 @@ builds the pipeline.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from geodetic_engine.projdb.errors import ProjDbBuildError
 
 HELMERT_TABLE = "helmert_transformation_table"
 GRID_TABLE = "grid_transformation"
@@ -43,6 +46,7 @@ HELMERT_PARAMS: dict[str, tuple[str, str]] = {
     "1045": ("rate_rz", "rate_rotation"),
     "1046": ("rate_scale_difference", "rate_scale_difference"),
     "1047": ("epoch", "epoch"),
+    "1049": ("epoch", "epoch"),
     "8617": ("px", "pivot"),
     "8618": ("py", "pivot"),
     "8667": ("pz", "pivot"),
@@ -108,17 +112,26 @@ def helmert_columns(parameters: Sequence[Parameter]) -> dict[str, Any]:
     """Map Helmert parameters onto their named proj.db columns.
 
     Each family of parameters (translations, rotations, their rates, the pivot)
-    shares one unit column pair, taken from the first parameter of that family.
+    shares one unit column pair. Mixed units and unrepresentable parameters
+    raise ProjDbBuildError rather than being reinterpreted or dropped.
     """
+    _validate(parameters)
     row: dict[str, Any] = {}
     units: dict[str, Parameter] = {}
     for param in parameters:
         mapping = HELMERT_PARAMS.get(param.code)
-        if mapping is None:
-            continue
+        if mapping is None or param.auth_name != PARAMETER_AUTHORITY or param.file:
+            raise ProjDbBuildError(f"unsupported Helmert parameter {param.code}")
         column, unit_group = mapping
+        if column in row:
+            raise ProjDbBuildError(f"duplicate Helmert column {column}")
         row[column] = param.value
-        units.setdefault(unit_group, param)
+        previous = units.setdefault(unit_group, param)
+        if (previous.uom_auth_name, previous.uom_code) != (
+            param.uom_auth_name,
+            param.uom_code,
+        ):
+            raise ProjDbBuildError(f"mixed units in Helmert {unit_group} parameters")
     for unit_group, param in units.items():
         row[f"{unit_group}_uom_auth_name"] = param.uom_auth_name or PARAMETER_AUTHORITY
         row[f"{unit_group}_uom_code"] = param.uom_code
@@ -130,9 +143,12 @@ def grid_columns(parameters: Sequence[Parameter]) -> dict[str, Any]:
 
     grid_transformation has two grid slots and two general parameter slots.
     """
+    _validate(parameters)
     row: dict[str, Any] = {}
     grids = [param for param in parameters if param.file]
     others = [param for param in parameters if not param.file]
+    if len(grids) > 2 or len(others) > 2:
+        raise ProjDbBuildError("grid transformation exceeds its parameter slots")
 
     for prefix, param in zip(("grid", "grid2"), grids[:2], strict=False):
         row[f"{prefix}_param_auth_name"] = param.auth_name
@@ -147,6 +163,7 @@ def grid_columns(parameters: Sequence[Parameter]) -> dict[str, Any]:
 
 def other_columns(parameters: Sequence[Parameter]) -> dict[str, Any]:
     """Map any other transformation's parameters onto its nine proj.db slots."""
+    _validate(parameters, limit=9)
     row: dict[str, Any] = {}
     for index, param in enumerate(parameters[:9], start=1):
         row |= numbered_param(param, index, with_name=True)
@@ -159,6 +176,7 @@ def conversion_columns(parameters: Sequence[Parameter]) -> dict[str, Any]:
     conversion_table has no per-parameter name column; the names live in
     ``conversion_param``.
     """
+    _validate(parameters, limit=7)
     row: dict[str, Any] = {}
     for index, param in enumerate(parameters[:7], start=1):
         row |= numbered_param(param, index, with_name=False)
@@ -177,3 +195,25 @@ def numbered_param(param: Parameter, index: int, *, with_name: bool) -> dict[str
     if with_name:
         row[f"param{index}_name"] = param.name
     return row
+
+
+def _validate(parameters: Sequence[Parameter], *, limit: int | None = None) -> None:
+    if limit is not None and len(parameters) > limit:
+        raise ProjDbBuildError(f"operation exceeds its {limit} parameter slots")
+    identifiers = [(param.auth_name, param.code) for param in parameters]
+    if len(set(identifiers)) != len(identifiers):
+        raise ProjDbBuildError("duplicate operation parameter codes")
+    for param in parameters:
+        if not param.code:
+            raise ProjDbBuildError("operation parameter has no code")
+        if param.file:
+            if limit is not None or param.value is not None:
+                raise ProjDbBuildError(
+                    "file parameter cannot be stored in a numeric slot"
+                )
+        elif (
+            param.value is None or not math.isfinite(param.value) or not param.uom_code
+        ):
+            raise ProjDbBuildError(
+                f"parameter {param.code} needs a finite value and unit"
+            )

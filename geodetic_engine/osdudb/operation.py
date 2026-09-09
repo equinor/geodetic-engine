@@ -59,12 +59,12 @@ def collect_transformations(context: OsduBuildContext) -> None:
             described = f"transformation {record.auth_name}:{record.code}"
             parameters = df.parameters_of(operation, context.units, described)
             table = pm.classify(parameters)
-            if not context.is_new(table, record.auth_name, record.code):
+            if not context.should_import(table, record.auth_name, record.code):
                 continue
 
             method = _method(context, record, operation)
-            source = _crs_reference(context, record, "SourceCRS")
-            target = _crs_reference(context, record, "TargetCRS")
+            source = _crs_reference(context, record, "SourceCRS", operation=operation)
+            target = _crs_reference(context, record, "TargetCRS", operation=operation)
         except ProjDbBuildError as exc:
             context.skip(pm.OTHER_TABLE, record, str(exc))
             continue
@@ -90,6 +90,27 @@ def collect_transformations(context: OsduBuildContext) -> None:
                 else pm.other_columns(parameters)
             )
 
+        interpolation = df.identifier_of(
+            operation.to_json_dict().get("interpolation_crs")
+        )
+        declared_interpolation = tr.authority_code(record.data.get("InterpolationCRS"))
+        if declared_interpolation != (None, None) and (
+            interpolation is None
+            or declared_interpolation != (interpolation.auth_name, interpolation.code)
+        ):
+            context.skip(table, record, "interpolation CRS contradicts the WKT")
+            continue
+        if interpolation is not None:
+            if table == pm.HELMERT_TABLE:
+                context.skip(
+                    table, record, "Helmert table cannot preserve an interpolation CRS"
+                )
+                continue
+            row |= {
+                "interpolation_crs_auth_name": interpolation.auth_name,
+                "interpolation_crs_code": interpolation.code,
+            }
+
         context.stage([(table, row)])
         context.annotate(
             ObjectKey(table=table, auth_name=record.auth_name, code=record.code),
@@ -111,7 +132,7 @@ def collect_concatenated(context: OsduBuildContext) -> None:
     count = 0
     table = "concatenated_operation"
     for record in context.candidates(CONCATENATED_OPERATION):
-        if not context.is_new(table, record.auth_name, record.code):
+        if not context.should_import(table, record.auth_name, record.code):
             continue
         try:
             source = _crs_reference(context, record, "SourceCRS")
@@ -166,8 +187,12 @@ def _method(
             this PROJ build cannot evaluate.
     """
     auth, code = tr.authority_code(record.data.get("Method"))
+    from_wkt = df.method_of(operation)
+    if auth and code is not None and from_wkt != df.Identifier(auth, code):
+        raise UnreadableDefinitionError(
+            f"{record.described} method contradicts the WKT"
+        )
     if not auth or code is None:
-        from_wkt = df.method_of(operation)
         if from_wkt is None:
             raise UnreadableDefinitionError(f"{record.described} states no method")
         auth, code = from_wkt.auth_name, from_wkt.code
@@ -183,10 +208,21 @@ def _method(
 
 
 def _crs_reference(
-    context: OsduBuildContext, record: Record, field: str
+    context: OsduBuildContext, record: Record, field: str, *, operation: Any = None
 ) -> tuple[str, str]:
     """Resolve a transformation's source or target CRS across the CRS tables."""
     auth, code = tr.authority_code(record.data.get(field))
+    if operation is not None:
+        key = "source_crs" if field == "SourceCRS" else "target_crs"
+        identifier = df.identifier_of(operation.to_json_dict().get(key))
+        if identifier is None or (identifier.auth_name, identifier.code) != (
+            auth,
+            code,
+        ):
+            raise UnreadableDefinitionError(
+                f"{record.described} {field} contradicts or is not "
+                "identified by the WKT"
+            )
     for table in CRS_TABLES:
         if auth and code is not None and not context.is_new(table, auth, code):
             return auth, str(code)

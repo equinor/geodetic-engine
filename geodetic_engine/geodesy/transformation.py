@@ -36,6 +36,11 @@ from pyproj.exceptions import CRSError, ProjError
 from pyproj.transformer import TransformerGroup
 
 from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
+from geodetic_engine.geodesy.database import (
+    DatabaseIdentity,
+    database_fingerprints,
+    database_identity,
+)
 from geodetic_engine.geodesy.errors import (
     AmbiguousOperationError,
     BallparkTransformationError,
@@ -56,6 +61,7 @@ from geodetic_engine.geodesy.operation import (
     OperationStep,
     base_authority,
     datum_operation_count,
+    fully_requested,
     grid_usages,
     is_ballpark,
     operation_names,
@@ -128,21 +134,6 @@ class _Pipeline:
     apart from the caller's request so that a result reports what was applied
     without claiming it was asked for.
     """
-    skip_introspection: bool = False
-    """Whether this pipeline's operation is only knowable after a transform.
-
-    Set for ``allow_any_operation=True``'s escape hatch, where PROJ is left to
-    choose. That choice is deliberately lazy and area-dependent: PROJ builds a
-    pipeline that selects among candidate operations per coordinate, so until
-    a point has actually been transformed there is no single operation to
-    report, and asking for one is what fails rather than any missing feature.
-
-    Asking anyway is worse than useless. ``to_json_dict()`` raises, and the
-    PROJ error it leaves behind is not cleared, so the next ``transform()``
-    with ``errcheck=True`` re-reports that stale export failure as if the
-    coordinates themselves had failed. The identity is therefore read after
-    the fact instead, from :meth:`last_used`.
-    """
 
     def run(
         self, columns: Sequence[Sequence[float]], epoch: float | None
@@ -153,34 +144,9 @@ class _Pipeline:
             values = _apply(transformer, values, epoch, direction)
         return values
 
-    def last_used(self) -> Transformer | None:
-        """The operation PROJ actually applied on the most recent transform.
-
-        Only meaningful once :meth:`run` has been called, and only needed when
-        :attr:`skip_introspection` deferred the question. PROJ resolves an
-        area-dependent pipeline to a concrete operation per coordinate, so
-        this is the only point at which "which operation was that?" has an
-        answer.
-
-        Returns:
-            A transformer wrapping the operation applied, or None if PROJ
-            cannot say.
-        """
-        try:
-            return self.core.get_last_used_operation()
-        except (ProjError, RuntimeError):
-            return None
-
     @property
     def definition(self) -> dict[str, Any]:
-        """PROJJSON of the operation that carries the caller's intent.
-
-        Empty while the operation is still deferred; see
-        :attr:`skip_introspection` for why it is not merely attempted and
-        caught.
-        """
-        if self.skip_introspection:
-            return {}
+        """PROJJSON of the resolved operation."""
         try:
             return dict(self.core.to_json_dict())
         except (TypeError, ProjError):
@@ -253,7 +219,7 @@ class Transformation:
         Reusing one transformation for several batches, naming the operation
         so that PROJ cannot substitute another:
 
-        >>> tfm = Transformation("EPSG:4326", "EPSG:25832", operation="EPSG:16032")
+        >>> tfm = Transformation("EPSG:4258", "EPSG:25832", operation="EPSG:16032")
         >>> tfm.operation.authority_code
         'EPSG:16032'
         >>> first = tfm.transform([(10.75, 59.91)])
@@ -273,17 +239,15 @@ class Transformation:
         >>> tfm = Transformation("EPSG:4979", "EPSG:6172",
         ...                      operation=["EPSG:11028", "EPSG:9484"])
 
-        A datum change with no operation named is refused by default; passing
-        ``allow_any_operation=True`` instead lets PROJ pick freely, including a
-        ballpark, which the result then reports rather than hides:
+        A datum change requires an explicit operation or bound CRS.
+        Automatic datum selection and ballpark results are not supported:
 
-        >>> tfm = Transformation("EPSG:4230", "EPSG:4326", allow_any_operation=True)
-        >>> tfm.operation.route
-        <OperationRoute.ANY_OPERATION: 'any_operation'>
+        >>> tfm = Transformation("EPSG:4230", "EPSG:4326", operation="EPSG:1133")
     """
 
     __slots__ = (
         "_applied",
+        "_database_fingerprints",
         "_grids",
         "_pipeline",
         "_requests",
@@ -322,30 +286,22 @@ class Transformation:
                 most commonly). Several are a set, not a sequence: each is
                 checked for independently against whatever pipeline PROJ
                 built, so the order they are given in does not matter and
-                does not change the result. When omitted, PROJ chooses, which
-                is only permitted where no datum change is involved, unless
-                ``allow_any_operation`` says otherwise.
-            allow_any_operation: Lets PROJ decide and pick any operation it offers,
-                including a ballpark, when ``operation`` is omitted and a datum
-                change is involved. False by default: naming an operation is
-                then mandatory for a datum change, and a ballpark is always
-                refused. Has no effect when ``operation`` is given -- naming
-                one is already an explicit choice. The choice PROJ made is
-                still recorded on the result, ballpark or not, so it is never
-                silent, only permitted.
+                does not change the result. When omitted, only same-datum
+                conversions or explicitly bound operations are permitted.
+            allow_any_operation: Retained for call compatibility. No longer
+                enables automatic datum selection or ballpark transformations.
 
         Raises:
             UnresolvableCRSError: If either CRS cannot be constructed.
             OperationNotAvailableError: If the requested operation(s) cannot
                 be applied to this CRS pair.
             AmbiguousOperationError: If no operation was requested, the
-                transformation involves a datum change, and
-                ``allow_any_operation`` is False.
-            BallparkTransformationError: If the only path is a ballpark and
-                ``allow_any_operation`` is False.
+                transformation involves an unbound datum change.
+            BallparkTransformationError: If the path includes a ballpark.
             MissingGridError: If a grid the operation needs is not installed.
         """
         self._source = CoordinateReferenceSystem.from_user_input(source_crs)
+        self._database_fingerprints = database_fingerprints(database_identity())
         self._target = CoordinateReferenceSystem.from_user_input(target_crs)
         self._requests = () if operation is None else parse_operations(operation)
 
@@ -370,7 +326,7 @@ class Transformation:
         ballpark = is_ballpark(definition) or (
             pipeline.core.description.lower().startswith("ballpark")
         )
-        if ballpark and pipeline.route != OperationRoute.ANY_OPERATION:
+        if ballpark:
             raise BallparkTransformationError(
                 f"the only path from {_label(self._source)} to "
                 f"{_label(self._target)} is a ballpark approximation "
@@ -382,7 +338,11 @@ class Transformation:
         self._grids = _confirm_installed(grid_usages(operations), pipeline)
         _require_grids(self._grids, self._source, self._target)
 
-        self._requires_epoch = requires_epoch(definition, operations)
+        self._requires_epoch = (
+            self._source.is_dynamic
+            or self._target.is_dynamic
+            or requires_epoch(definition, operations)
+        )
         self._applied = _describe(
             self._requests,
             pipeline,
@@ -417,9 +377,7 @@ class Transformation:
     def requires_epoch(self) -> bool:
         """Whether a coordinate epoch must be supplied to transform.
 
-        True when the operation reads the epoch, which is not the same as
-        either CRS being dynamic: a Helmert without rates gives the same answer
-        at every epoch.
+        True when either CRS is dynamic or the operation reads the epoch.
         """
         return self._requires_epoch
 
@@ -500,6 +458,8 @@ class Transformation:
             columns = _columns_from_axes(
                 self._source, cast("Iterable[float] | float", x), y, z
             )
+        if coordinate_epoch is not None and not math.isfinite(coordinate_epoch):
+            raise MissingCoordinateEpochError("coordinate epoch must be finite")
         count = len(columns[0]) if columns else 0
 
         _require_in_range(self._source, columns)
@@ -515,10 +475,8 @@ class Transformation:
 
         if self._requires_epoch and coordinate_epoch is None:
             raise MissingCoordinateEpochError(
-                f"{self._applied.name!r} reads the coordinate epoch, so one "
-                "must be supplied in decimal years; without it the result "
-                "would be displaced by the motion between the true and "
-                "assumed epochs"
+                "a dynamic CRS or time-dependent operation requires a coordinate "
+                "epoch; supply a finite observation year explicitly"
             )
 
         try:
@@ -537,9 +495,6 @@ class Transformation:
 
         applied, grids = self._applied, self._grids
         pipeline_text = self._pipeline.text
-        if self._pipeline.skip_introspection:
-            applied, grids, pipeline_text = self._resolve_applied()
-            _require_epoch_after_the_fact(applied, coordinate_epoch)
         if swapped:
             pipeline_text = _report_horizontal_swap(pipeline_text)
 
@@ -551,41 +506,8 @@ class Transformation:
             grids=grids,
             coordinate_epoch=coordinate_epoch,
             pipeline=pipeline_text,
+            database_fingerprints=self._database_fingerprints,
         )
-
-    def _resolve_applied(
-        self,
-    ) -> tuple[AppliedOperation, tuple[GridUsage, ...], str | None]:
-        """Read back the operation PROJ chose, now that a transform has run.
-
-        Only for the ``allow_any_operation=True`` route, where PROJ selects
-        per coordinate and so cannot answer before the fact. The answer
-        belongs to the batch that was just transformed rather than to the
-        transformation as a whole, since another batch elsewhere on Earth may
-        legitimately get a different operation.
-        """
-        last = self._pipeline.last_used()
-        if last is None:
-            return self._applied, self._grids, self._pipeline.text
-
-        try:
-            definition = dict(last.to_json_dict())
-        except (TypeError, ProjError):
-            return self._applied, self._grids, last.definition
-
-        operations = tuple(last.operations or ())
-        resolved = _Pipeline(
-            steps=self._pipeline.steps, core=last, route=self._pipeline.route
-        )
-        applied = _describe(
-            self._requests,
-            resolved,
-            definition,
-            operations,
-            ballpark=is_ballpark(definition),
-            requires_epoch=requires_epoch(definition, operations),
-        )
-        return applied, grid_usages(operations), last.definition
 
     def __repr__(self) -> str:
         return (
@@ -763,12 +685,9 @@ def transform(
             from :func:`available_operations`. Or several, when a compound
             target CRS needs more than one pinned down -- order does not
             matter, see :class:`Transformation`. Required whenever a datum
-            change is involved, unless ``allow_any_operation`` says
-            otherwise.
-        allow_any_operation: Whether PROJ may pick any operation it offers,
-            including a ballpark, when ``operation`` is omitted and a datum
-            change is involved. False by default. See
-            :class:`Transformation` for the full explanation.
+            change is involved, except where a bound CRS already names it.
+        allow_any_operation: Compatibility keyword with no effect on strict
+            datum-operation selection or ballpark refusal.
         coordinate_epoch: Decimal year, required when either CRS is dynamic.
 
     Returns:
@@ -776,12 +695,11 @@ def transform(
 
     Raises:
         AmbiguousOperationError: If no operation was given, the
-            transformation involves a datum change, and ``allow_any_operation``
-            is False.
+            transformation involves an unbound datum change.
 
     Example:
         >>> result = transform(
-        ...     "EPSG:4326", "EPSG:25832", (10.75, 59.91),
+        ...     "EPSG:4258", "EPSG:25832", (10.75, 59.91),
         ...     operation="EPSG:16032",
         ... )
         >>> result.operation.authority_code
@@ -792,7 +710,7 @@ def transform(
         Or as separate per-axis values:
 
         >>> result = transform(
-        ...     "EPSG:4326", "EPSG:25832", 10.75, 59.91, operation="EPSG:16032"
+        ...     "EPSG:4258", "EPSG:25832", 10.75, 59.91, operation="EPSG:16032"
         ... )
         >>> result.coordinates
         ((597868.38..., 6642681.51...),)
@@ -804,6 +722,7 @@ def transform(
         if operation is None or isinstance(operation, (str, int, OperationCandidate))
         else tuple(operation),
         allow_any_operation,
+        database_identity(),
     )
     return resolved.transform(x, y, z, coordinate_epoch=coordinate_epoch)
 
@@ -837,7 +756,7 @@ def available_operations(
         authority: Restrict candidates to those published by this authority,
             for example ``"EPSG"``. ``"any"`` searches every authority without
             the preference PROJ otherwise gives the source/target CRS's own
-            authority. Omitted by default, which applies that preference.
+            authority. Defaults to "any"; pass None to use PROJ's preference.
         accuracy: Discard candidates stated as less accurate than this, in
             metres. Omitted by default, so every accuracy is considered.
         allow_superseded: Whether to include an operation EPSG has marked as
@@ -991,6 +910,7 @@ def _cached_transformation(
         | None
     ),
     allow_any_operation: bool,
+    identity: DatabaseIdentity,
 ) -> Transformation:
     """Resolve and cache a transformation by its textual inputs."""
     return Transformation(
@@ -1011,7 +931,7 @@ def _proj_construction(
     """
     try:
         yield
-    except (ProjError, CRSError) as error:
+    except (ProjError, CRSError, IndexError) as error:
         raise OperationNotAvailableError(
             f"PROJ cannot build a transformation from {_label(source)} to "
             f"{_label(target)}: {error}"
@@ -1060,23 +980,11 @@ def _resolve_without_request(
         bound = _from_bound_crs(source, target)
         if bound is not None:
             return bound
-        if not allow_any_operation:
-            raise AmbiguousOperationError(
-                f"{_label(source)} to {_label(target)} involves a datum change, "
-                "so the coordinate operation must be named; choosing one is a "
-                "decision about accuracy and area of validity that cannot be "
-                "made here (pass allow_any_operation=True to let PROJ choose "
-                "anyway)"
-            )
-        with _proj_construction(source, target):
-            transformer = Transformer.from_crs(
-                source.crs, target.crs, always_xy=True, allow_ballpark=True
-            )
-        return _Pipeline(
-            steps=((transformer, TransformDirection.FORWARD),),
-            core=transformer,
-            route=OperationRoute.ANY_OPERATION,
-            skip_introspection=True,
+        raise AmbiguousOperationError(
+            f"{_label(source)} to {_label(target)} involves a datum change; "
+            "every datum operation must be named explicitly. "
+            "allow_any_operation no longer "
+            "permits automatic selection or ballpark results"
         )
     with _proj_construction(source, target):
         transformer = Transformer.from_crs(
@@ -1119,7 +1027,7 @@ def _from_bound_crs(
     if not requests:
         return None
     request = requests[0]
-    found = _from_transformer_group(source, target, (request,))
+    found = _from_transformer_group(source, target, requests)
     if found is None:
         found = _bound_transformer(source, target, requests)
     if found is None:
@@ -1157,7 +1065,9 @@ def _bound_transformer(
             source.crs, target.crs, always_xy=True, allow_ballpark=False
         )
     definition = transformer.to_json_dict()
-    if all(request.is_satisfied_by(definition) for request in requests):
+    if all(
+        request.is_satisfied_by(definition) for request in requests
+    ) and fully_requested(definition, requests):
         return transformer
     return None
 
@@ -1208,7 +1118,17 @@ def _from_transformer_group(
         )
     for transformer in group.transformers:
         definition = transformer.to_json_dict()
-        if all(request.is_satisfied_by(definition) for request in requests):
+        authorized = (
+            *requests,
+            *(
+                request
+                for crs in (source, target)
+                if (request := _bound_operation(crs)) is not None
+            ),
+        )
+        if all(
+            request.is_satisfied_by(definition) for request in requests
+        ) and fully_requested(definition, authorized):
             return transformer
     return None
 
@@ -1404,8 +1324,6 @@ def _constituent_operations(
     found: list[CoordinateOperation] = []
     for transformer, _ in pipeline.steps:
         found.extend(transformer.operations or ())
-        if pipeline.skip_introspection:
-            continue
         try:
             found.append(CoordinateOperation.from_json_dict(transformer.to_json_dict()))
         except (CRSError, TypeError, ProjError):
@@ -1431,27 +1349,6 @@ def _require_grids(
     raise MissingGridError(
         f"transforming {_label(source)} to {_label(target)} needs "
         f"{len(missing)} grid file(s) that are not installed: {described}"
-    )
-
-
-def _require_epoch_after_the_fact(
-    applied: AppliedOperation, coordinate_epoch: float | None
-) -> None:
-    """Refuse a result whose operation needed an epoch that was not supplied.
-
-    The epoch rule is normally enforced before any coordinate is handed over.
-    On the ``allow_any_operation=True`` route it cannot be: which operation
-    PROJ picks is area-dependent and unknown until a point has been
-    transformed, so whether it reads the epoch is unknown too. Checking
-    afterwards still refuses the result rather than returning coordinates
-    displaced by the motion between the true and assumed epochs.
-    """
-    if not applied.requires_epoch or coordinate_epoch is not None:
-        return
-    raise MissingCoordinateEpochError(
-        f"PROJ chose {applied.name!r}, which reads the coordinate epoch, but "
-        "none was supplied; pass coordinate_epoch in decimal years, or name "
-        "an operation instead of allowing any"
     )
 
 

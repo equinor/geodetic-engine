@@ -233,7 +233,7 @@ def _candidates(context: OsduBuildContext, crs_type: str, table: str) -> list[Re
     return [
         record
         for record in context.candidates(crs_type)
-        if context.is_new(table, record.auth_name, record.code)
+        if context.should_import(table, record.auth_name, record.code)
     ]
 
 

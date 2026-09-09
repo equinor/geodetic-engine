@@ -38,6 +38,16 @@ class BuildContext:
     deprecated_keys: set[ObjectKey] = field(default_factory=set)
     imported_keys: list[ObjectKey] = field(default_factory=list)
     supersessions: list[tuple[ObjectKey, str]] = field(default_factory=list)
+    processed: set[ObjectKey] = field(default_factory=set)
+
+    def should_import(self, table: str, auth: str, code: str | None) -> bool:
+        """Select new or explicitly replaceable objects, never base definitions."""
+        if code is None or ObjectKey(table, auth, str(code)) in self.processed:
+            return False
+        return self.is_new(table, auth, code) or (
+            self.config.overwrite_existing
+            and not self.writer.is_base_object(table, auth, str(code))
+        )
 
     def annotate(self, key: ObjectKey, obj: dict[str, Any]) -> None:
         """Record the usage, aliases and supersessions of an imported object.
@@ -49,6 +59,9 @@ class BuildContext:
             key: Identity of the object just imported.
             obj: Its detail representation from the register.
         """
+        self.writer.clear_annotations(
+            key.table, key.auth_name, key.code, self.config.naming_systems
+        )
         if tr.is_deprecated(obj):
             self.deprecated_keys.add(key)
         for usage in obj.get("Usage") or []:
@@ -86,6 +99,7 @@ class BuildContext:
         """Register an object as imported and return its key."""
         key = ObjectKey(table=table, auth_name=auth, code=str(code))
         self.imported_keys.append(key)
+        self.processed.add(key)
         self.known_keys(table).add((auth, str(code)))
         return key
 

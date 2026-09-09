@@ -32,6 +32,7 @@ def build(
     *,
     catalog: OsduCatalog | None = None,
     dry_run: bool = False,
+    skip_validation: bool = False,
 ) -> BuildReport:
     """Build an enriched proj.db from an OSDU coordinate reference catalogue.
 
@@ -47,12 +48,15 @@ def build(
             left on disk. This exercises the same code as a real build rather
             than approximating it, so a dry run that succeeds means a real build
             would too.
+        skip_validation: Explicitly skip PROJ validation before publication.
+            False by default; the choice is recorded in the build history.
 
     Returns:
         The build report.
 
     Raises:
-        ProjDbBuildError: On any failure; the partial output is removed.
+        ProjDbBuildError: On a build or validation failure. Staging is discarded
+            and any previously published database is preserved.
 
     Example:
         >>> report = build(load_config(catalog=Path("CRS_CT.json")))  # doctest: +SKIP
@@ -92,10 +96,9 @@ def build(
         report.appended = writer.appended
         report.overwrite_existing = config.overwrite_existing
         report.dry_run = dry_run
-        if dry_run:
-            logger.info("dry run: discarding %s", config.output_db)
-        else:
-            writer.commit()
+        common.finish_build(
+            context, report, source="osdudb", skip_validation=skip_validation
+        )
 
     return report
 

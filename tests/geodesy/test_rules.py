@@ -91,85 +91,18 @@ def test_datum_change_without_a_named_operation_is_ambiguous() -> None:
         Transformation("EPSG:4230", "EPSG:4326")
 
 
-def test_allow_any_operation_lets_a_datum_change_through() -> None:
-    """The escape hatch is opt-in: refused by default, permitted when asked.
-
-    A real, non-ballpark datum shift is still allowed to reach a result, just
-    like naming an operation would -- the difference is only that nobody
-    named it.
-    """
-    transformation = Transformation("EPSG:4230", "EPSG:4326", allow_any_operation=True)
-    assert transformation.operation.route == OperationRoute.ANY_OPERATION
-
-    result = transformation.transform([(4.5, 63.0)])
-    assert result.count == 1
-    assert result.operation.ballpark is False
-
-
-def test_allow_any_operation_still_reports_which_operation_was_applied() -> None:
-    """Letting PROJ choose does not cost the result its provenance.
-
-    PROJ defers the choice until it sees a coordinate, so it cannot be read
-    off the transformation when it is built. It is read back afterwards
-    instead, leaving the result as traceable as a named one: the EPSG code,
-    the accuracy and the exportable definition are all still there.
-    """
-    transformation = Transformation("EPSG:4230", "EPSG:4326", allow_any_operation=True)
-
-    applied = transformation.transform([(4.5, 63.0)]).operation
-
-    assert applied.authority_code == "EPSG:1139"
-    assert applied.name == "ED50 to WGS 84 (7)"
-    assert applied.accuracy == pytest.approx(7.0)
-    assert (applied.to_wkt() or "").startswith("COORDINATEOPERATION[")
-
-
-def test_allow_any_operation_still_reports_the_proj_pipeline() -> None:
-    """The exported pipeline text is also read back, not left as a placeholder.
-
-    ``Transformer.definition`` is just as lazily-placeholdered as
-    ``.description`` before a transform runs, so the real pipeline text also
-    has to come from ``get_last_used_operation()``, the same as the operation
-    identity does.
-    """
-    transformation = Transformation("EPSG:4230", "EPSG:4326", allow_any_operation=True)
-
-    pipeline = transformation.transform([(4.5, 63.0)]).pipeline
-
-    assert pipeline != "unavailable until proj_trans is called"
-    assert "helmert" in pipeline
-
-
-def test_allow_any_operation_reports_the_operation_for_that_batch() -> None:
-    """The operation PROJ picks is area-dependent, so it is reported per batch.
-
-    One ``Transformation`` covering the whole of ED50 legitimately applies a
-    different published shift in Norway than in Spain. Reporting whichever
-    was resolved first for every later batch would misattribute the result.
-    """
-    transformation = Transformation("EPSG:4230", "EPSG:4326", allow_any_operation=True)
-
-    norway = transformation.transform([(4.5, 63.0)]).operation
-    spain = transformation.transform([(-3.7, 40.4)]).operation
-
-    assert norway.authority_code == "EPSG:1139"
-    assert spain.authority_code == "EPSG:15933"
-
-
-def test_allow_any_operation_permits_a_ballpark_too() -> None:
-    """With the flag set, even a ballpark-only pair yields a result, not a refusal.
-
-    The result still says so: ``ballpark`` is True rather than the ballpark
-    being silently indistinguishable from a real operation.
-    """
-    transformation = Transformation(
-        BALLPARK_SOURCE, BALLPARK_TARGET, allow_any_operation=True
-    )
-    assert transformation.operation.route == OperationRoute.ANY_OPERATION
-
-    result = transformation.transform([(-66.5, 18.2)])
-    assert result.count == 1
-    assert result.operation.ballpark is True
+@pytest.mark.parametrize(
+    "source,target",
+    [
+        ("EPSG:4230", "EPSG:4326"),
+        (BALLPARK_SOURCE, BALLPARK_TARGET),
+    ],
+)
+def test_allow_any_operation_cannot_bypass_strict_policy(
+    source: str, target: str
+) -> None:
+    with pytest.raises(AmbiguousOperationError):
+        Transformation(source, target, allow_any_operation=True)
 
 
 def test_allow_any_operation_has_no_effect_when_an_operation_is_named() -> None:

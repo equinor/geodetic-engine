@@ -18,6 +18,7 @@ import pyproj
 import pytest
 
 from geodetic_engine.geodesy import (
+    AmbiguousOperationError,
     OperationRequest,
     Transformation,
     TransformationFailedError,
@@ -434,26 +435,12 @@ def test_etrs89_nor_reaches_the_same_operation_as_plain_etrs89() -> None:
     )
 
 
-def test_proj_finds_its_own_path_when_two_named_operations_cannot_be_chained() -> None:
-    """Letting PROJ choose succeeds exactly where naming both operations by hand fails.
-
-    NN2000-height compound to NN54-height compound has no single registered
-    operation spanning it; naming both EPSG:9485 and EPSG:9484 explicitly is
-    refused, because chaining two named operations by hand is not supported
-    (see ``proj_issues.md`` and ``tests/local_tests/failing_local_test.md``,
-    cause C). Left to search freely, PROJ finds its own equivalent composite
-    path and produces the same number that naming both operations would have.
-    """
-    transformation = Transformation(
-        UTM32N_NN2000_HEIGHT, UTM32N_NN54_HEIGHT, allow_any_operation=True
-    )
-
-    result = transformation.transform([[621786.686, 7049822.720, 88.454]])
-
-    assert result.operation.authority_code is None
-    assert result.coordinates[0] == pytest.approx(
-        (621786.686, 7049822.720, 88.2847), abs=1e-3
-    )
+def test_compound_datum_change_cannot_fall_back_to_automatic_selection() -> None:
+    """A missing explicit operation is a refusal, not an automatic fallback."""
+    with pytest.raises(AmbiguousOperationError):
+        Transformation(
+            UTM32N_NN2000_HEIGHT, UTM32N_NN54_HEIGHT, allow_any_operation=True
+        )
 
 
 # WGS 84 to EGM2008 height: the 2.5' grid, which ships with a stock PROJ

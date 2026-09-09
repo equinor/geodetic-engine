@@ -98,10 +98,25 @@ class PreferenceSettings(DatabaseSettings, Protocol):
 
 
 def default_base_proj_db() -> Path:
-    """Return the proj.db shipped with the installed PROJ."""
+    """Find the sole database on PROJ's path, refusing an ambiguous base.
+
+    Raises:
+        ConfigurationError: If the search path has zero or multiple databases;
+            specify base_proj_db explicitly in that case.
+    """
     from pyproj.datadir import get_data_dir
 
-    return Path(get_data_dir()) / "proj.db"
+    candidates = {
+        path.resolve()
+        for directory in get_data_dir().split(os.pathsep)
+        if (path := Path(directory) / "proj.db").is_file()
+    }
+    if len(candidates) != 1:
+        raise ConfigurationError(
+            "set base_proj_db explicitly: PROJ's search path does not "
+            "identify one unambiguous database"
+        )
+    return candidates.pop()
 
 
 def check_build_target(output_db: Path, base_proj_db: Path) -> None:
@@ -113,7 +128,11 @@ def check_build_target(output_db: Path, base_proj_db: Path) -> None:
             failed build cannot leave the installed PROJ with a database no
             configuration describes.
     """
-    if output_db.resolve() == base_proj_db.resolve():
+    if output_db.resolve() == base_proj_db.resolve() or (
+        output_db.exists()
+        and base_proj_db.exists()
+        and output_db.samefile(base_proj_db)
+    ):
         raise ConfigurationError(
             "output_db must not be the base proj.db; the official database "
             "is never modified in place"

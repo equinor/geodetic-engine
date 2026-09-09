@@ -38,7 +38,7 @@ def collect_units(context: BuildContext) -> None:
     ):
         obj = context.client.detail(summary)
         auth, code = tr.auth_name(obj), tr.code(obj)
-        if not context.is_new(UNIT_TABLE, auth, code):
+        if not context.should_import(UNIT_TABLE, auth, code):
             continue
         assert code is not None
         factor_b = tr.number(obj, "FactorB")
@@ -78,7 +78,7 @@ def collect_ellipsoids(context: BuildContext) -> None:
     ):
         obj = context.client.detail(summary)
         auth, code = tr.auth_name(obj), tr.code(obj)
-        if not context.is_new(ELLIPSOID_TABLE, auth, code):
+        if not context.should_import(ELLIPSOID_TABLE, auth, code):
             continue
         assert code is not None
 
@@ -128,7 +128,7 @@ def collect_prime_meridians(context: BuildContext) -> None:
     ):
         obj = context.client.detail(summary)
         auth, code = tr.auth_name(obj), tr.code(obj)
-        if not context.is_new(PRIME_MERIDIAN_TABLE, auth, code):
+        if not context.should_import(PRIME_MERIDIAN_TABLE, auth, code):
             continue
         assert code is not None
         unit_auth, unit_code = context.resolve_link(
@@ -184,7 +184,7 @@ def collect_datums(context: BuildContext) -> None:
                     f"unsupported datum type {datum_type!r}",
                 )
                 continue
-            if not context.is_new(table, auth, code):
+            if not context.should_import(table, auth, code):
                 continue
 
             row = _datum_row(context, obj, auth, code, table, datum_type)

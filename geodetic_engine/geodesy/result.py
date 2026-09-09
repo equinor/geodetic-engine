@@ -79,7 +79,8 @@ class Coordinates(tuple[tuple[float, ...], ...]):
             >>> coordinates.to_numpy()  # doctest: +SKIP
             array([[10.7522, 59.9139]])
         """
-        return np.array(self, dtype=np.float64)
+        width = len(self[0]) if self else self._target_crs.dimension
+        return np.asarray(self, dtype=np.float64).reshape(len(self), width)
 
     def to_dataframe(self) -> pd.DataFrame:
         """Coordinates as a pandas DataFrame, one row per point.
@@ -143,6 +144,8 @@ class TransformationResult:
             it cannot be written as a single pipeline. It reads and writes
             PROJ's own components in PROJ's own order, which at a vertical end
             is not this package's ``xy`` value order.
+        database_fingerprints: Paths and SHA-256 hashes of databases present
+            when the transformation was resolved, retained across later calls.
 
     Example:
         >>> result.target_axes
@@ -163,6 +166,7 @@ class TransformationResult:
     coordinate_epoch: float | None
     coordinate_order: str = "xy"
     pipeline: str | None = None
+    database_fingerprints: tuple[tuple[str, str], ...] = ()
 
     @property
     def count(self) -> int:
@@ -214,6 +218,8 @@ class TransformationResult:
             "coordinate_epoch": self.coordinate_epoch,
             "source_crs": self.source_crs.authority_code or self.source_crs.name,
             "target_crs": self.target_crs.authority_code or self.target_crs.name,
+            "source_crs_wkt": self.source_crs.crs.to_wkt(),
+            "target_crs_wkt": self.target_crs.crs.to_wkt(),
             "source_axes": list(self.source_axes),
             "source_units": list(self.source_units),
             "target_axes": list(self.target_axes),
@@ -226,6 +232,11 @@ class TransformationResult:
                 "accuracy_m": self.operation.accuracy,
                 "route": str(self.operation.route),
                 "steps": list(self.operation.steps),
+                "ballpark": self.operation.ballpark,
+                "requires_epoch": self.operation.requires_epoch,
+                "definition": json.loads(self.operation.projjson)
+                if self.operation.projjson
+                else None,
             },
             "grids": [
                 {
@@ -233,10 +244,14 @@ class TransformationResult:
                     "available": grid.available,
                     "package": grid.package_name,
                     "url": grid.url,
+                    "full_name": grid.full_name,
+                    "open_license": grid.open_license,
+                    "direct_download": grid.direct_download,
                 }
                 for grid in self.grids
             ],
             "pipeline": self.pipeline,
+            "database_fingerprints": dict(self.database_fingerprints),
         }
 
     def to_json(self, *, pretty: bool = True) -> str:

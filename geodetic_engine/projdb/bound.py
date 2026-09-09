@@ -72,7 +72,7 @@ def collect_bound(context: BuildContext) -> None:
         # The register leaves Kind unset on a bound CRS, so which table it
         # belongs in is taken from the base CRS PROJ actually parsed.
         table = "projected_crs" if base.is_projected else "geodetic_crs"
-        if not context.is_new(table, auth, code):
+        if not context.should_import(table, auth, code):
             continue
 
         row = {

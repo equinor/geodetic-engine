@@ -131,11 +131,3 @@ class UsageAccumulator:
                 "scope_code": scope.code,
             }
         )
-
-    def foreign_scope_extent_keys(self) -> set[tuple[str, str]]:
-        """Scope and extent keys that belong to another authority."""
-        return {
-            key
-            for key in (*self.scopes, *self.extents)
-            if key[0].casefold() != self.authority.casefold()
-        }

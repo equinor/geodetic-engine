@@ -39,6 +39,7 @@ def build(
     *,
     client: GeorepositoryClient | None = None,
     dry_run: bool = False,
+    skip_validation: bool = False,
 ) -> BuildReport:
     """Build an enriched proj.db from a Georepository instance.
 
@@ -53,13 +54,16 @@ def build(
             left on disk. This exercises the same code as a real build rather
             than approximating it, so a dry run that succeeds means a real build
             would too.
+        skip_validation: Explicitly skip PROJ validation before publication.
+            False by default; the choice is recorded in the build history.
 
     Returns:
         The build report. Written next to the output database unless this is a
         dry run, in which case there is no database to write it next to.
 
     Raises:
-        ProjDbBuildError: On any failure; the partial output is removed.
+        ProjDbBuildError: On a build or validation failure. Staging is discarded
+            and any previously published database is preserved.
 
     Example:
         >>> report = build(load_config(), dry_run=True)  # doctest: +SKIP
@@ -111,10 +115,9 @@ def build(
             report.appended = writer.appended
             report.overwrite_existing = config.overwrite_existing
             report.dry_run = dry_run
-            if dry_run:
-                logger.info("dry run: discarding %s", config.output_db)
-            else:
-                writer.commit()
+            common.finish_build(
+                context, report, source="projdb", skip_validation=skip_validation
+            )
     finally:
         if owns_client:
             client.close()

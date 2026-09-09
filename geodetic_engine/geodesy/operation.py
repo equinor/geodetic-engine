@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -24,6 +25,8 @@ from typing import Any
 from pyproj.crs import CoordinateOperation
 from pyproj.database import get_authorities
 from pyproj.exceptions import CRSError
+
+from geodetic_engine.geodesy.database import DatabaseIdentity, database_identity
 
 # PROJJSON object types that are coordinate operations. Anything else with an
 # "id" (a CRS, a datum, an ellipsoid, a method, a parameter) is not one, and
@@ -136,7 +139,9 @@ def _operation_name_matches(node_name: str, expected_name: str) -> bool:
 
 
 @lru_cache(maxsize=256)
-def _registered_operation_name(auth_name: str, code: str) -> str | None:
+def _registered_operation_name(
+    auth_name: str, code: str, identity: DatabaseIdentity
+) -> str | None:
     """The name an authority registers a coordinate operation's code under.
 
     Args:
@@ -168,12 +173,7 @@ class OperationRoute(StrEnum):
     """No operation was requested; PROJ chose, and the choice is recorded."""
 
     ANY_OPERATION = "any_operation"
-    """No operation was requested and the caller allowed PROJ to pick freely.
-
-    Set only when ``allow_any_operation=True`` let a datum change through
-    without a named operation, including a ballpark; the plain, no-datum-change
-    default pick still reports :attr:`PROJ_DEFAULT`.
-    """
+    """Legacy serialized route; new transformations never use this route."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,15 +226,12 @@ class AppliedOperation:
     ballpark: bool = False
     """Whether the applied operation is a ballpark approximation.
 
-    Only ever True when the caller passed ``allow_any_operation=True``: absent
-    that, a ballpark is refused outright rather than reaching a result.
+    Always False on successful transformations; retained for explicit provenance.
     """
     requires_epoch: bool = False
     """Whether the applied operation reads the coordinate epoch.
 
-    Meaningful for the ``allow_any_operation=True`` route, where the operation
-    PROJ picks -- and so whether it is time-dependent -- is not known until a
-    point has been transformed.
+    Also True when a source or target dynamic CRS requires epoch provenance.
     """
     steps: tuple[str, ...] = ()
     projjson: str = field(default="", repr=False, compare=False)
@@ -627,7 +624,7 @@ class OperationRequest:
         if separator and code and authority and " " not in authority:
             return cls(
                 text=text,
-                auth_name=_canonical_authority(authority),
+                auth_name=_canonical_authority(authority, database_identity()),
                 code=code,
                 name=None,
             )
@@ -673,7 +670,9 @@ class OperationRequest:
             and self.auth_name is not None
             and self.code is not None
         ):
-            expected_name = _registered_operation_name(self.auth_name, self.code)
+            expected_name = _registered_operation_name(
+                self.auth_name, self.code, database_identity()
+            )
 
         match: dict[str, Any] | None = None
         for node in _operation_nodes(definition):
@@ -685,7 +684,12 @@ class OperationRequest:
             name_hit = expected_name is not None and _operation_name_matches(
                 str(node.get("name", "")), expected_name
             )
-            if identifier_hit or name_hit:
+            unidentified_fused = _identifier_of(node) is None and str(
+                (node.get("method") or {}).get("name", "")
+            ).startswith("PROJ-based operation method")
+            if identifier_hit or (
+                name_hit and (self.name is not None or unidentified_fused)
+            ):
                 match = node
         return match
 
@@ -754,6 +758,109 @@ def parse_operations(
 def operation_names(definition: object) -> set[str]:
     """Collect the names of every coordinate operation in a PROJJSON tree."""
     return {name for node in _operation_nodes(definition) if (name := node.get("name"))}
+
+
+def fully_requested(
+    definition: dict[str, Any], requests: tuple[OperationRequest, ...]
+) -> bool:
+    """Verify every datum step, including the executable content of fused steps."""
+    kind = definition.get("type")
+    if kind == "Conversion":
+        return True
+    if kind == "ConcatenatedOperation":
+        if any(request.find_in(definition) is definition for request in requests):
+            return True
+        return all(
+            fully_requested(step, requests) for step in definition.get("steps", [])
+        )
+    if kind not in ("Transformation", "PointMotionOperation"):
+        return False
+    method = str((definition.get("method") or {}).get("name", ""))
+    if not method.startswith("PROJ-based operation method"):
+        return any(request.find_in(definition) is definition for request in requests)
+
+    expected_steps: list[tuple[str, ...]] = []
+    for part in str(definition.get("name", "")).split(_FUSED_NAME_SEPARATOR):
+        matched = next(
+            (
+                request
+                for request in requests
+                if request.find_in(definition) is definition
+                and any(
+                    _operation_name_matches(part, name)
+                    for name in (
+                        request.name
+                        or _registered_operation_name(
+                            request.auth_name or "",
+                            request.code or "",
+                            database_identity(),
+                        )
+                        or ""
+                    ).split(_FUSED_NAME_SEPARATOR)
+                )
+            ),
+            None,
+        )
+        if matched is None:
+            return False
+        try:
+            registered = (
+                CoordinateOperation.from_authority(matched.auth_name, matched.code)
+                if matched.auth_name and matched.code
+                else CoordinateOperation.from_name(
+                    _base_operation_name(part),
+                    coordinate_operation_type="TRANSFORMATION",
+                )
+            )
+            steps = _executable_steps(registered.to_proj4())
+        except (CRSError, ValueError):
+            return False
+        if steps is None:
+            return False
+        if part.strip().lower().startswith("inverse of "):
+            steps = [_inverse_tokens(step) for step in reversed(steps)]
+        expected_steps.extend(steps)
+    try:
+        actual_steps = _executable_steps(method.partition(": ")[2])
+    except ValueError:
+        return False
+    return actual_steps is not None and actual_steps == expected_steps
+
+
+def _executable_steps(pipeline: str | None) -> list[tuple[str, ...]] | None:
+    if not pipeline:
+        return None
+    tokens = [token.removeprefix("+") for token in shlex.split(pipeline)]
+    if tokens[0] != "proj=pipeline":
+        return [] if "proj=noop" in tokens else [tuple(sorted(tokens))]
+    steps: list[list[str]] = []
+    for token in tokens[1:]:
+        if token == "step":
+            steps.append([])
+        elif not steps:
+            return None
+        else:
+            steps[-1].append(token)
+    return [tuple(sorted(step)) for step in steps if step and "proj=noop" not in step]
+
+
+def _inverse_tokens(step: tuple[str, ...]) -> tuple[str, ...]:
+    if "proj=axisswap" in step and "order=2,1" in step:
+        return tuple(token for token in step if token != "inv")
+    if "proj=unitconvert" in step:
+        return tuple(
+            sorted(
+                token.replace("_in=", "_temporary=")
+                .replace("_out=", "_in=")
+                .replace("_temporary=", "_out=")
+                for token in step
+            )
+        )
+    return (
+        tuple(sorted(token for token in step if token != "inv"))
+        if "inv" in step
+        else tuple(sorted((*step, "inv")))
+    )
 
 
 def datum_operation_count(definition: dict[str, Any]) -> int:
@@ -900,7 +1007,7 @@ def _operation_nodes(definition: object) -> Iterator[dict[str, Any]]:
 
 
 @lru_cache(maxsize=32)
-def _canonical_authority(authority: str) -> str:
+def _canonical_authority(authority: str, identity: DatabaseIdentity) -> str:
     """Spell an authority the way the PROJ database does.
 
     PROJ matches authority names case-sensitively, so a request written as

@@ -18,6 +18,7 @@ which is the authority on its own database.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sqlite3
@@ -25,6 +26,7 @@ from collections.abc import Mapping
 from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
+from threading import local
 
 from pyproj import datadir
 
@@ -43,6 +45,47 @@ _CRS_TABLES = (
 _DATABASE_NAME = "proj.db"
 _BOUND_KEYWORD = "BOUNDCRS"
 
+type DatabaseIdentity = tuple[tuple[str, int, int, int, int, int], ...]
+_context = local()
+
+
+def database_identity() -> DatabaseIdentity:
+    """Identify the active search path and on-disk database generations."""
+    entries = []
+    for directory in datadir.get_data_dir().split(os.pathsep):
+        path = (Path(directory) / _DATABASE_NAME).resolve()
+        try:
+            stat = path.stat()
+        except OSError:
+            entries.append((str(path), 0, 0, 0, 0, 0))
+        else:
+            entries.append(
+                (
+                    str(path),
+                    stat.st_dev,
+                    stat.st_ino,
+                    stat.st_size,
+                    stat.st_mtime_ns,
+                    stat.st_ctime_ns,
+                )
+            )
+    identity = tuple(entries)
+    if getattr(_context, "identity", None) != identity:
+        datadir.set_data_dir(datadir.get_data_dir())
+        _context.identity = identity
+    return identity
+
+
+@lru_cache(maxsize=32)
+def database_fingerprints(identity: DatabaseIdentity) -> tuple[tuple[str, str], ...]:
+    """Return SHA-256 fingerprints of the databases in one resolution context."""
+    found = []
+    for path, _, _, size, _, _ in identity:
+        if size:
+            with Path(path).open("rb") as stream:
+                found.append((path, hashlib.file_digest(stream, "sha256").hexdigest()))
+    return tuple(found)
+
 
 def bound_definition(auth_name: str, code: str) -> str | None:
     """The stored ``BOUNDCRS`` WKT for an authority code, if there is one.
@@ -59,11 +102,11 @@ def bound_definition(auth_name: str, code: str) -> str | None:
         >>> bound_definition("Equinor", "1100001")  # doctest: +SKIP
         'BOUNDCRS[SOURCECRS[GEOGCRS["ED50",...'
     """
-    return _definitions(datadir.get_data_dir()).get((auth_name.casefold(), str(code)))
+    return _definitions(database_identity()).get((auth_name.casefold(), str(code)))
 
 
 @lru_cache(maxsize=8)
-def _definitions(data_dir: str) -> Mapping[tuple[str, str], str]:
+def _definitions(identity: DatabaseIdentity) -> Mapping[tuple[str, str], str]:
     """Every bound CRS definition in the databases PROJ is currently reading.
 
     Read once per data directory and kept, because the alternative is a query
@@ -71,8 +114,8 @@ def _definitions(data_dir: str) -> Mapping[tuple[str, str], str]:
     the first database defining a code wins, exactly as PROJ resolves it.
     """
     found: dict[tuple[str, str], str] = {}
-    for directory in data_dir.split(os.pathsep):
-        database = Path(directory) / _DATABASE_NAME
+    for path, *_ in identity:
+        database = Path(path)
         if not database.is_file():
             continue
         try:
@@ -81,6 +124,7 @@ def _definitions(data_dir: str) -> Mapping[tuple[str, str], str]:
             # A database that cannot be read tells us nothing about bound CRSs;
             # it must not stop an ordinary CRS from resolving.
             logger.debug("could not read %s: %s", database, error)
+        break
     if found:
         logger.debug("%d bound CRS definitions available", len(found))
     return found
