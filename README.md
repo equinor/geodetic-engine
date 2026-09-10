@@ -21,6 +21,67 @@ Features:
 - Extensible architecture for organization-specific geodetic definitions
 
 
+## Architecture diagram
+
+The system combines a coordinate-transformation API with tools for building the
+geodetic database that API uses. PROJ performs the numerical calculations;
+`geodetic-engine` adds explicit operation selection, quality checks, custom
+definitions, and provenance. It is a Python library with two database-building
+CLIs, not a running web service.
+
+```mermaid
+flowchart TD
+    Geo["Georepository API"] --> Client["georepository: authenticated HTTP client"]
+    Client --> Import["projdb: import definitions"]
+    OSDU["OSDU catalogue file"] --> Parse["osdudb: parse definitions"]
+    Base["Official PROJ database"] --> Writer["Shared writer and validator"]
+    Import --> Writer
+    Parse --> Writer
+    Writer --> Custom["Enriched local proj.db"]
+
+    Base --> Active["Active database: official or enriched"]
+    Custom --> Active
+    Active --> Engine["pyproj / PROJ"]
+    Grids["Grid files"] --> Engine
+    App["Your Python application"] --> API["geodesy: resolve, check, transform"]
+    API --> Engine
+    Engine --> API
+    API --> Result["Coordinates + provenance"]
+```
+
+There are two separate workflows:
+
+- **Build time (optional):** `geodetic-projdb` imports definitions from a
+  Georepository API; `geodetic-osdudb` imports a local OSDU catalogue. Both use
+  the shared writer to enrich a copy of the official database, validate it in
+  staging, and atomically publish the output. The official database is never
+  modified in place.
+- **Runtime:** an application calls `transform()` or reuses a `Transformation`
+  object from `geodetic_engine.geodesy`. The library resolves CRSs and operations
+  against the active database, checks the requested transformation, and executes
+  it through pyproj / PROJ. Results include the coordinates, applied operation,
+  grid information, coordinate epoch, and database fingerprints.
+
+Custom database building is not required for ordinary EPSG definitions. When
+custom definitions are needed, distribute the enriched database and required
+grids, then configure PROJ's data search path to use them. Runtime transformations
+do not need to query Georepository.
+
+A CRS defines what coordinates mean; an operation defines how to convert or
+transform them. Datum changes require explicitly named operations or a bound CRS
+that declares the operation. Ballpark approximations and missing required grids
+are refused at runtime, and dynamic CRSs require a finite coordinate epoch.
+Database validation checks that imported definitions are structurally sound and
+constructible by PROJ; it reports missing grids without treating them as invalid
+database definitions.
+
+| Package | Responsibility |
+| --- | --- |
+| `geodesy` | Public transformation API, CRS handling, operation checks, and result provenance. |
+| `georepository` | Authentication, HTTP requests, pagination, and source-object caching. |
+| `projdb` | Georepository import orchestration and shared database writing, schema validation, and build reporting. |
+| `osdudb` | OSDU catalogue parsing and definition recovery, using the shared database infrastructure. |
+
 ## Development environment
 
 The library requires **pyproj 3.8.0**. Version 0.2.0 tightens previously
