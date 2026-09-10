@@ -23,9 +23,27 @@ workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 cd "${workdir}"
 
+# Tries each mirror in turn. download.osgeo.org is the canonical source but is
+# unreachable behind corporate proxies that intercept TLS with their own root
+# CA, so the GitHub release is kept as a fallback. Neither source is trusted on
+# its own: every download is checked against a pinned SHA-256 below.
+fetch() {
+    local output="$1"
+    shift
+    local url
+    for url in "$@"; do
+        if curl -fsSL --retry 3 -o "${output}" "${url}"; then
+            return 0
+        fi
+        echo "download failed, trying next mirror: ${url}" >&2
+    done
+    return 1
+}
+
 tarball="proj-${PROJ_VERSION}.tar.gz"
-curl -fsSL --retry 3 -o "${tarball}" \
-    "https://download.osgeo.org/proj/${tarball}"
+fetch "${tarball}" \
+    "https://download.osgeo.org/proj/${tarball}" \
+    "https://github.com/OSGeo/PROJ/releases/download/${PROJ_VERSION}/${tarball}"
 
 echo "${PROJ_SHA256}  ${tarball}" | sha256sum --check --strict -
 
@@ -65,8 +83,14 @@ if [[ "${SKIP_PROJ_DATA:-0}" == "1" ]]; then
 fi
 
 data_tarball="proj-data-${PROJ_DATA_VERSION}.tar.gz"
-curl -fsSL --retry 3 -o "${data_tarball}" \
-    "https://download.osgeo.org/proj/${data_tarball}"
+
+# PROJ-data release tags carry a patch component the file name leaves off.
+data_tag="${PROJ_DATA_VERSION}"
+[[ "${data_tag}" == *.*.* ]] || data_tag="${data_tag}.0"
+
+fetch "${data_tarball}" \
+    "https://download.osgeo.org/proj/${data_tarball}" \
+    "https://github.com/OSGeo/PROJ-data/releases/download/${data_tag}/${data_tarball}"
 echo "${PROJ_DATA_SHA256}  ${data_tarball}" | sha256sum --check --strict -
 
 # The archive is flat and extracts directly into the PROJ data directory.
