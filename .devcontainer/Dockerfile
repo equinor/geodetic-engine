@@ -15,6 +15,7 @@ RUN apt-get update \
         curl \
         git \
         git-lfs \
+        openssh-client \
         less \
         sudo \
         build-essential \
