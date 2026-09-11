@@ -433,6 +433,10 @@ OBJECT_TABLE_NAME: Final[Mapping[str, str]] = {
     "concatenated_operation": "concatenated_operation",
 }
 
+# Written by this package, not by PROJ: the append-only record of every build
+# that contributed to a database.
+BUILD_HISTORY_TABLE: Final = "geodetic_engine_build_history"
+
 
 def verify_schema(connection: sqlite3.Connection) -> None:
     """Check that every table and column this builder writes exists.

@@ -75,6 +75,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     build_cmd.add_argument(
+        "--replace",
+        action="store_true",
+        help=(
+            "discard an existing --output database built by other authorities; "
+            "without this a build that would drop another source's import is "
+            "refused"
+        ),
+    )
+    build_cmd.add_argument(
         "--overwrite-rows",
         action="store_true",
         help=(
@@ -177,6 +186,8 @@ def _overrides(args: argparse.Namespace) -> dict[str, Any]:
         overrides["authorities"] = args.authorities
     if getattr(args, "append", False):
         overrides["append"] = True
+    if getattr(args, "replace", False):
+        overrides["replace"] = True
     if getattr(args, "overwrite_rows", False):
         overrides["overwrite_rows"] = True
     return overrides

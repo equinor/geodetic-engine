@@ -28,6 +28,10 @@ class ForeignAuthorityCollision(ProjDbBuildError):
     """A row would overwrite an object belonging to another authority."""
 
 
+class OutputWouldBeDiscarded(ProjDbBuildError):
+    """A fresh build would drop authorities an existing output database holds."""
+
+
 class MissingReferencedObjectError(ProjDbBuildError):
     """A custom object references an object that is not in the database."""
 

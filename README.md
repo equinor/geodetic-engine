@@ -520,12 +520,21 @@ manifest file, typically called `CRS_CT.json`, whose `ReferenceData` array holds
 `reference-data--CoordinateTransformation` records. `geodetic-osdudb` builds the
 same enriched `proj.db` from one of those, with no credentials and no network:
 
+> **If you already built a database from Georepository, add `--append`.** Both
+> commands default to `build/proj.db`, and without `--append` this build starts
+> from a fresh copy of the official `proj.db`. The build is refused rather than
+> discarding the earlier import; see [Combining both sources in one
+> database](#combining-both-sources-in-one-database).
+
 ```bash
 # Everything is defaulted; the catalogue is the only thing that must be named.
 uv run geodetic-osdudb build CRS_CT.json
 
 # Choose where to write the validated database.
 uv run geodetic-osdudb build CRS_CT.json --output build/proj.db
+
+# Add to a database an earlier build already wrote, instead of replacing it.
+uv run geodetic-osdudb build CRS_CT.json --output build/proj.db --append
 
 # Also import the catalogue's EPSG records that this proj.db does not yet have.
 uv run geodetic-osdudb build CRS_CT.json --authority OSDU --authority EPSG
@@ -655,6 +664,15 @@ A few consequences worth knowing:
 - **Operation selection accumulates.** In `custom_first` mode an authority
   preference rule already naming an earlier authority is extended rather than
   replaced, so adding OSDU does not make the Georepository operations invisible.
+- **A build will not silently discard another source's import.** Every database
+  records the authorities each build contributed, in
+  `geodetic_engine_build_history`. A build that does not append, and whose
+  authorities do not cover what the existing output holds, is refused with
+  `OutputWouldBeDiscarded` before anything is fetched. Pass `--append` to add to
+  it, `--output` to write elsewhere, or `--replace` to discard it
+  deliberately. Rebuilding a database from the same authorities that wrote it is
+  unaffected, and a file this package did not build is not protected, because
+  nothing is known about it.
 
 ### Overwriting rather than colliding
 

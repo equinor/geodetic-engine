@@ -13,16 +13,20 @@ routinely end up in version control, shell history and process listings.
 
 from __future__ import annotations
 
+import json
 import os
+import sqlite3
 import tomllib
 from collections.abc import Iterable, Mapping
+from contextlib import closing
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, Protocol, runtime_checkable
 
 from dotenv import find_dotenv, load_dotenv
 
-from geodetic_engine.projdb.errors import ConfigurationError
+from geodetic_engine.projdb.errors import ConfigurationError, OutputWouldBeDiscarded
+from geodetic_engine.projdb.schema import BUILD_HISTORY_TABLE
 
 ENV_PREFIX: Final = "GEODETIC_ENGINE_"
 
@@ -78,6 +82,10 @@ class DatabaseSettings(Protocol):
     @property
     def append(self) -> bool:
         """Add to an existing output database instead of rebuilding it."""
+
+    @property
+    def replace(self) -> bool:
+        """Discard an existing output database built by other authorities."""
 
     @property
     def overwrite_rows(self) -> bool:
@@ -136,6 +144,69 @@ def check_build_target(output_db: Path, base_proj_db: Path) -> None:
         raise ConfigurationError(
             "output_db must not be the base proj.db; the official database "
             "is never modified in place"
+        )
+
+
+def recorded_authorities(database: Path) -> frozenset[str]:
+    """Authorities a built database's own build history says it holds.
+
+    Returns:
+        Every authority named by any build that contributed to the database, or
+        an empty set when the file does not exist, was not built by this
+        package, or records nothing legible. An unreadable history must not
+        block a build; it only means nothing can be asserted about the file.
+    """
+    if not database.is_file():
+        return frozenset()
+    found: set[str] = set()
+    try:
+        with closing(
+            sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        ) as connection:
+            rows = connection.execute(
+                f"SELECT report FROM {BUILD_HISTORY_TABLE}"
+            ).fetchall()
+    except sqlite3.Error:
+        return frozenset()
+    for (report,) in rows:
+        try:
+            authorities = json.loads(report).get("authorities")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(authorities, list):
+            found.update(str(name) for name in authorities)
+    return frozenset(found)
+
+
+def check_discarded_authorities(
+    output_db: Path, authorities: Iterable[str], *, replace: bool
+) -> None:
+    """Refuse to replace an output holding authorities this build will not write.
+
+    A build that does not append starts from a fresh copy of the base proj.db,
+    so publishing it drops whatever another source imported into the same path.
+    Both CLIs default to the same output, which makes running one after the
+    other the obvious way to lose an expensive import.
+
+    Raises:
+        OutputWouldBeDiscarded: If the existing output records authorities this
+            build does not import. Pass ``--append`` to add to it, or
+            ``--replace`` to discard it deliberately.
+    """
+    if replace:
+        return
+    lost = {
+        name
+        for name in recorded_authorities(output_db)
+        if name.casefold() not in {own.casefold() for own in authorities}
+    }
+    if lost:
+        raise OutputWouldBeDiscarded(
+            f"{output_db} was built with {', '.join(sorted(lost))} and this "
+            f"build imports only {', '.join(sorted(authorities))}. Publishing "
+            "it would discard that import. Pass --append to add to the existing "
+            "database, --replace to discard it, or --output to write "
+            "somewhere else."
         )
 
 

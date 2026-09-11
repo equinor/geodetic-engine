@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -9,8 +10,12 @@ from pathlib import Path
 import pytest
 
 from geodetic_engine.projdb.config import ProjDbBuildConfig
-from geodetic_engine.projdb.errors import ForeignAuthorityCollision, SchemaDriftError
-from geodetic_engine.projdb.schema import verify_schema
+from geodetic_engine.projdb.errors import (
+    ForeignAuthorityCollision,
+    OutputWouldBeDiscarded,
+    SchemaDriftError,
+)
+from geodetic_engine.projdb.schema import BUILD_HISTORY_TABLE, verify_schema
 from geodetic_engine.projdb.writer import ProjDbWriter
 from tests.projdb.conftest import make_config
 
@@ -163,6 +168,87 @@ def test_failed_append_leaves_the_earlier_build_intact(
 
     assert config.output_db.is_file()
     assert _scopes(config.output_db) == {("Example", "1")}
+
+
+def _record_build(database: Path, authorities: list[str]) -> None:
+    """Give a database the build history a real build would have left."""
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute(
+            f"CREATE TABLE IF NOT EXISTS {BUILD_HISTORY_TABLE} "
+            "(sequence INTEGER PRIMARY KEY, report TEXT NOT NULL)"
+        )
+        connection.execute(
+            f"INSERT INTO {BUILD_HISTORY_TABLE} (report) VALUES (?)",
+            (json.dumps({"authorities": authorities}),),
+        )
+        connection.commit()
+
+
+def test_fresh_build_refuses_to_discard_another_sources_import(
+    config: ProjDbBuildConfig,
+) -> None:
+    """Both CLIs default to one path, so this is the easy way to lose a build."""
+    with ProjDbWriter(config) as first:
+        first.insert("scope", [_SCOPE_ROW])
+        first.commit()
+    _record_build(config.output_db, ["Example"])
+
+    other = make_config(
+        config.base_proj_db, config.output_db, authorities=frozenset({"OSDU"})
+    )
+    with pytest.raises(OutputWouldBeDiscarded, match="Example"):
+        ProjDbWriter(other).open()
+
+    assert _scopes(config.output_db) == {("Example", "1")}
+
+
+def test_rebuilding_the_same_authority_is_allowed(config: ProjDbBuildConfig) -> None:
+    """Refreshing a database from the source that wrote it is routine."""
+    with ProjDbWriter(config) as first:
+        first.insert("scope", [_SCOPE_ROW])
+        first.commit()
+    _record_build(config.output_db, ["Example"])
+
+    with ProjDbWriter(make_config(config.base_proj_db, config.output_db)) as writer:
+        writer.insert("scope", [_SCOPE_ROW | {"code": "2"}])
+        writer.commit()
+
+    assert _scopes(config.output_db) == {("Example", "2")}
+
+
+def test_replace_discards_deliberately(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as first:
+        first.insert("scope", [_SCOPE_ROW])
+        first.commit()
+    _record_build(config.output_db, ["Example"])
+
+    replacing = make_config(
+        config.base_proj_db,
+        config.output_db,
+        authorities=frozenset({"OSDU"}),
+        replace=True,
+    )
+    with ProjDbWriter(replacing) as writer:
+        writer.commit()
+
+    assert _scopes(config.output_db) == set()
+
+
+def test_output_without_a_build_history_is_not_protected(
+    config: ProjDbBuildConfig,
+) -> None:
+    """Nothing is known about a file this package did not write."""
+    with ProjDbWriter(config) as first:
+        first.insert("scope", [_SCOPE_ROW])
+        first.commit()
+
+    other = make_config(
+        config.base_proj_db, config.output_db, authorities=frozenset({"OSDU"})
+    )
+    with ProjDbWriter(other) as writer:
+        writer.commit()
+
+    assert _scopes(config.output_db) == set()
 
 
 def test_overwrite_rows_replaces_only_its_own_authority(

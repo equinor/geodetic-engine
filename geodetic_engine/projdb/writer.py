@@ -28,7 +28,10 @@ from geodetic_engine.projdb.schema import (
     TABLE_COLUMNS,
     verify_schema,
 )
-from geodetic_engine.projdb.settings import DatabaseSettings
+from geodetic_engine.projdb.settings import (
+    DatabaseSettings,
+    check_discarded_authorities,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,12 +117,20 @@ class ProjDbWriter:
 
         Raises:
             SchemaDriftError: If the database opened is not the expected schema.
+            OutputWouldBeDiscarded: If a fresh build would drop authorities the
+                existing output database was built with.
         """
         output = self._config.output_db
         output.parent.mkdir(parents=True, exist_ok=True)
         self._lock = FileLock(str(output) + ".lock")
         self._lock.acquire()
         try:
+            if not self._config.append:
+                check_discarded_authorities(
+                    output,
+                    self._config.authorities,
+                    replace=self._config.replace,
+                )
             self._appended = self._config.append and output.is_file()
             descriptor, name = tempfile.mkstemp(
                 prefix=f".{output.name}.", suffix=".staging", dir=output.parent

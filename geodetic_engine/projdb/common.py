@@ -294,11 +294,11 @@ def finish_build(
         )
         connection = context.writer.connection
         connection.execute(
-            "CREATE TABLE IF NOT EXISTS geodetic_engine_build_history "
+            f"CREATE TABLE IF NOT EXISTS {schema.BUILD_HISTORY_TABLE} "
             "(sequence INTEGER PRIMARY KEY, report TEXT NOT NULL)"
         )
         connection.execute(
-            "INSERT INTO geodetic_engine_build_history (report) VALUES (?)",
+            f"INSERT INTO {schema.BUILD_HISTORY_TABLE} (report) VALUES (?)",
             (report.to_json(),),
         )
 

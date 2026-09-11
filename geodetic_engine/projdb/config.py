@@ -124,6 +124,11 @@ class ProjDbBuildConfig:
             yet. Disabled by default: a build that silently added to whatever
             happened to be at the output path could not be reproduced from its
             configuration alone.
+        replace: Publish over an output database built by authorities this build
+            does not import, discarding it. Disabled by default, so running one
+            source after another cannot silently drop the other's import. Not
+            read from the config file: discarding a built database is a decision
+            for the run that does it.
         overwrite_rows: Replace a row this build collides with rather than
             aborting. Reaches only the configured ``authorities``, since the
             per-row authority guard runs first and every object table is keyed
@@ -145,6 +150,7 @@ class ProjDbBuildConfig:
     annotate_foreign_objects: bool = True
     fallback_authorities: tuple[str, ...] = DEFAULT_FALLBACK_AUTHORITIES
     append: bool = False
+    replace: bool = False
     overwrite_rows: bool = False
     georepository_version: str | None = None
     source_file: Path | None = None
