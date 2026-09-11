@@ -537,7 +537,15 @@ OSDU publishes coordinate reference systems and transformations as a single
 manifest file, typically called `CRS_CT.json`, whose `ReferenceData` array holds
 `reference-data--CoordinateReferenceSystem` and
 `reference-data--CoordinateTransformation` records. `geodetic-osdudb` builds the
-same enriched `proj.db` from one of those, with no credentials and no network:
+same enriched `proj.db` from one of those, with no credentials and no network.
+
+Keep the manifest in `local/osdu/`. That directory is gitignored, and a
+catalogue is both large and often internal to whoever published it; the
+repository root is not ignored, and `build/` holds output that is expected to be
+disposable. The examples below name the file alone for brevity, but the path is
+yours to choose: give it on the command line, set `catalog` in
+`geodetic-osdudb.toml`, or set `GEODETIC_ENGINE_OSDU_CATALOG` in the
+environment.
 
 > **If you already built a database from Georepository, add `--append`.** Both
 > commands default to `build/proj.db`, and without `--append` this build starts

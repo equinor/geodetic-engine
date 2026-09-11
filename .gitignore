@@ -224,9 +224,10 @@ __marimo__/
 # Mics
 tmp/
 
-# Grid files for local testing of custom/missing grids. Never committed: large
-# binaries that belong in proj.db's grid_alternatives, not in git.
-local_grids/
+# Local inputs that are never committed: grid files under local/grids/ (large
+# binaries that belong in proj.db's grid_alternatives, not in git) and OSDU
+# catalogues under local/catalogs/.
+local/
 
 # Local environment overrides / secrets
 .env

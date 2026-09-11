@@ -22,8 +22,13 @@
 # The OSDU manifest to read: a JSON document whose ReferenceData array holds
 # reference-data--CoordinateReferenceSystem and
 # reference-data--CoordinateTransformation records. A path given on the command
-# line wins over this.
-catalog = "CRS_CT.json"
+# line wins over this, and GEODETIC_ENGINE_OSDU_CATALOG wins over the file.
+#
+# local/ is gitignored, so a catalogue kept there cannot be committed by
+# accident; the repository root is not, and a manifest is both large and
+# frequently internal to whoever published it. Keep it out of build/ as well:
+# that directory holds build output and is expected to be disposable.
+catalog = "local/osdu/CRS_CT.json"
 
 # Where the enriched database is written. The official proj.db is copied, never
 # modified in place. Defaults to "build/proj.db".

@@ -444,7 +444,7 @@ def test_compound_datum_change_cannot_fall_back_to_automatic_selection() -> None
 
 
 # WGS 84 to EGM2008 height: the 2.5' grid, which ships with a stock PROJ
-# install. The 1' grid (EPSG:3859) needs the opt-in grid file in local_grids/
+# install. The 1' grid (EPSG:3859) needs the opt-in grid file in local/grids/
 # (see scripts/patch-grid-alternatives.sh) and is deliberately not exercised
 # here, so this file runs unchanged in an environment that never set that up.
 WGS84_geog3D = "EPSG:4979"  # WGS 84 Geographic 3D.

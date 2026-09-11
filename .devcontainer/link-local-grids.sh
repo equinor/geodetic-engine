@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Symlink every grid file dropped in local_grids/ into PROJ's data directory,
+# Symlink every grid file dropped in local/grids/ into PROJ's data directory,
 # so PROJ finds it without a copy and without every developer repeating the
 # manual symlink by hand. Safe to run repeatedly, and a no-op when
-# local_grids/ is empty, which it is until someone drops a grid file in it.
+# local/grids/ is empty, which it is until someone drops a grid file in it.
 #
 # Run automatically by the devcontainer on every start (see devcontainer.json)
-# so a grid file already in local_grids/ -- kept there because it is gitignored,
+# so a grid file already in local/grids/ -- kept there because it is gitignored,
 # never committed -- is linked in again after a container rebuild.
 #
 # Usage:
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly LOCAL_GRIDS="${REPO_ROOT}/local_grids"
+readonly LOCAL_GRIDS="${REPO_ROOT}/local/grids"
 
 mkdir -p "$LOCAL_GRIDS"
 
@@ -32,7 +32,7 @@ fi
 shopt -s nullglob
 grid_files=("$LOCAL_GRIDS"/*)
 if [[ ${#grid_files[@]} -eq 0 ]]; then
-    echo "local_grids/ is empty, nothing to link"
+    echo "local/grids/ is empty, nothing to link"
     exit 0
 fi
 
@@ -47,7 +47,7 @@ for src in "${grid_files[@]}"; do
             continue
         fi
         # A symlink under our control, just pointed at something else (for
-        # example a previous local_grids/ file of the same name).
+        # example a previous local/grids/ file of the same name).
     elif [[ -e "$dest" ]]; then
         echo "warn: $dest already exists and is not a symlink, leaving it alone" >&2
         continue
