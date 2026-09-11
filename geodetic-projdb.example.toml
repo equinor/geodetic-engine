@@ -89,7 +89,7 @@ output_db = "build/proj.db"
 # land on an EPSG or PROJ definition. Off by default, so a collision is a
 # reported failure rather than a definition that changed underneath whoever was
 # already using it.
-# overwrite_existing = false
+# overwrite_rows = false
 
 # --- Advanced ---------------------------------------------------------------
 

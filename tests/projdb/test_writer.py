@@ -165,7 +165,7 @@ def test_failed_append_leaves_the_earlier_build_intact(
     assert _scopes(config.output_db) == {("Example", "1")}
 
 
-def test_overwrite_existing_replaces_only_its_own_authority(
+def test_overwrite_rows_replaces_only_its_own_authority(
     config: ProjDbBuildConfig,
 ) -> None:
     with ProjDbWriter(config) as first:
@@ -173,7 +173,7 @@ def test_overwrite_existing_replaces_only_its_own_authority(
         first.commit()
 
     overwriting = make_config(
-        config.base_proj_db, config.output_db, append=True, overwrite_existing=True
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
     )
     with ProjDbWriter(overwriting) as writer:
         writer.insert("scope", [_SCOPE_ROW | {"scope": "Rewritten"}])
@@ -186,12 +186,12 @@ def test_overwrite_existing_replaces_only_its_own_authority(
     assert scope == "Rewritten"
 
 
-def test_overwrite_existing_still_cannot_reach_epsg(
+def test_overwrite_rows_still_cannot_reach_epsg(
     config: ProjDbBuildConfig,
 ) -> None:
     """The authority guard runs first, so replacement never escapes its own rows."""
     overwriting = make_config(
-        config.base_proj_db, config.output_db, overwrite_existing=True
+        config.base_proj_db, config.output_db, overwrite_rows=True
     )
     with (
         ProjDbWriter(overwriting) as writer,

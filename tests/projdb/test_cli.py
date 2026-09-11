@@ -17,7 +17,7 @@ from tests.projdb.conftest import FakeGeorepository
 
 @pytest.mark.parametrize(
     "flags",
-    [[], ["--dry-run"], ["--skip-validation"], ["--append", "--overwrite-existing"]],
+    [[], ["--dry-run"], ["--skip-validation"], ["--append", "--overwrite-rows"]],
 )
 def test_cli_build_paths(
     config: ProjDbBuildConfig,

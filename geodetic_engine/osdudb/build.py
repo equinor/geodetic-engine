@@ -94,7 +94,7 @@ def build(
         report.authority_preferences = preferences
         report.rows_by_table = dict(sorted(writer.inserted.items()))
         report.appended = writer.appended
-        report.overwrite_existing = config.overwrite_existing
+        report.overwrite_rows = config.overwrite_rows
         report.dry_run = dry_run
         common.finish_build(
             context, report, source="osdudb", skip_validation=skip_validation

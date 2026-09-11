@@ -33,7 +33,7 @@ class BuildReport:
             Recorded because it decides what the row counts below are counts
             of, and because the output then has more than one report describing
             it.
-        overwrite_existing: Whether a colliding row of this build's own
+        overwrite_rows: Whether a colliding row of this build's own
             authorities was replaced rather than reported as a collision.
     """
 
@@ -49,7 +49,7 @@ class BuildReport:
     base_proj_db: str
     output_db: str
     appended: bool = False
-    overwrite_existing: bool = False
+    overwrite_rows: bool = False
     dry_run: bool = False
     rows_by_table: dict[str, int] = field(default_factory=dict)
     imported: list[dict[str, str]] = field(default_factory=list)

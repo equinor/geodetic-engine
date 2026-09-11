@@ -90,7 +90,7 @@ def test_overwrite_updates_crs_and_projection(
         geographic(Name="Corrected"),
         projected(OGCWellKnownText2=CUSTOM_PROJECTED_WKT.replace("500000", "600000")),
     )
-    report = build(replace(config, append=True, overwrite_existing=True))
+    report = build(replace(config, append=True, overwrite_rows=True))
     assert report.validation["status"] == "passed"
     with closing(sqlite3.connect(output_db)) as connection:
         assert (

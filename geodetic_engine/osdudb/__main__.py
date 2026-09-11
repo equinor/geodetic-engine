@@ -75,7 +75,7 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     build_cmd.add_argument(
-        "--overwrite-existing",
+        "--overwrite-rows",
         action="store_true",
         help=(
             "replace a colliding row of this build's own authorities instead "
@@ -177,8 +177,8 @@ def _overrides(args: argparse.Namespace) -> dict[str, Any]:
         overrides["authorities"] = args.authorities
     if getattr(args, "append", False):
         overrides["append"] = True
-    if getattr(args, "overwrite_existing", False):
-        overrides["overwrite_existing"] = True
+    if getattr(args, "overwrite_rows", False):
+        overrides["overwrite_rows"] = True
     return overrides
 
 
@@ -212,7 +212,7 @@ def _show_config(args: argparse.Namespace) -> dict[str, Any]:
         "fallback_authorities": list(resolved.fallback_authorities),
         "unsupported_method_codes": sorted(resolved.unsupported_method_codes),
         "append": resolved.append,
-        "overwrite_existing": resolved.overwrite_existing,
+        "overwrite_rows": resolved.overwrite_rows,
     }
 
 

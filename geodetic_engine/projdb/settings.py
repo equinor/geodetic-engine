@@ -80,7 +80,7 @@ class DatabaseSettings(Protocol):
         """Add to an existing output database instead of rebuilding it."""
 
     @property
-    def overwrite_existing(self) -> bool:
+    def overwrite_rows(self) -> bool:
         """Replace a colliding row of this build's own authorities."""
 
 

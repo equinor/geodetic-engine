@@ -659,12 +659,12 @@ A few consequences worth knowing:
 ### Overwriting rather than colliding
 
 Importers normally reuse existing objects; duplicate rows reaching the writer
-are rejected. `--overwrite-existing` explicitly updates eligible objects from
+are rejected. `--overwrite-rows` explicitly updates eligible objects from
 the configured authorities, including dependent axes and steps. It is useful
 when re-importing a register whose definitions were corrected upstream:
 
 ```bash
-uv run geodetic-projdb build --output build/proj.db --append --overwrite-existing
+uv run geodetic-projdb build --output build/proj.db --append --overwrite-rows
 ```
 
 Objects present in the configured base database cannot be replaced, even when

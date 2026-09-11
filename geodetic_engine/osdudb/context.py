@@ -83,7 +83,7 @@ class OsduBuildContext:
         if code is None or ObjectKey(table, auth, str(code)) in self.processed:
             return False
         return self.is_new(table, auth, code) or (
-            self.config.overwrite_existing
+            self.config.overwrite_rows
             and not self.writer.is_base_object(table, auth, str(code))
         )
 

@@ -55,7 +55,7 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     build_cmd.add_argument(
-        "--overwrite-existing",
+        "--overwrite-rows",
         action="store_true",
         help=(
             "replace a colliding row of this build's own authorities instead "
@@ -151,8 +151,8 @@ def _build(args: argparse.Namespace) -> int:
         overrides["output_db"] = args.output
     if args.append:
         overrides["append"] = True
-    if args.overwrite_existing:
-        overrides["overwrite_existing"] = True
+    if args.overwrite_rows:
+        overrides["overwrite_rows"] = True
     config = load_config(config_file=args.config, **overrides)
 
     return run_build(
@@ -184,7 +184,7 @@ def _show_config(config_file: Path | None) -> dict[str, object]:
         "fallback_authorities": list(resolved.fallback_authorities),
         "unsupported_method_codes": sorted(resolved.unsupported_method_codes),
         "append": resolved.append,
-        "overwrite_existing": resolved.overwrite_existing,
+        "overwrite_rows": resolved.overwrite_rows,
         "page_size": resolved.georepository.page_size,
     }
 

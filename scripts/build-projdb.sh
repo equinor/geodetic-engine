@@ -35,7 +35,7 @@ catalog=""
 georepository_config=""
 osdu_config=""
 osdu_authorities=()
-overwrite_existing=false
+overwrite_rows=false
 skip_validation=false
 skip_grid_patch=false
 dry_run=false
@@ -62,13 +62,12 @@ Options:
                           repeatable. Defaults to OSDU. Add EPSG to also import
                           the catalogue's EPSG objects that this proj.db does
                           not already define.
-      --overwrite-existing
-                          Replace a colliding row of a build's own authorities
-                          instead of aborting. Another authority's rows are
-                          never touched either way. Off by default.
       --append            Add to the database already at --output instead of
                           removing it first. Use to add a source to a database
                           built by an earlier run.
+      --overwrite-rows    Replace a colliding row of a build's own authorities
+                          instead of aborting. Another authority's rows are
+                          never touched either way. Off by default.
       --skip-validation   Write without checking that PROJ can read the result
                           back. Not recommended.
       --skip-grid-patch   Do not run scripts/patch-grid-alternatives.sh on the
@@ -127,8 +126,8 @@ while [[ $# -gt 0 ]]; do
             osdu_authorities+=("${2:-}")
             shift 2
             ;;
-        --overwrite-existing)
-            overwrite_existing=true
+        --overwrite-rows)
+            overwrite_rows=true
             shift
             ;;
         --append)
@@ -218,7 +217,7 @@ done
 
 common_args=()
 $skip_validation && common_args+=(--skip-validation)
-$overwrite_existing && common_args+=(--overwrite-existing)
+$overwrite_rows && common_args+=(--overwrite-rows)
 verbose_args=()
 $verbose && verbose_args+=(--verbose)
 

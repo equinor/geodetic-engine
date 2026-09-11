@@ -65,7 +65,7 @@ _FILE_KEYS: Final = frozenset(
         "authority_preference",
         "fallback_authorities",
         "append",
-        "overwrite_existing",
+        "overwrite_rows",
         "catalog_version",
     }
 )
@@ -101,7 +101,7 @@ class OsduBuildConfig:
             output does not exist yet. Disabled by default: a build that
             silently added to whatever happened to be at the output path could
             not be reproduced from its configuration alone.
-        overwrite_existing: Replace a row this build collides with rather than
+        overwrite_rows: Replace a row this build collides with rather than
             aborting. Reaches only the configured ``authorities``, since the
             per-row authority guard runs first and every object table is keyed
             on ``(auth_name, code)``. Disabled by default, so a collision is a
@@ -121,7 +121,7 @@ class OsduBuildConfig:
     authority_preference: AuthorityPreference = AuthorityPreference.CUSTOM_FIRST
     fallback_authorities: tuple[str, ...] = DEFAULT_FALLBACK_AUTHORITIES
     append: bool = False
-    overwrite_existing: bool = False
+    overwrite_rows: bool = False
     catalog_version: str | None = None
     source_file: Path | None = None
 
@@ -236,8 +236,8 @@ def load_config(
             DEFAULT_FALLBACK_AUTHORITIES,
         ),
         append=as_bool(value("append", "APPEND"), default=False),
-        overwrite_existing=as_bool(
-            value("overwrite_existing", "OVERWRITE_EXISTING"), default=False
+        overwrite_rows=as_bool(
+            value("overwrite_rows", "OVERWRITE_ROWS"), default=False
         ),
         catalog_version=value("catalog_version", "OSDU_CATALOG_VERSION"),
         source_file=resolved_file,

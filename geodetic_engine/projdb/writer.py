@@ -168,7 +168,7 @@ class ProjDbWriter:
         self, table: str, auth: str, code: str, naming_systems: frozenset[str]
     ) -> None:
         """Refresh an updated object's owned annotations without touching others."""
-        if not self._config.overwrite_existing:
+        if not self._config.overwrite_rows:
             return
         from geodetic_engine.projdb.schema import OBJECT_TABLE_NAME
 
@@ -207,7 +207,7 @@ class ProjDbWriter:
         Raises:
             ForeignAuthorityCollision: If a row belongs to an authority that is
                 not configured as custom, or collides with an existing row and
-                ``overwrite_existing`` is not configured.
+                ``overwrite_rows`` is not configured.
         """
         _assert_known_table(table)
         if not rows:
@@ -217,14 +217,14 @@ class ProjDbWriter:
         if table not in FOREIGN_AUTHORITY_ALLOWED:
             self._guard_authorities(table, rows)
 
-        verb = "INSERT OR REPLACE" if self._config.overwrite_existing else "INSERT"
+        verb = "INSERT OR REPLACE" if self._config.overwrite_rows else "INSERT"
         statement = (
             f"{verb} INTO {table} ({', '.join(columns)}) "
             f"VALUES ({', '.join('?' * len(columns))})"
         )
         for row in rows:
             keyed_update = (
-                self._config.overwrite_existing
+                self._config.overwrite_rows
                 and table not in FOREIGN_AUTHORITY_ALLOWED
                 and "auth_name" in row
                 and "code" in row
