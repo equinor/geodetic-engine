@@ -191,7 +191,9 @@ is a property of the database:
   entry whether or not the grid is on the machine that built the database, and
   it may well be present, or fetchable, wherever the database is used. Every
   referenced grid is listed in the build report with its availability, and
-  missing ones are logged as a warning.
+  missing ones are logged as a warning. A grid that is installed but still
+  reported missing is usually an absent filename mapping; see [Patching grid
+  filename mappings](#patching-grid-filename-mappings).
 - **A CRS that only reaches WGS 84 by a ballpark step.** ETRS89 and WGS 84 are
   separate ensembles with no operation between them, so an ETRS89-based CRS is
   legitimately ballpark-only to WGS 84. Refusing ballpark results belongs at
@@ -641,8 +643,10 @@ scripts/build-projdb.sh --source georepository --output /tmp/proj.db
 scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --append
 ```
 
-The script stages the complete source chain, including grid patches, and
-replaces the output only after every step succeeds. Without `--append` it starts
+The script stages the complete source chain, including the grid filename patches
+described under [Patching grid filename
+mappings](#patching-grid-filename-mappings), and replaces the output only after
+every step succeeds. Without `--append` it starts
 from the base database; with `--append` it stages the existing output. A dry run
 validates that same chain without publishing. Run it with `--help` for options.
 
@@ -673,6 +677,32 @@ A few consequences worth knowing:
   deliberately. Rebuilding a database from the same authorities that wrote it is
   unaffected, and a file this package did not build is not protected, because
   nothing is known about it.
+
+### Patching grid filename mappings
+
+An authority's coordinate operation names a grid by its own filename. PROJ's
+`grid_alternatives` table maps that name to the file PROJ's tooling and CDN
+actually ship under, and occasionally that mapping is missing upstream even
+though both the operation and the grid file are fine. PROJ then reports the grid
+as missing, indistinguishable from a grid that genuinely is not available.
+
+`scripts/patch-grid-alternatives.sh` adds the mappings known to be missing.
+`scripts/build-projdb.sh` runs it against the staged database as its last step,
+so a database built through that script is already patched. Pass
+`--skip-grid-patch` to leave it out, and the output is then exactly the official
+database plus this package's own authority data, nothing more.
+
+It can also be run on its own, against a database either builder produced:
+
+```bash
+scripts/patch-grid-alternatives.sh --db build/proj.db
+```
+
+Each patch is idempotent and scoped to one authority's own grid name: a name
+already present, because a newer PROJ shipped the fix or the script already ran,
+is left untouched rather than replaced. A backup is taken before patching and
+removed only once every patch applies cleanly. Every entry records why it still
+exists, and is removed the day PROJ ships the mapping upstream.
 
 ### Overwriting rather than colliding
 
