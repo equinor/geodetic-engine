@@ -6,7 +6,7 @@
 # Both sources write into the same file. The first build selected starts from
 # the official proj.db; every build after it is passed --append, so it adds its
 # authority to what the previous one wrote instead of starting over. That is
-# why the output is removed first unless --extend is given: appending to a
+# why the output is removed first unless --append is given: appending to a
 # database left over from an earlier run would silently mix two generations of
 # definitions in one file.
 #
@@ -39,7 +39,7 @@ overwrite_existing=false
 skip_validation=false
 skip_grid_patch=false
 dry_run=false
-extend=false
+append_to_existing=false
 verbose=false
 
 usage() {
@@ -66,7 +66,7 @@ Options:
                           Replace a colliding row of a build's own authorities
                           instead of aborting. Another authority's rows are
                           never touched either way. Off by default.
-      --extend            Add to the database already at --output instead of
+      --append            Add to the database already at --output instead of
                           removing it first. Use to add a source to a database
                           built by an earlier run.
       --skip-validation   Write without checking that PROJ can read the result
@@ -87,7 +87,7 @@ Examples:
   scripts/build-projdb.sh --source georepository --output /tmp/proj.db
 
   # Add OSDU to a database an earlier run already built
-  scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --extend
+  scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --append
 
 Georepository credentials are never passed as arguments. Set them in a
 gitignored .env file or in the environment as GEODETIC_ENGINE_GEOREP_CLIENT_ID
@@ -131,8 +131,8 @@ while [[ $# -gt 0 ]]; do
             overwrite_existing=true
             shift
             ;;
-        --extend)
-            extend=true
+        --append)
+            append_to_existing=true
             shift
             ;;
         --skip-validation)
@@ -229,13 +229,13 @@ flock "$publication_lock"
 staging="$(mktemp -d "$(dirname "$published_output")/.geodetic-build.XXXXXX")"
 trap 'rm -rf -- "$staging"' EXIT
 output="${staging}/proj.db"
-if $extend && [[ -f "$published_output" ]]; then
+if $append_to_existing && [[ -f "$published_output" ]]; then
     cp -- "$published_output" "$output"
 fi
 
 # The first build to run creates the database; every one after it adds to what
-# is already there. With --extend the very first one adds too.
-append=$extend
+# is already there. With --append the very first one adds too.
+append=$append_to_existing
 
 for source in "${sources[@]}"; do
     args=("${common_args[@]}" --output "$output")

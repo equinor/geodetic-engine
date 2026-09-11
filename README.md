@@ -629,12 +629,12 @@ scripts/build-projdb.sh --catalog CRS_CT.json
 scripts/build-projdb.sh --source georepository --output /tmp/proj.db
 
 # Add a source to a database an earlier run already built.
-scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --extend
+scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --append
 ```
 
 The script stages the complete source chain, including grid patches, and
-replaces the output only after every step succeeds. Without `--extend` it starts
-from the base database; with `--extend` it stages the existing output. A dry run
+replaces the output only after every step succeeds. Without `--append` it starts
+from the base database; with `--append` it stages the existing output. A dry run
 validates that same chain without publishing. Run it with `--help` for options.
 
 A few consequences worth knowing:
