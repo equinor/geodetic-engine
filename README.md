@@ -138,6 +138,23 @@ uv run python -c "import pyproj; print(pyproj.proj_version_str, pyproj.datadir.g
 # 9.8.1 /usr/local/share/proj
 ```
 
+### Running the tests
+
+```bash
+# The usual run: everything except the exhaustive dataset sweep.
+uv run pytest
+
+# Everything, including that sweep, across all logical cores.
+scripts/run_all_tests.sh
+```
+
+`pyproject.toml` deselects the `dataset` marker by default, so an ordinary run
+collects about 1,300 tests and the full sweep of `tests/testdataset` collects
+about 14,500. The sweep is worth running before a release, or after changing
+operation selection; it takes minutes rather than seconds, which is why it is
+opt-in. `scripts/run_all_tests.sh` forwards its arguments to pytest, so a subset
+can still be picked out of it.
+
 ## Building a custom PROJ database
 
 ### What this is, and when you need it
