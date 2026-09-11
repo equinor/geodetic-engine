@@ -1,0 +1,75 @@
+name: Lint, type check and test
+
+# PROJ is built from source at a pinned version, so the checks run inside the
+# devcontainer image rather than against whatever PROJ the runner happens to
+# have. The image comes from the same Dockerfile a contributor develops in, so
+# CI and a local run answer with the same PROJ and the same EPSG dataset; see
+# .devcontainer/install-proj.sh for why that matters.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Root, because the runner owns the checked-out tree and uv writes .venv into
+  # it. The virtualenv lives in the mount so the steps below share one sync.
+  DOCKER_RUN: >-
+    docker run --rm --user root
+    --volume ${{ github.workspace }}:/workspace --workdir /workspace
+    geodetic-engine-devcontainer:ci
+
+jobs:
+  lint-typecheck-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Compiling PROJ and fetching the 750 MB of grids is most of this job,
+      # and both only change when the Dockerfile or the install script does.
+      - name: Build the devcontainer image
+        uses: docker/build-push-action@v6
+        with:
+          context: .devcontainer
+          load: true
+          tags: geodetic-engine-devcontainer:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # --locked fails on a lockfile that no longer matches pyproject.toml.
+      # --frozen would instead install whatever the stale lockfile says, which
+      # is how a dependency silently disappears from the environment. The
+      # environment guards then run on their own and first: if pyproj linked
+      # against a vendored PROJ instead of the pinned one, everything below
+      # would be answered by a different EPSG dataset and the failures would
+      # read as geodesy rather than as a broken build.
+      - name: Install dependencies and check the environment
+        run: |
+          $DOCKER_RUN bash -euo pipefail -c '
+            uv sync --locked --extra dev
+            uv run --no-sync pytest tests/test_environment.py -q
+          '
+
+      # One container, and the exit status held to the end, so that a lint
+      # error cannot hide a failing test: a reviewer sees every problem at once.
+      - name: Run ruff, mypy and pytest
+        run: |
+          $DOCKER_RUN bash -euo pipefail -c '
+            status=0
+            check() { echo "::group::$1"; shift; "$@" || status=1; echo "::endgroup::"; }
+            check "ruff check"  uv run --no-sync ruff check geodetic_engine tests
+            check "ruff format" uv run --no-sync ruff format --check geodetic_engine tests
+            check "mypy"        uv run --no-sync mypy geodetic_engine
+            # -o addopts="" also runs the cross-engine sweep over
+            # tests/testdataset, which the default run excludes by marker.
+            check "pytest"      uv run --no-sync pytest -o addopts="" -n logical -q --cov=geodetic_engine --cov-fail-under=80
+            exit $status
+          '

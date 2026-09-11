@@ -1,0 +1,7 @@
+# Shell scripts are executed inside Linux containers; a CRLF checkout makes the
+# shebang resolve to "bash\r" and the script fails to run at all.
+* text=auto eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.png binary
+*.jsonl text eol=lf

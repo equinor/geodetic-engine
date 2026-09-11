@@ -98,6 +98,10 @@ ipython_config.py
 #   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
+
+# Local regression data and the tests that read it: proprietary coordinates
+# and CRS codes that must not be published alongside this package.
+tests/local_tests/
 # uv.lock
 
 # poetry
@@ -195,9 +199,9 @@ cython_debug/
 .abstra/
 
 # Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#   and can be added to the global gitignore or merged into this file. However, if you prefer,
 #   you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 # Temporary file for partial code execution
@@ -216,3 +220,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Mics
+tmp/
+
+# Local inputs that are never committed: grid files under local/grids/ (large
+# binaries that belong in proj.db's grid_alternatives, not in git) and OSDU
+# catalogues under local/catalogs/.
+local/
+
+# Local environment overrides / secrets
+.env
+
+# Local build settings; holds no secrets, but is specific to whoever ran it.
+geodetic-projdb.toml
+.github/*.md
