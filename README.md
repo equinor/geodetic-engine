@@ -426,10 +426,11 @@ configurations can be logged.
 
 ### Running it
 
-```bash
-# Run the whole build and report what it would write, keeping nothing.
-uv run geodetic-projdb build --dry-run
+Run the normal build directly when you want to produce a database. It validates
+the staged database before replacing the output; a failed build leaves any
+existing output database unchanged. A preliminary dry run is not required.
 
+```bash
 # Build, validate, and write a provenance report next to the database.
 uv run geodetic-projdb build
 
@@ -446,10 +447,17 @@ uv run geodetic-projdb validate build/proj.db --authority YourAuthority
 uv run geodetic-projdb inspect build/proj.db
 ```
 
-`--dry-run` performs the entire build, including every foreign key, collision
-and authority check, and then discards it rather than committing. It exercises
-the same code as a real build rather than approximating it, so a dry run that
-succeeds means a real build would too.
+To review changed import settings without replacing the current database, add
+`--dry-run` to `build`:
+
+```bash
+uv run geodetic-projdb build --dry-run
+```
+
+This optional run performs the full build and validation, then discards the
+staged database. It takes roughly as long as a normal build and provides **no
+warm start** for the next run. To inspect settings and credential presence
+without contacting the API, use `uv run geodetic-projdb config` instead.
 
 Or from Python:
 
@@ -516,8 +524,8 @@ same enriched `proj.db` from one of those, with no credentials and no network:
 # Everything is defaulted; the catalogue is the only thing that must be named.
 uv run geodetic-osdudb build CRS_CT.json
 
-# Choose where it goes, and run the whole build without keeping it.
-uv run geodetic-osdudb build CRS_CT.json --output build/proj.db --dry-run
+# Choose where to write the validated database.
+uv run geodetic-osdudb build CRS_CT.json --output build/proj.db
 
 # Also import the catalogue's EPSG records that this proj.db does not yet have.
 uv run geodetic-osdudb build CRS_CT.json --authority OSDU --authority EPSG
