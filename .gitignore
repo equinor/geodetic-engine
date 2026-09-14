@@ -99,9 +99,6 @@ ipython_config.py
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
 
-# Local regression data and the tests that read it: proprietary coordinates
-# and CRS codes that must not be published alongside this package.
-tests/local_tests/
 # uv.lock
 
 # poetry
@@ -225,8 +222,11 @@ __marimo__/
 tmp/
 
 # Local inputs that are never committed: grid files under local/grids/ (large
-# binaries that belong in proj.db's grid_alternatives, not in git) and OSDU
-# catalogues under local/catalogs/.
+# binaries that belong in proj.db's grid_alternatives, not in git), OSDU
+# catalogues under local/catalogs/, and in-house regression data and
+# the tests that read it under local/tests/. Local grids in local/grids.
+# One folder, so it is easy to
+# share as a whole outside of git.
 local/
 
 # Local environment overrides / secrets
