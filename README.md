@@ -21,6 +21,45 @@ Features:
 - Extensible architecture for organization-specific geodetic definitions
 
 
+## Table of contents
+
+- [Architecture diagram](#architecture-diagram)
+- [Development environment](#development-environment)
+  - [Using the devcontainer](#using-the-devcontainer)
+  - [Reproducing it by hand](#reproducing-it-by-hand)
+  - [Running the tests](#running-the-tests)
+- [Building a custom PROJ database](#building-a-custom-proj-database)
+  - [What this is, and when you need it](#what-this-is-and-when-you-need-it)
+  - [What validation checks, and what it does not](#what-validation-checks-and-what-it-does-not)
+  - [Configuration](#configuration)
+  - [Why deprecated objects are imported by default](#why-deprecated-objects-are-imported-by-default)
+  - [Authority preference, and why it matters](#authority-preference-and-why-it-matters)
+  - [Aliases](#aliases)
+  - [Bound CRSs](#bound-crss)
+    - [Naming a bound CRS by its code](#naming-a-bound-crs-by-its-code)
+    - [Bound CRSs over a concatenated transformation](#bound-crss-over-a-concatenated-transformation)
+  - [Annotations on other authorities' objects](#annotations-on-other-authorities-objects)
+  - [Obtaining OAuth2 credentials](#obtaining-oauth2-credentials)
+  - [Handling secrets safely](#handling-secrets-safely)
+  - [Running it](#running-it)
+    - [Build and publish](#build-and-publish)
+    - [Check the resolved configuration](#check-the-resolved-configuration)
+    - [Build with an external configuration](#build-with-an-external-configuration)
+    - [Validate an existing database](#validate-an-existing-database)
+    - [Inspect a database](#inspect-a-database)
+    - [Test with a dry run](#test-with-a-dry-run)
+  - [Using the result](#using-the-result)
+  - [Provenance](#provenance)
+- [Building from an OSDU catalogue](#building-from-an-osdu-catalogue)
+  - [What OSDU states, and what has to be recovered from the WKT](#what-osdu-states-and-what-has-to-be-recovered-from-the-wkt)
+  - [Which authorities to import](#which-authorities-to-import)
+  - [Bound CRSs](#bound-crss-1)
+- [Combining both sources in one database](#combining-both-sources-in-one-database)
+  - [Patching grid filename mappings](#patching-grid-filename-mappings)
+  - [Overwriting rather than colliding](#overwriting-rather-than-colliding)
+- [Talking to a Georepository instance directly](#talking-to-a-georepository-instance-directly)
+
+
 ## Architecture diagram
 
 The system combines a coordinate-transformation API with tools for building the
@@ -328,7 +367,6 @@ transformation is requested. That is why this package treats it as satisfying
 the "a datum change must name its operation" rule rather than escaping it --
 whoever defined the CRS named the operation, and PROJ is left with exactly one
 candidate.
-
 proj.db has no bound CRS table. PROJ stores one as an ordinary `geodetic_crs`
 or `projected_crs` row whose `text_definition` holds the whole `BOUNDCRS` WKT,
 with the coordinate system and datum columns NULL, which that table's own CHECK
@@ -445,29 +483,59 @@ configurations can be logged.
 
 ### Running it
 
-Run the normal build directly when you want to produce a database. It validates
-the staged database before replacing the output; a failed build leaves any
-existing output database unchanged. A preliminary dry run is not required.
+The examples below cover the main command-line actions. The normal build
+validates the staged database before replacing the output; a failed build leaves
+any existing output database unchanged. A preliminary dry run is optional.
+
+#### Build and publish
+
+Build the database using the settings in `geodetic-projdb.toml`, validate it,
+and write a provenance report next to the output database:
 
 ```bash
-# Build, validate, and write a provenance report next to the database.
 uv run geodetic-projdb build
+```
 
-# Show the resolved settings and where each file was found.
+#### Check the resolved configuration
+
+Inspect the resolved settings and where each value came from. Credentials are
+reported only as present or missing; their values are never printed:
+
+```bash
 uv run geodetic-projdb config
+```
 
-# Build from a config file elsewhere, skipping the PROJ round-trip checks.
+#### Build with an external configuration
+
+Use a configuration file at a different path. This example explicitly skips
+the PROJ round-trip validation and should be reserved for cases where that
+trade-off is understood:
+
+```bash
 uv run geodetic-projdb build --config /etc/geodetic-projdb.toml --skip-validation
+```
 
-# Check an existing database.
+#### Validate an existing database
+
+Check the structure and imported objects in an already-built database. Replace
+`YourAuthority` with the authority configured for your build:
+
+```bash
 uv run geodetic-projdb validate build/proj.db --authority YourAuthority
+```
 
-# Summarise a database.
+#### Inspect a database
+
+Print the database and authority summary:
+
+```bash
 uv run geodetic-projdb inspect build/proj.db
 ```
 
-To review changed import settings without replacing the current database, add
-`--dry-run` to `build`:
+#### Test with a dry run
+
+Review the complete import and validation process without replacing the current
+database. The staged output is discarded:
 
 ```bash
 uv run geodetic-projdb build --dry-run
