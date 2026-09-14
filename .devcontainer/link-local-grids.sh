@@ -5,6 +5,12 @@
 # manual symlink by hand. Safe to run repeatedly, and a no-op when
 # local/grids/ is empty, which it is until someone drops a grid file in it.
 #
+# A grid linked in under its own filename still needs to be found under the
+# name the operation that uses it declares, which is often different (the
+# EPSG-registered name vs. the file PROJ's CDN ships); scripts/patch-grid-
+# alternatives.sh carries the known mappings for that, so it is run here too,
+# against the installed proj.db rather than a built one.
+#
 # Run automatically by the devcontainer on every start (see devcontainer.json)
 # so a grid file already in local/grids/ -- kept there because it is gitignored,
 # never committed -- is linked in again after a container rebuild.
@@ -64,3 +70,18 @@ for src in "${grid_files[@]}"; do
     fi
     echo "linked: $name -> $target_dir/"
 done
+
+patch_script="${REPO_ROOT}/scripts/patch-grid-alternatives.sh"
+target_db="${target_dir}/proj.db"
+if [[ ! -f "$target_db" ]]; then
+    echo "warn: $target_db not found, skipping grid_alternatives patch" >&2
+elif [[ -w "$target_db" ]]; then
+    "$patch_script" --db "$target_db" ||
+        echo "warn: grid_alternatives patch failed; linked grids may still report as missing" >&2
+elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo -n "$patch_script" --db "$target_db" ||
+        echo "warn: grid_alternatives patch failed; linked grids may still report as missing" >&2
+else
+    echo "warn: $target_db is not writable and passwordless sudo is not" \
+        "available, skipping grid_alternatives patch" >&2
+fi

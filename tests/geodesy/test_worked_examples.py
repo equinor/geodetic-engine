@@ -11,7 +11,9 @@ understood as a whole.
 from __future__ import annotations
 
 import os
+import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 
 import pyproj
@@ -38,17 +40,34 @@ def _find_build_proj_db() -> Path | None:
     return None
 
 
+def _authority_imported(build_dir: Path, authority: str) -> bool:
+    """Whether the built database holds any CRS under the given authority."""
+    with closing(
+        sqlite3.connect(f"file:{build_dir / 'proj.db'}?mode=ro", uri=True)
+    ) as connection:
+        (count,) = connection.execute(
+            "SELECT COUNT(*) FROM crs_view WHERE auth_name = ?", (authority,)
+        ).fetchone()
+    return count > 0
+
+
 @pytest.fixture
 def osdu_registered() -> Iterator[None]:
     """
     OSDU CRSs live in this repo's own built database, not the stock PROJ one,
     so it is searched first for the duration of the test and the search path
     is restored afterwards. Skips rather than fails when that database has
-    not been built yet (see ``scripts/build-projdb.sh``).
+    not been built yet, or was built without the OSDU source (see
+    ``scripts/build-projdb.sh``).
     """
     build_dir = _find_build_proj_db()
     if build_dir is None:
         pytest.skip("build/proj.db not found; run scripts/build-projdb.sh first")
+    if not _authority_imported(build_dir, "OSDU"):
+        pytest.skip(
+            "build/proj.db has no OSDU authority; run scripts/build-projdb.sh "
+            "--source osdu (or --source both) to import it"
+        )
 
     previous = pyproj.datadir.get_data_dir()
     pyproj.datadir.set_data_dir(f"{build_dir}{os.pathsep}{previous}")
