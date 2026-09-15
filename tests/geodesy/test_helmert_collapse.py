@@ -183,7 +183,7 @@ def test_a_grid_chain_is_refused() -> None:
         pytest.skip("no grid-bearing concatenated operation in this EPSG release")
 
     assert not is_collapsible(grid_chain)
-    with pytest.raises(NotCollapsibleError, match="not a plain Helmert"):
+    with pytest.raises(NotCollapsibleError, match="is not a Helmert"):
         collapse_concatenated(grid_chain)
 
 

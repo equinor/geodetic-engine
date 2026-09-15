@@ -54,11 +54,15 @@ class MissingGridError(GeodesyError):
 
 
 class MissingCoordinateEpochError(GeodesyError):
-    """A dynamic CRS was used without a coordinate epoch.
+    """A time-dependent transformation was asked for without a coordinate epoch.
 
-    Coordinates in a dynamic reference frame are meaningless without the epoch
-    they were observed at, since the ground itself moves. Assuming an epoch
-    would silently displace every result.
+    Raised when the operation actually reads the epoch: a deformation model, a
+    point motion, or a Helmert with rates of change. Omitting it there would
+    silently displace every result.
+
+    A dynamic reference frame alone is not enough. EPSG declares WGS 72 dynamic,
+    but the Helmert from it to WGS 84 gives the same coordinates at every epoch,
+    and demanding one would block valid work without preventing any error.
     """
 
 
@@ -92,7 +96,7 @@ class UnembeddableOperationError(GeodesyError):
 class NotCollapsibleError(UnembeddableOperationError):
     """A concatenated operation cannot be reduced to a single equivalent step.
 
-    Raised when the chain contains a step that is not a plain Helmert, mixes
+    Raised when the chain contains a step that is not a Helmert, mixes
     domains or conventions that do not compose, or when the composed parameters
     fail to reproduce the original chain within tolerance. Emitting the
     composed operation anyway would ship a transformation that is not the one

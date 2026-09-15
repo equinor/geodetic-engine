@@ -42,6 +42,11 @@ _WKT_FORMAT = "WKT"
 # collections answer HTTP 404 for it, so a CRS href is rewritten onto this one.
 _CRS_EXPORT_COLLECTION = "CoordRefSystem"
 
+# Lowest code a register issues for an object it defines itself, rather than one
+# it carries from EPSG. Version history entries state no DataSource, so this is
+# what separates the register's own version series from the EPSG dataset's.
+_CUSTOM_CODE_FLOOR = 40_000_000
+
 JsonObject = dict[str, Any]
 
 
@@ -388,6 +393,42 @@ class GeorepositoryClient:
             total or 0,
             page + 1,
         )
+
+    def versions(self, *, custom_authority: str | None = None) -> dict[str, str]:
+        """The newest version of each dataset the register keeps.
+
+        A register versions two things separately and reports both on its own
+        landing page: the EPSG dataset it carries, and the objects it defines
+        itself. A version history entry states no ``DataSource``, so the two
+        series are told apart by code, EPSG's running up from 1 and the
+        register's own from :data:`_CUSTOM_CODE_FLOOR`.
+
+        Only the collection summaries are read, never the detail of each entry:
+        there are hundreds of them, and a build needs this answer before it can
+        decide anything else.
+
+        Args:
+            custom_authority: Name to report the register's own series under.
+                Defaults to ``custom``, since the register does not name it.
+
+        Returns:
+            Version by dataset, such as ``{"EPSG": "12.053",
+            "Equinor": "1.103"}``. Empty when the instance exposes no version
+            history.
+        """
+        newest: dict[str, tuple[tuple[str, int], str]] = {}
+        for item in self.iter_collection("VersionHistory"):
+            version = item.get("Name")
+            if version is None:
+                continue
+            code = int(item.get("Code") or 0)
+            dataset = (
+                (custom_authority or "custom") if code >= _CUSTOM_CODE_FLOOR else "EPSG"
+            )
+            ordering = (str(item.get("RevisionDate") or ""), code)
+            if dataset not in newest or ordering > newest[dataset][0]:
+                newest[dataset] = (ordering, str(version))
+        return {dataset: version for dataset, (_, version) in sorted(newest.items())}
 
     def latest_version(self) -> str | None:
         """Return the newest Georepository version name, for provenance.

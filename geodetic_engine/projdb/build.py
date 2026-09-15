@@ -11,6 +11,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from geodetic_engine.georepository.cache import (
+    CacheMode,
+    CachingTransport,
+    ResponseCache,
+    is_newer,
+)
 from geodetic_engine.georepository.client import GeorepositoryClient
 from geodetic_engine.projdb import (
     annotate,
@@ -71,8 +77,24 @@ def build(
         12
     """
     owns_client = client is None
-    client = client or GeorepositoryClient(config.georepository)
+    cache = (
+        ResponseCache(config.cache_path())
+        if owns_client and config.cache_mode is not CacheMode.OFF
+        else None
+    )
+    if client is None:
+        client = GeorepositoryClient(
+            config.georepository,
+            transport=(
+                None
+                if cache is None
+                else CachingTransport(
+                    cache, refresh=config.cache_mode is CacheMode.REFRESH
+                )
+            ),
+        )
     try:
+        versions = _reconcile_versions(config, client, cache)
         with ProjDbWriter(config) as writer:
             authority_name = sorted(config.authorities)[0]
             context = BuildContext(
@@ -111,6 +133,10 @@ def build(
 
             report = _report(config, context, dropped)
             report.authority_preferences = preferences
+            report.register_versions = versions
+            report.source_version = _own_version(config, versions)
+            if cache is not None:
+                report.cache = cache.stats.as_dict()
             report.rows_by_table = dict(sorted(writer.inserted.items()))
             report.appended = writer.appended
             report.overwrite_rows = config.overwrite_rows
@@ -121,8 +147,58 @@ def build(
     finally:
         if owns_client:
             client.close()
+        if cache is not None:
+            cache.close()
 
     return report
+
+
+def _reconcile_versions(
+    config: ProjDbBuildConfig,
+    client: GeorepositoryClient,
+    cache: ResponseCache | None,
+) -> dict[str, str]:
+    """Read the register's versions and warn when the cache predates them.
+
+    The version history is never cached, so this is always the live answer. A
+    stale cache is reported rather than discarded: a version bump is usually a
+    handful of changed objects, and silently turning it into a twenty minute
+    refetch would be a worse surprise than a warning.
+    """
+    versions = client.versions(custom_authority=sorted(config.authorities)[0])
+    logger.info(
+        "register versions: %s",
+        ", ".join(f"{name} {version}" for name, version in versions.items()) or "none",
+    )
+    if cache is None or not versions:
+        return versions
+
+    cached = cache.versions()
+    cache.stats.versions = cached
+    stale = [
+        f"{source} {cached[source]} -> {version}"
+        for source, version in versions.items()
+        if source in cached and is_newer(version, cached[source])
+    ]
+    if stale:
+        cache.stats.stale = stale
+        logger.warning(
+            "the register has moved on since this cache was filled (%s); the "
+            "build will use the cached responses and so will not see those "
+            "changes -- rerun with --refresh-cache or --no-cache to pick them up",
+            "; ".join(stale),
+        )
+    cache.record_versions(versions)
+    return versions
+
+
+def _own_version(config: ProjDbBuildConfig, versions: dict[str, str]) -> str | None:
+    """The version of the authority being imported, for the report's summary."""
+    for authority in sorted(config.authorities):
+        for source, version in versions.items():
+            if source.casefold() == authority.casefold():
+                return version
+    return config.georepository_version
 
 
 # Object tables a superseded object may be replaced by, grouped by kind. A CRS

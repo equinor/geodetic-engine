@@ -160,4 +160,4 @@ def test_uncollapsible_chain_is_skipped_and_reported(
 
     assert not _rows(config)
     reasons = [item["reason"] for item in report.skipped]
-    assert any("not a plain Helmert" in str(reason) for reason in reasons)
+    assert any("is not a Helmert" in str(reason) for reason in reasons)

@@ -25,6 +25,7 @@ from typing import Any, Final, Protocol, runtime_checkable
 
 from dotenv import find_dotenv, load_dotenv
 
+from geodetic_engine.georepository.cache import CacheMode
 from geodetic_engine.projdb.errors import ConfigurationError, OutputWouldBeDiscarded
 from geodetic_engine.projdb.schema import BUILD_HISTORY_TABLE
 
@@ -274,6 +275,21 @@ def as_preference(raw: Any) -> AuthorityPreference:
         allowed = ", ".join(mode.value for mode in AuthorityPreference)
         raise ConfigurationError(
             f"{ENV_PREFIX}AUTHORITY_PREFERENCE must be one of {allowed}, got {raw!r}"
+        ) from exc
+
+
+def as_cache_mode(raw: Any) -> CacheMode:
+    """Coerce a cache mode name, naming the alternatives when it is wrong."""
+    if raw is None:
+        return CacheMode.USE
+    if isinstance(raw, CacheMode):
+        return raw
+    try:
+        return CacheMode(str(raw).strip().lower())
+    except ValueError as exc:
+        allowed = ", ".join(mode.value for mode in CacheMode)
+        raise ConfigurationError(
+            f"{ENV_PREFIX}CACHE must be one of {allowed}, got {raw!r}"
         ) from exc
 
 

@@ -48,6 +48,11 @@ _URN_PREFIX = "urn:ogc:def:coordinateoperation:"
 # names them consistently across the time-dependent Helmert variants.
 _TIME_DEPENDENT_PARAMETERS = ("rate of change", "parameter reference epoch")
 
+# What PROJ writes into a pipeline step that reads each coordinate's own time.
+# A '+proj=deformation +dt=' step shifts by a fixed interval instead and needs
+# no epoch, which is why the marker is the epoch rather than the operation.
+_EPOCH_READING_STEP = "t_epoch="
+
 # PROJ wraps the authority of an operation it had to derive rather than look
 # up directly. Normalising axis order re-issues an operation as
 # DERIVED_FROM(DERIVED_FROM(EPSG)):3858, and building the inverse of a named
@@ -963,24 +968,37 @@ def is_ballpark(definition: object) -> bool:
 
 
 def requires_epoch(
-    definition: object, operations: Iterable[CoordinateOperation]
+    definition: object,
+    operations: Iterable[CoordinateOperation],
+    pipeline: str | None = None,
 ) -> bool:
     """Whether the transformation consumes a coordinate epoch.
 
     A dynamic CRS on its own does not mean the epoch enters the arithmetic. It
-    does when the operation carries rates of change and a reference epoch, or
-    when it is a point motion operation, and in exactly those cases omitting
-    the epoch silently displaces the result. A plain Helmert between two frames
-    produces the same numbers whatever epoch the coordinates were observed at,
-    so demanding one there would block valid work without preventing any error.
+    does when the operation carries rates of change and a reference epoch, when
+    it is a point motion operation, or when PROJ renders a step that reads each
+    coordinate's own time, and in exactly those cases omitting the epoch
+    silently displaces the result. A plain Helmert between two frames produces
+    the same numbers whatever epoch the coordinates were observed at, so
+    demanding one there would block valid work without preventing any error.
+
+    WGS 72 is the case that makes this worth stating: EPSG declares its datum a
+    dynamic reference frame, but ``EPSG:1237`` to WGS 84 is a static seven
+    parameter Helmert, and PROJ returns identical coordinates whether it is
+    given an epoch of 1972, 2000 or none at all.
 
     Args:
         definition: PROJJSON of the operation PROJ built.
         operations: The operations being applied, for their parameters.
+        pipeline: PROJ's rendering of the transformation, when it is known.
+            Checked because a deformation model reads the epoch through a grid
+            rather than through any parameter the operation declares.
 
     Returns:
         True if a coordinate epoch is needed to get the right answer.
     """
+    if pipeline is not None and _EPOCH_READING_STEP in pipeline:
+        return True
     if any(
         node.get("type") == "PointMotionOperation"
         for node in _operation_nodes(definition)

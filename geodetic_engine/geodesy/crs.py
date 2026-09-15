@@ -30,6 +30,7 @@ from geodetic_engine.geodesy.database import (
     DatabaseIdentity,
     bound_definition,
     database_identity,
+    skip_reason,
 )
 from geodetic_engine.geodesy.errors import UnresolvableCRSError
 
@@ -283,8 +284,11 @@ def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceS
     try:
         crs = CRS.from_user_input(definition)
     except CRSError as error:
+        # A CRS the build deliberately left out is not an unknown name, and
+        # PROJ cannot tell the difference.
+        detail = skip_reason(definition) or str(error)
         raise UnresolvableCRSError(
-            f"could not resolve {definition!r} as a CRS: {error}"
+            f"could not resolve {definition!r} as a CRS: {detail}"
         ) from error
     return CoordinateReferenceSystem(_rebound(crs), definition)
 

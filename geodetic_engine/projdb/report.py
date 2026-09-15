@@ -28,6 +28,13 @@ class BuildReport:
         source: Where the definitions came from: a Georepository base URL, or
             the path of an OSDU catalogue file.
         source_version: The source's own version, when it states one.
+        register_versions: Every dataset version the source states, by data
+            source name. A register versions the authority's own objects and the
+            EPSG dataset it carries separately, and a build is only reproducible
+            against the pair.
+        cache: What the local response cache contributed, and the versions it
+            had been filled against. Empty when the cache was not used, so a
+            build served from cache is never indistinguishable from a fresh one.
         appended: Whether this build added to a database another build had
             already written, rather than to a fresh copy of the base proj.db.
             Recorded because it decides what the row counts below are counts
@@ -51,6 +58,8 @@ class BuildReport:
     appended: bool = False
     overwrite_rows: bool = False
     dry_run: bool = False
+    register_versions: dict[str, str] = field(default_factory=dict)
+    cache: dict[str, Any] = field(default_factory=dict)
     rows_by_table: dict[str, int] = field(default_factory=dict)
     imported: list[dict[str, str]] = field(default_factory=list)
     deprecated_imported: list[dict[str, str]] = field(default_factory=list)

@@ -56,9 +56,10 @@ def check(record: dict[str, Any]) -> None:
         record["source_crs"], record["target_crs"], record["operation"]
     )
     points = [to_xy(source, row) for row in record["source"]]
-    if (source.is_dynamic or target.is_dynamic) and record.get(
-        "coordinate_epoch"
-    ) is None:
+    # A dynamic frame alone does not need an epoch; only an operation that
+    # reads one does. EPSG calls WGS 72 dynamic, yet its Helmert to WGS 84
+    # gives the same coordinates at every epoch.
+    if transformation.requires_epoch and record.get("coordinate_epoch") is None:
         with pytest.raises(MissingCoordinateEpochError):
             transformation.transform(points)
         return

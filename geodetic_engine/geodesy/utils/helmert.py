@@ -323,9 +323,11 @@ def _chain(operation: CoordinateOperation) -> tuple[list[HelmertParameters], _Do
         method_code = _method_code(single)
         if values is None or method_code is None:
             raise NotCollapsibleError(
-                f"step {index} of {_label(operation)} applies "
-                f"{single.method_name!r}, which is not a plain Helmert and so "
-                "cannot be composed into a single step"
+                f"{_label(operation)} is a concatenated operation, and a bound "
+                "CRS can carry only a single transformation, so its steps have "
+                f"to compose into one Helmert; step {index} applies "
+                f"{single.method_name!r}, which is not a Helmert and so does "
+                "not compose"
             )
         domains.add(_METHODS[method_code][1])
         parameters.append(values)
@@ -365,7 +367,7 @@ def collapse_concatenated(
         composed parameters in the position vector convention.
 
     Raises:
-        NotCollapsibleError: If a step is not a plain Helmert, if the steps mix
+        NotCollapsibleError: If a step is not a Helmert, if the steps mix
             domains, if the source or target CRS cannot be read, or if the
             composed parameters do not reproduce the chain within
             ``tolerance_m``.

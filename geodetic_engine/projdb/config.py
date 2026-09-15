@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from geodetic_engine.georepository.cache import CacheMode
 from geodetic_engine.georepository.config import (
     DEFAULT_PAGE_SIZE,
     DEFAULT_SCOPE,
@@ -33,6 +34,7 @@ from geodetic_engine.projdb.settings import (
     ENV_PREFIX,
     AuthorityPreference,
     as_bool,
+    as_cache_mode,
     as_method_codes,
     as_preference,
     as_set,
@@ -89,6 +91,8 @@ _FILE_KEYS: Final = frozenset(
         "page_size",
         "request_timeout",
         "georepository_version",
+        "cache",
+        "cache_db",
     }
 )
 
@@ -136,6 +140,11 @@ class ProjDbBuildConfig:
             reported failure rather than a definition that changed underneath
             whoever was already using it.
         georepository_version: Optional Georepository version name to record.
+        cache_mode: What to do with the local cache of register responses.
+            Enabled by default, since a build is almost entirely network wait
+            and nearly every object it fetches is unchanged since the last one.
+        cache_db: Where that cache is kept. Defaults to a sidecar of
+            ``output_db``, so each built database carries its own.
         source_file: The config file the settings were read from, if any.
     """
 
@@ -153,6 +162,8 @@ class ProjDbBuildConfig:
     replace: bool = False
     overwrite_rows: bool = False
     georepository_version: str | None = None
+    cache_mode: CacheMode = CacheMode.USE
+    cache_db: Path | None = None
     source_file: Path | None = None
 
     def __post_init__(self) -> None:
@@ -167,6 +178,12 @@ class ProjDbBuildConfig:
         check_build_target(self.output_db, self.base_proj_db)
         if not self.naming_systems:
             object.__setattr__(self, "naming_systems", self.authorities)
+
+    def cache_path(self) -> Path:
+        """Where this build's response cache lives."""
+        if self.cache_db is not None:
+            return self.cache_db
+        return self.output_db.with_suffix(self.output_db.suffix + ".cache")
 
     def __repr__(self) -> str:
         """Render without secrets, so configs can be logged safely."""
@@ -316,5 +333,9 @@ def load_config(
             value("overwrite_rows", "OVERWRITE_ROWS"), default=False
         ),
         georepository_version=value("georepository_version", "GEOREP_VERSION"),
+        cache_mode=as_cache_mode(value("cache", "CACHE")),
+        cache_db=Path(cache_db)
+        if (cache_db := value("cache_db", "CACHE_DB"))
+        else None,
         source_file=resolved_file,
     )

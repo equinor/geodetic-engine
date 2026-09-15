@@ -204,3 +204,51 @@ def test_wkt_exports_are_cached(georepository_config: GeorepositoryConfig) -> No
         item = client.get_object(url)
         assert client.wkt(item) == client.wkt(item)
     assert sum("/export" in str(request) for request in fake.requests) == 1
+
+
+def _version_entry(code: int, name: str, revision: str) -> dict[str, Any]:
+    """A version history summary, which states no DataSource on any register."""
+    return {
+        "Code": code,
+        "Name": name,
+        "DataSource": None,
+        "RevisionDate": revision,
+    }
+
+
+def test_versions_separates_the_two_series_by_code(
+    georepository_config: GeorepositoryConfig,
+) -> None:
+    """EPSG versions are numbered from 1, the register's own from 40000000."""
+    fake = FakeGeorepository(
+        {
+            "VersionHistory": [
+                _version_entry(1, "1.0", "1994-06-01T00:00:00"),
+                _version_entry(426, "12.053", "2026-03-06T00:00:00"),
+                _version_entry(40000000, "1.01", "2021-12-07T00:00:00"),
+                _version_entry(40000136, "1.103", "2026-06-17T00:00:00"),
+            ]
+        }
+    )
+    with _client(georepository_config, fake) as client:
+        versions = client.versions(custom_authority="Example")
+
+    assert versions == {"EPSG": "12.053", "Example": "1.103"}
+
+
+def test_versions_names_the_custom_series_when_no_authority_is_given(
+    georepository_config: GeorepositoryConfig,
+) -> None:
+    fake = FakeGeorepository(
+        {"VersionHistory": [_version_entry(40000136, "1.103", "2026-06-17T00:00:00")]}
+    )
+    with _client(georepository_config, fake) as client:
+        assert client.versions() == {"custom": "1.103"}
+
+
+def test_versions_is_empty_without_a_version_history(
+    georepository_config: GeorepositoryConfig,
+) -> None:
+    fake = FakeGeorepository({"VersionHistory": []})
+    with _client(georepository_config, fake) as client:
+        assert client.versions() == {}

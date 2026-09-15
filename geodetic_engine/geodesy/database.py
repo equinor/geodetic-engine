@@ -19,6 +19,7 @@ which is the authority on its own database.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import sqlite3
@@ -44,6 +45,11 @@ _CRS_TABLES = (
 
 _DATABASE_NAME = "proj.db"
 _BOUND_KEYWORD = "BOUNDCRS"
+
+# Where a build of this package records what it wrote and what it left out.
+# Spelled here rather than imported from geodetic_engine.projdb, which depends
+# on this package and must not be depended on in return.
+_BUILD_HISTORY_TABLE = "geodetic_engine_build_history"
 
 type DatabaseIdentity = tuple[tuple[str, int, int, int, int, int], ...]
 _context = local()
@@ -128,6 +134,79 @@ def _definitions(identity: DatabaseIdentity) -> Mapping[tuple[str, str], str]:
     if found:
         logger.debug("%d bound CRS definitions available", len(found))
     return found
+
+
+def skip_reason(definition: str) -> str | None:
+    """Why the build left this CRS out, if that is why it cannot be resolved.
+
+    An object the register defines but PROJ cannot represent is skipped when the
+    database is built, with the reason recorded in the build history. Without
+    this, naming such a CRS gives only PROJ's "unknown name", which is true but
+    says nothing about a definition that was deliberately not written.
+
+    Args:
+        definition: What the caller named the CRS by, either its name or
+            ``"AUTH:CODE"``.
+
+    Returns:
+        A sentence naming the object and the reason, or None when the build
+        recorded no such skip.
+    """
+    return _skips(database_identity()).get(definition.strip().casefold())
+
+
+@lru_cache(maxsize=8)
+def _skips(identity: DatabaseIdentity) -> Mapping[str, str]:
+    """Skipped objects of the databases PROJ is reading, by name and by code.
+
+    Every build appends its own report, so a database written by more than one
+    source carries more than one; later reports win, being the later word on
+    what the database now holds.
+    """
+    found: dict[str, str] = {}
+    for path, *_ in identity:
+        database = Path(path)
+        if not database.is_file():
+            continue
+        try:
+            _read_skips_into(found, database)
+        except (sqlite3.Error, ValueError) as error:
+            # No build history, or an unreadable one, only means this database
+            # cannot explain itself; it must not stop a CRS from resolving.
+            logger.debug("could not read build history of %s: %s", database, error)
+        break
+    return found
+
+
+def _read_skips_into(found: dict[str, str], database: Path) -> None:
+    """Collect the skipped objects recorded in one database's build history."""
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+        if not _has_table(connection, _BUILD_HISTORY_TABLE):
+            return
+        reports = connection.execute(
+            f"SELECT report FROM {_BUILD_HISTORY_TABLE} ORDER BY sequence"
+        )
+        for (report,) in reports:
+            for entry in json.loads(report).get("skipped") or ():
+                if not isinstance(entry, dict) or not entry.get("reason"):
+                    continue
+                identifier = f"{entry.get('auth_name')}:{entry.get('code')}"
+                explanation = (
+                    f"the build that wrote this database left out {identifier} "
+                    f"because {entry['reason']}"
+                )
+                for key in (entry.get("name"), identifier):
+                    if key:
+                        found[str(key).strip().casefold()] = explanation
+
+
+def _has_table(connection: sqlite3.Connection, table: str) -> bool:
+    """Whether a table exists in this database."""
+    return bool(
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+    )
 
 
 def _read_into(found: dict[tuple[str, str], str], database: Path) -> None:

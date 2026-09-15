@@ -14,11 +14,13 @@ import sys
 from pathlib import Path
 
 from geodetic_engine.errors import GeodeticEngineError
+from geodetic_engine.georepository.cache import CacheMode
 from geodetic_engine.projdb.build import build
 from geodetic_engine.projdb.cli import inspect_database as _inspect
 from geodetic_engine.projdb.cli import run_build
 from geodetic_engine.projdb.cli import sidecar as sidecar
 from geodetic_engine.projdb.config import find_env_file, load_config
+from geodetic_engine.projdb.errors import ConfigurationError
 from geodetic_engine.projdb.validate import validate
 
 logger = logging.getLogger("geodetic_engine.projdb")
@@ -69,6 +71,30 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "replace a colliding row of this build's own authorities instead "
             "of aborting; another authority's rows are still never touched"
+        ),
+    )
+    build_cmd.add_argument(
+        "--no-cache",
+        action="store_true",
+        help=(
+            "fetch every object from the register, reading nothing from the "
+            "local response cache and writing nothing to it"
+        ),
+    )
+    build_cmd.add_argument(
+        "--refresh-cache",
+        action="store_true",
+        help=(
+            "fetch every object afresh and replace what the cache holds, so "
+            "the next build is fast again"
+        ),
+    )
+    build_cmd.add_argument(
+        "--cache-db",
+        type=Path,
+        help=(
+            "where to keep the cached register responses; defaults to a "
+            "sidecar of the output database"
         ),
     )
     build_cmd.add_argument(
@@ -164,6 +190,17 @@ def _build(args: argparse.Namespace) -> int:
         overrides["replace"] = True
     if args.overwrite_rows:
         overrides["overwrite_rows"] = True
+    if args.no_cache and args.refresh_cache:
+        raise ConfigurationError(
+            "--no-cache and --refresh-cache ask for opposite things: one "
+            "bypasses the cache, the other rebuilds it"
+        )
+    if args.no_cache:
+        overrides["cache"] = CacheMode.OFF
+    if args.refresh_cache:
+        overrides["cache"] = CacheMode.REFRESH
+    if args.cache_db is not None:
+        overrides["cache_db"] = args.cache_db
     config = load_config(config_file=args.config, **overrides)
 
     return run_build(
@@ -197,6 +234,8 @@ def _show_config(config_file: Path | None) -> dict[str, object]:
         "append": resolved.append,
         "overwrite_rows": resolved.overwrite_rows,
         "page_size": resolved.georepository.page_size,
+        "cache": resolved.cache_mode.value,
+        "cache_db": str(resolved.cache_path()),
     }
 
 

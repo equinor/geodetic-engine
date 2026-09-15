@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -338,11 +339,7 @@ class Transformation:
         self._grids = _confirm_installed(grid_usages(operations), pipeline)
         _require_grids(self._grids, self._source, self._target)
 
-        self._requires_epoch = (
-            self._source.is_dynamic
-            or self._target.is_dynamic
-            or requires_epoch(definition, operations)
-        )
+        self._requires_epoch = requires_epoch(definition, operations, pipeline.text)
         self._applied = _describe(
             self._requests,
             pipeline,
@@ -377,7 +374,9 @@ class Transformation:
     def requires_epoch(self) -> bool:
         """Whether a coordinate epoch must be supplied to transform.
 
-        True when either CRS is dynamic or the operation reads the epoch.
+        True when the operation actually reads the epoch, not merely when a
+        datum involved is a dynamic reference frame: a static Helmert out of a
+        dynamic frame gives the same answer at every epoch.
         """
         return self._requires_epoch
 
@@ -405,7 +404,8 @@ class Transformation:
                 other axes, so one height can be given once for many
                 horizontal points rather than repeated.
             coordinate_epoch: Decimal year the coordinates were observed at,
-                for example ``2010.0``. Required when either CRS is dynamic.
+                for example ``2010.0``. Required when the operation reads it,
+                which is not the same as either CRS being dynamic.
 
         Returns:
             The transformed coordinates and their provenance. Output values are
@@ -419,8 +419,8 @@ class Transformation:
                 that count is not the source CRS's declared dimension, or one
                 more (a height alongside a 2D horizontal CRS, carried through
                 unchanged).
-            MissingCoordinateEpochError: If a dynamic CRS is involved and no
-                epoch was given.
+            MissingCoordinateEpochError: If the operation reads a coordinate
+                epoch and none was given.
             CoordinateOutOfRangeError: If a latitude is outside the range the
                 source CRS's own axis unit can represent, which most often
                 means projected coordinates were passed to a geographic CRS.
@@ -928,9 +928,22 @@ def _proj_construction(
     vertical CRS to a geographic one. That is a real failure and is not hidden,
     but it reaches the caller as :class:`OperationNotAvailableError` naming both
     CRSs rather than as a bare ``ProjError`` from inside pyproj.
+
+    pyproj's warning about the best ranked candidate is dropped here. Candidates
+    are only being enumerated, most are discarded, and this package never takes
+    PROJ's ranking silently: it applies the operation the caller named, or
+    refuses the pair as ambiguous. What the chosen operation needs is reported
+    by :attr:`Transformation.grids`, and a grid that is genuinely missing raises
+    :class:`MissingGridError` naming it.
     """
     try:
-        yield
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Best transformation is not available",
+                category=UserWarning,
+            )
+            yield
     except (ProjError, CRSError, IndexError) as error:
         raise OperationNotAvailableError(
             f"PROJ cannot build a transformation from {_label(source)} to "

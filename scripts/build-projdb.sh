@@ -38,6 +38,7 @@ osdu_authorities=()
 overwrite_rows=false
 skip_validation=false
 skip_grid_patch=false
+cache_mode=""
 dry_run=false
 append_to_existing=false
 verbose=false
@@ -70,6 +71,13 @@ Options:
                           never touched either way. Off by default.
       --skip-validation   Write without checking that PROJ can read the result
                           back. Not recommended.
+      --no-cache          Fetch every object from the Georepository register
+                          instead of reusing the local response cache. The
+                          cache is used by default, which makes a rebuild far
+                          faster; use this for a full, first-hand build.
+      --refresh-cache     Fetch everything afresh and replace what the cache
+                          holds, so later builds are fast again. Use after the
+                          register reports a new version.
       --skip-grid-patch   Do not run scripts/patch-grid-alternatives.sh on the
                           result. The database is then exactly what the
                           builders produced, no more.
@@ -84,6 +92,9 @@ Examples:
 
   # Georepository only, somewhere else
   scripts/build-projdb.sh --source georepository --output /tmp/proj.db
+
+  # Ignore the response cache and fetch everything from the register
+  scripts/build-projdb.sh --source georepository --no-cache
 
   # Add OSDU to a database an earlier run already built
   scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --append
@@ -136,6 +147,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-validation)
             skip_validation=true
+            shift
+            ;;
+        --no-cache)
+            cache_mode="--no-cache"
+            shift
+            ;;
+        --refresh-cache)
+            cache_mode="--refresh-cache"
             shift
             ;;
         --skip-grid-patch)
@@ -243,6 +262,11 @@ for source in "${sources[@]}"; do
     case "$source" in
         georepository)
             [[ -n "$georepository_config" ]] && args+=(--config "$georepository_config")
+            # Only this source fetches over the network, so only it has a cache.
+            # It is addressed by its published path rather than left to default
+            # off --output, which points into staging and is discarded with it.
+            args+=(--cache-db "${published_output}.cache")
+            [[ -n "$cache_mode" ]] && args+=("$cache_mode")
             echo "==> building from the Georepository register into $output"
             "${runner[@]}" geodetic-projdb "${verbose_args[@]}" build "${args[@]}"
             ;;

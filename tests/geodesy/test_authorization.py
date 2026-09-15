@@ -33,14 +33,41 @@ def test_projection_request_does_not_authorize_a_datum_shift() -> None:
         Transformation("EPSG:4326", "EPSG:25832", operation="EPSG:16032")
 
 
-def test_dynamic_crs_requires_epoch_even_without_rates() -> None:
+def test_a_dynamic_frame_alone_does_not_require_an_epoch() -> None:
+    """ITRF2014 to ITRF2014: the frame is dynamic, the arithmetic is not."""
     transformation = Transformation("EPSG:7912", "EPSG:7789")
-    with pytest.raises(MissingCoordinateEpochError):
-        transformation.transform((10, 60, 0))
+    assert not transformation.requires_epoch
+    assert transformation.transform((10, 60, 0)).coordinates
     assert (
         transformation.transform((10, 60, 0), coordinate_epoch=2010).coordinate_epoch
         == 2010
     )
+
+
+def test_a_static_helmert_out_of_a_dynamic_frame_needs_no_epoch() -> None:
+    """EPSG declares WGS 72 dynamic, but EPSG:1237 is a plain seven parameter shift.
+
+    PROJ returns identical coordinates at every epoch, so demanding one would
+    refuse valid work without preventing any error.
+    """
+    transformation = Transformation("EPSG:4326", "EPSG:32232", operation="EPSG:1237")
+    assert not transformation.requires_epoch
+    unstated = transformation.transform((7.0, 52.0)).coordinates
+    assert (
+        unstated
+        == transformation.transform((7.0, 52.0), coordinate_epoch=2026.0).coordinates
+    )
+
+
+def test_a_time_dependent_operation_requires_an_epoch() -> None:
+    """EPSG:8366 carries rates of change, so the epoch enters the arithmetic."""
+    transformation = Transformation("EPSG:7789", "EPSG:8401", operation="EPSG:8366")
+    assert transformation.requires_epoch
+    with pytest.raises(MissingCoordinateEpochError):
+        transformation.transform((10, 60, 0))
+    early = transformation.transform((10, 60, 0), coordinate_epoch=2000.0).coordinates
+    late = transformation.transform((10, 60, 0), coordinate_epoch=2020.0).coordinates
+    assert early != late
 
 
 @pytest.mark.parametrize("epoch", [math.nan, math.inf, -math.inf])

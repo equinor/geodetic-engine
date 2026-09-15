@@ -91,6 +91,26 @@ output_db = "build/proj.db"
 # already using it.
 # overwrite_rows = false
 
+# --- Response cache ----------------------------------------------------------
+
+# A build is almost entirely network wait, and nearly every object it fetches is
+# unchanged since the last one, so responses are cached locally by default.
+#
+#   use      Serve what is cached, store what is not. The default.
+#   refresh  Fetch everything afresh and replace what is cached, so the next
+#            build is fast again. Use after the register reports a new version.
+#   off      Ignore the cache entirely. A full, first-hand build.
+#
+# The register's version history is never cached, because it is what a build
+# reads to decide whether the rest of the cache is stale. When the register has
+# moved on, the build warns and continues from cache rather than silently
+# turning a version bump into a full refetch.
+# cache = "use"
+
+# Where those responses are kept. Defaults to a sidecar of `output_db`, so each
+# built database carries its own cache.
+# cache_db = "build/proj.db.cache"
+
 # --- Advanced ---------------------------------------------------------------
 
 # Official database to start from. Defaults to the proj.db of the linked PROJ.
