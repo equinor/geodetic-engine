@@ -80,7 +80,16 @@ class CoordinateOutOfRangeError(TransformationFailedError):
     """
 
 
-class NotCollapsibleError(GeodesyError):
+class UnembeddableOperationError(GeodesyError):
+    """An operation cannot be stated in the form a bound CRS requires.
+
+    A bound CRS carries its transformation as a single ``ABRIDGEDTRANSFORMATION``
+    with no units, so an operation has to be both one step and expressed in the
+    units that form assumes before it can be embedded.
+    """
+
+
+class NotCollapsibleError(UnembeddableOperationError):
     """A concatenated operation cannot be reduced to a single equivalent step.
 
     Raised when the chain contains a step that is not a plain Helmert, mixes
@@ -88,4 +97,7 @@ class NotCollapsibleError(GeodesyError):
     fail to reproduce the original chain within tolerance. Emitting the
     composed operation anyway would ship a transformation that is not the one
     the authority defined.
+
+    A subclass of :class:`UnembeddableOperationError`, so code that catches that
+    catches this too.
     """

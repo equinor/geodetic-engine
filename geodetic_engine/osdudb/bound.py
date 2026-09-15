@@ -28,8 +28,11 @@ from pyproj import CRS
 from pyproj.crs import BoundCRS, CoordinateOperation
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.errors import NotCollapsibleError
-from geodetic_engine.geodesy.utils import collapse_concatenated
+from geodetic_engine.geodesy.errors import UnembeddableOperationError
+from geodetic_engine.geodesy.utils import (
+    collapse_concatenated,
+    scale_in_parts_per_million,
+)
 from geodetic_engine.osdudb import definition as df
 from geodetic_engine.osdudb import translate as tr
 from geodetic_engine.osdudb.catalog import BOUND_CRS, Record
@@ -136,7 +139,7 @@ def _definition(context: OsduBuildContext, record: Record) -> tuple[str, CRS]:
 
     try:
         operation = _single_step(operation)
-    except NotCollapsibleError as exc:
+    except UnembeddableOperationError as exc:
         # Logged as an error, not merely skipped: the catalogue defines a bound
         # CRS that PROJ cannot represent, which is a defect in the definition
         # rather than an object this workflow chose not to model.
@@ -198,6 +201,6 @@ def _operation(
 
 def _single_step(operation: CoordinateOperation) -> CoordinateOperation:
     """Return an operation PROJ can embed, collapsing a chain if it is one."""
-    if operation.to_json_dict().get("type") != "ConcatenatedOperation":
-        return operation
-    return collapse_concatenated(operation)
+    if operation.to_json_dict().get("type") == "ConcatenatedOperation":
+        return collapse_concatenated(operation)
+    return scale_in_parts_per_million(operation)

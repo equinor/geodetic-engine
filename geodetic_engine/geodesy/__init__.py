@@ -45,6 +45,7 @@ from geodetic_engine.geodesy.errors import (
     NotCollapsibleError,
     OperationNotAvailableError,
     TransformationFailedError,
+    UnembeddableOperationError,
     UnresolvableCRSError,
 )
 from geodetic_engine.geodesy.operation import (
@@ -85,6 +86,7 @@ __all__ = [
     "Transformation",
     "TransformationFailedError",
     "TransformationResult",
+    "UnembeddableOperationError",
     "UnresolvableCRSError",
     "available_operations",
     "transform",

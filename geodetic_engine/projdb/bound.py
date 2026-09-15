@@ -27,8 +27,11 @@ from pyproj import CRS
 from pyproj.crs import BoundCRS, CoordinateOperation
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.errors import NotCollapsibleError
-from geodetic_engine.geodesy.utils import collapse_concatenated
+from geodetic_engine.geodesy.errors import UnembeddableOperationError
+from geodetic_engine.geodesy.utils import (
+    collapse_concatenated,
+    scale_in_parts_per_million,
+)
 from geodetic_engine.projdb import translate as tr
 from geodetic_engine.projdb.context import BuildContext
 
@@ -173,7 +176,7 @@ def _definition(
 
     try:
         operation = _single_step(operation)
-    except NotCollapsibleError as exc:
+    except UnembeddableOperationError as exc:
         # Logged as an error, not merely skipped: the register defines a bound
         # CRS that PROJ cannot represent, which is a defect in the definition
         # rather than an object this workflow chose not to model.
@@ -191,9 +194,9 @@ def _definition(
 
 def _single_step(operation: CoordinateOperation) -> CoordinateOperation:
     """Return an operation PROJ can embed, collapsing a chain if it is one."""
-    if operation.to_json_dict().get("type") != "ConcatenatedOperation":
-        return operation
-    return collapse_concatenated(operation)
+    if operation.to_json_dict().get("type") == "ConcatenatedOperation":
+        return collapse_concatenated(operation)
+    return scale_in_parts_per_million(operation)
 
 
 def _crs_from_register(context: BuildContext, link: Any) -> CRS | None:
