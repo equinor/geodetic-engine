@@ -16,9 +16,20 @@
 # never committed -- is linked in again after a container rebuild.
 #
 # Usage:
-#   .devcontainer/link-local-grids.sh
+#   .devcontainer/link-local-grids.sh [--links-only]
+#
+# --links-only updates file links without patching the installed database.
+# Used by build-projdb.sh, which patches its own staged database separately.
 
 set -euo pipefail
+
+links_only=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --links-only) links_only=true; shift ;;
+        *) echo "error: unknown option $1" >&2; exit 2 ;;
+    esac
+done
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly LOCAL_GRIDS="${REPO_ROOT}/local/grids"
@@ -70,6 +81,8 @@ for src in "${grid_files[@]}"; do
     fi
     echo "linked: $name -> $target_dir/"
 done
+
+$links_only && exit 0
 
 patch_script="${REPO_ROOT}/scripts/patch-grid-alternatives.sh"
 target_db="${target_dir}/proj.db"

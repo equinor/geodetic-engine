@@ -196,6 +196,14 @@ can still be picked out of it.
 
 ## Building a custom PROJ database
 
+`scripts/build-projdb.sh` refreshes symlinks from `local/grids/` into PROJ's
+data directory before each real build. Grids added after devcontainer startup
+are therefore picked up on the next build without restarting the container.
+This step does not patch the installed database; grid-name mappings are still
+patched in the staged output unless `--skip-grid-patch` is supplied.
+`--dry-run` does not update grid links. The links refer to the local files,
+which must remain available wherever transformations run.
+
 ### What this is, and when you need it
 
 PROJ ships an official `proj.db` built from the EPSG dataset. If your

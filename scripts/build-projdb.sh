@@ -255,6 +255,11 @@ fi
 # is already there. With --append the very first one adds too.
 append=$append_to_existing
 
+if ! $dry_run; then
+    echo "==> linking local grids into PROJ's data directory"
+    bash "${REPO_ROOT}/.devcontainer/link-local-grids.sh" --links-only
+fi
+
 for source in "${sources[@]}"; do
     args=("${common_args[@]}" --output "$output")
     $append && args+=(--append)
