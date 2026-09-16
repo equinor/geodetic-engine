@@ -91,7 +91,13 @@ def _annotate(
         # database; only an annotation this authority added is new information.
         if not _owned(scope, custom) and not _owned(extent, custom):
             continue
-        context.usage.add(key, scope=tr.scope_of(scope), extent=tr.extent_of(extent))
+        owner = scope if _owned(scope, custom) else extent
+        context.usage.add(
+            key,
+            scope=tr.scope_of(scope),
+            extent=tr.extent_of(extent),
+            authority=tr.auth_name(owner),
+        )
         added += 1
 
     if added:

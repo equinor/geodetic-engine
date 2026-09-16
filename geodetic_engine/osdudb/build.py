@@ -70,7 +70,7 @@ def build(
             config=config,
             catalog=catalog,
             writer=writer,
-            usage=UsageAccumulator(authority=sorted(config.authorities)[0]),
+            usage=UsageAccumulator(),
             alias=AliasCollector(config.naming_systems),
             units=UnitResolver(writer.connection),
         )

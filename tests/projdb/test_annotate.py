@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from typing import Any
+
+import pytest
 
 from geodetic_engine.georepository.client import GeorepositoryClient
 from geodetic_engine.projdb.build import build
@@ -111,6 +114,34 @@ def test_custom_scope_is_attached_to_an_epsg_crs(config: ProjDbBuildConfig) -> N
     )
 
     assert rows == [("EPSG", str(EPSG_CRS), AUTHORITY, AUTHORITY)]
+
+
+@pytest.mark.parametrize("owned", ["scope", "extent", "both"])
+def test_multi_authority_annotation_keeps_its_custom_owner(
+    config: ProjDbBuildConfig,
+    owned: str,
+) -> None:
+    config = replace(config, authorities=frozenset({"Another", AUTHORITY}))
+    fake = _register(scope_authority=AUTHORITY)
+    if owned == "extent":
+        fake.objects[f"{API}/api/v1/Scope/{CUSTOM_SCOPE}"].update(
+            Code=EPSG_SCOPE, DataSource="EPSG"
+        )
+    if owned == "scope":
+        fake.objects[f"{API}/api/v1/Extent/{CUSTOM_EXTENT}"].update(
+            Code=EPSG_WORLD_EXTENT, DataSource="EPSG"
+        )
+    _build(config, fake)
+
+    assert _query(
+        config,
+        "SELECT auth_name, object_auth_name FROM usage "
+        "WHERE auth_name IN (?, ?) AND object_code = ?",
+        "Another",
+        AUTHORITY,
+        str(EPSG_CRS),
+    ) == [(AUTHORITY, "EPSG")]
+    assert _query(config, "PRAGMA foreign_key_check") == []
 
 
 def test_the_epsg_object_itself_is_not_rewritten(config: ProjDbBuildConfig) -> None:

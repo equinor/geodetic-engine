@@ -97,12 +97,11 @@ def build(
     try:
         versions = _reconcile_versions(config, client, cache)
         with ProjDbWriter(config) as writer:
-            authority_name = sorted(config.authorities)[0]
             context = BuildContext(
                 config=config,
                 client=client,
                 writer=writer,
-                usage=UsageAccumulator(authority=authority_name),
+                usage=UsageAccumulator(),
                 alias=AliasCollector(config.naming_systems),
             )
 

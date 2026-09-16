@@ -397,6 +397,22 @@ class TestBoundCrs:
 
 
 class TestUsageAndProvenance:
+    def test_multi_authority_build_keeps_each_objects_usage_owner(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(geographic(), projected(), authorities=frozenset({"EPSG", AUTHORITY}))
+
+        assert rows(
+            output_db,
+            "SELECT auth_name, object_table_name, scope_auth_name, extent_auth_name "
+            "FROM usage WHERE object_auth_name = ? ORDER BY object_table_name",
+            AUTHORITY,
+        ) == [
+            (AUTHORITY, "geodetic_crs", "EPSG", "EPSG"),
+            (AUTHORITY, "projected_crs", "EPSG", "EPSG"),
+        ]
+        assert rows(output_db, "PRAGMA foreign_key_check") == []
+
     def test_every_imported_crs_keeps_its_extent(
         self, run: Build, output_db: Path
     ) -> None:

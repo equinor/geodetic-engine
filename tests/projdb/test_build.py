@@ -339,6 +339,30 @@ def test_no_dangling_references(config: ProjDbBuildConfig, report) -> None:
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
+def test_multi_authority_build_keeps_each_objects_usage_owner(
+    config: ProjDbBuildConfig, fake_instance: FakeGeorepository
+) -> None:
+    config = replace(config, authorities=frozenset({"Another", AUTHORITY}))
+    with GeorepositoryClient(
+        config.georepository, transport=fake_instance.transport()
+    ) as client:
+        build(config, client=client)
+
+    with closing(sqlite3.connect(config.output_db)) as connection:
+        assert connection.execute(
+            "SELECT auth_name, object_table_name, scope_auth_name, extent_auth_name "
+            "FROM usage WHERE object_auth_name = ? "
+            "ORDER BY object_table_name, object_code",
+            (AUTHORITY,),
+        ).fetchall() == [
+            (AUTHORITY, "geodetic_crs", "EPSG", "EPSG"),
+            (AUTHORITY, "geodetic_crs", "EPSG", "EPSG"),
+            (AUTHORITY, "geodetic_datum", "EPSG", "EPSG"),
+            (AUTHORITY, "helmert_transformation", "EPSG", "EPSG"),
+        ]
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
 def test_deprecated_crs_is_flagged_and_superseded(
     config: ProjDbBuildConfig, report
 ) -> None:

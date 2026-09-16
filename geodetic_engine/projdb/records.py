@@ -67,20 +67,22 @@ class UsageAccumulator:
     nulls, but writing explicit codes keeps every usage row traceable back to
     the object that produced it.
 
-    Attributes:
-        authority: Authority the generated usage rows are written under. Scope
-            and extent rows keep the authority that defined them, which is
-            routinely another one.
+    Usage rows belong to their object unless an annotation names another owner.
+    Scope and extent rows always keep the authority that defined them.
     """
 
-    authority: str
     usages: list[dict[str, Any]] = field(default_factory=list)
     scopes: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     extents: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     _counter: int = 0
 
     def add(
-        self, key: ObjectKey, *, scope: Scope | None, extent: Extent | None
+        self,
+        key: ObjectKey,
+        *,
+        scope: Scope | None,
+        extent: Extent | None,
+        authority: str | None = None,
     ) -> None:
         """Record one usage of an object, along with its scope and extent.
 
@@ -91,6 +93,7 @@ class UsageAccumulator:
             key: The object being used.
             scope: What the object may be used for.
             extent: Where the object may be used.
+            authority: Annotation owner, defaulting to the object's authority.
         """
         if scope is None or extent is None:
             return
@@ -120,7 +123,7 @@ class UsageAccumulator:
         self._counter += 1
         self.usages.append(
             {
-                "auth_name": self.authority,
+                "auth_name": key.auth_name if authority is None else authority,
                 "code": f"{key.object_table_name}_{key.code}_{self._counter}",
                 "object_table_name": key.object_table_name,
                 "object_auth_name": key.auth_name,
