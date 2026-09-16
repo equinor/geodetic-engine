@@ -999,11 +999,23 @@ def _resolve_without_request(
     *,
     allow_any_operation: bool,
 ) -> _Pipeline:
-    """Let PROJ choose, refusing a datum change unless explicitly allowed."""
+    """Resolve conversions or bound operations, refusing unrequested datum shifts.
+
+    WKT1 and ensemble representations can give equivalent frames different
+    names. An empty request set admits a candidate only when every step is
+    a conversion (or explicitly authorized by a bound CRS).
+    """
     if _datum_names(source.crs) != _datum_names(target.crs):
         bound = _from_bound_crs(source, target)
         if bound is not None:
             return bound
+        conversion = _from_transformer_group(source, target, ())
+        if conversion is not None:
+            return _Pipeline(
+                steps=((conversion, TransformDirection.FORWARD),),
+                core=conversion,
+                route=OperationRoute.TRANSFORMER_GROUP,
+            )
         raise AmbiguousOperationError(
             f"{_label(source)} to {_label(target)} involves a datum change; "
             "every datum operation must be named explicitly. "
