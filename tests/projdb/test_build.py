@@ -398,6 +398,41 @@ def test_aliases_are_imported_for_configured_naming_systems(
     assert ("Example Geographic 2D alias",) in aliases
 
 
+@pytest.mark.parametrize("owner", ["EPSG", "UnimportedAuthority", None])
+def test_linked_datum_authority_precedes_local_code_match(
+    config: ProjDbBuildConfig, owner: str | None
+) -> None:
+    fake = FakeGeorepository(
+        {"GeodeticCoordRefSystem": [_summary("GeodeticCoordRefSystem", CURRENT_CRS)]}
+    )
+    datum_url = f"{API}/api/v1/Datum/6326"
+    detail = _geodetic_crs(CURRENT_CRS, "Linked datum CRS")
+    detail["Datum"] = {"Code": 6326, "href": datum_url}
+    detail["Usage"] = []
+    fake.add_object(f"/api/v1/GeodeticCoordRefSystem/{CURRENT_CRS}", detail)
+    fake.add_object("/api/v1/Datum/6326", {"Code": 6326, "DataSource": owner})
+
+    with GeorepositoryClient(
+        config.georepository, transport=fake.transport()
+    ) as client:
+        report = build(config, client=client)
+
+    with closing(sqlite3.connect(config.output_db)) as connection:
+        stored = connection.execute(
+            "SELECT datum_auth_name, datum_code FROM geodetic_crs "
+            "WHERE auth_name = ? AND code = ?",
+            (AUTHORITY, CURRENT_CRS),
+        ).fetchone()
+    if owner == "EPSG":
+        assert stored == ("EPSG", 6326)
+        assert report.skipped == []
+    else:
+        assert stored is None
+        assert len(report.skipped) == 1
+        assert (owner or "authority") in report.skipped[0]["reason"]
+    assert any(str(url) == datum_url for url in fake.requests)
+
+
 def test_datum_aliases_are_imported(config: ProjDbBuildConfig, report) -> None:
     """Datums were previously the one object type whose aliases were dropped."""
     with closing(

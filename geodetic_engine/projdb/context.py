@@ -209,9 +209,10 @@ class BuildContext:
         A ChildLink carries a code but usually no ``DataSource``, and the
         authority must not be assumed from that absence: a custom object
         referencing another custom object looks exactly like one referencing an
-        EPSG object. The code is therefore looked up among the custom
-        authorities and then the authorities already in the database, and only
-        the register itself is asked when that is ambiguous.
+        EPSG object. When an href is available, the register must identify its
+        authority before any local code match is accepted. Only code-only
+        references fall back to a unique match among the configured authorities
+        and EPSG.
 
         Args:
             link: The ``ChildLink`` to resolve.
@@ -233,6 +234,14 @@ class BuildContext:
             )
 
         declared = tr.auth_name(link or {})
+        if not declared and link and link.get("href"):
+            declared = tr.auth_name(self.client.resolve(link))
+            if not declared:
+                raise MissingReferencedObjectError(
+                    f"{referenced_by} references code {code}, but the linked "
+                    "object states no authority; refusing to infer it from "
+                    "a local code match"
+                )
         if declared:
             for table in candidates:
                 if (declared, code) in self.known_keys(table):
