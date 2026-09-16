@@ -11,8 +11,8 @@ untrustworthy:
    number with no usable accuracy statement.
 3. A grid the operation depends on but that is not installed is an error, named
    specifically, rather than a quiet fall back to a grid-free operation.
-4. A dynamic reference frame without a coordinate epoch is an error, because
-   the ground has moved between epochs and assuming one displaces every result.
+4. A time-dependent operation without a coordinate epoch is an error. A dynamic
+    reference frame alone does not require an epoch if the operation ignores time.
 
 Coordinate **values** are always in ``xy`` order, in and out. The CRSs' declared
 axis order is reported separately and is not changed by this; see
@@ -226,7 +226,7 @@ class Transformation:
         >>> first = tfm.transform([(10.75, 59.91)])
         >>> second = tfm.transform([(5.32, 60.39), (7.99, 58.15)])
 
-        A dynamic reference frame needs an epoch, in decimal years:
+        A time-dependent operation needs an epoch, in decimal years:
 
         >>> tfm = Transformation("EPSG:4896", "EPSG:4938", operation="EPSG:6277")
         >>> result = tfm.transform([(1137080.2487, -214618.1963, 6252133.9585)],
@@ -688,7 +688,9 @@ def transform(
             change is involved, except where a bound CRS already names it.
         allow_any_operation: Compatibility keyword with no effect on strict
             datum-operation selection or ballpark refusal.
-        coordinate_epoch: Decimal year, required when either CRS is dynamic.
+        coordinate_epoch: Decimal year the coordinates were observed at,
+            required when the selected operation reads time. A dynamic CRS
+            alone does not require an epoch.
 
     Returns:
         The transformed coordinates and their provenance.

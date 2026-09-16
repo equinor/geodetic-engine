@@ -106,19 +106,26 @@ class ResponseCache:
     the bulk of the cache and highly compressible, and the decompression cost is
     far below the request it replaces.
 
+    Args:
+        path: The persistent cache file.
+        transient: Use a fresh in-memory cache without opening the persistent file.
+
     Example:
         >>> with ResponseCache(Path("build/proj.db.cache")) as cache:  # doctest: +SKIP
         ...     cache.record_versions({"EPSG": "12.053", "Equinor": "1.103"})
     """
 
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, path: Path, *, transient: bool = False) -> None:
+        if not transient:
+            path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         self.stats = CacheStats()
         # A future thread pool over the annotation pass would share this
         # connection, so it is guarded rather than bound to its creating thread.
         self._lock = threading.Lock()
-        self._connection = sqlite3.connect(path, check_same_thread=False)
+        self._connection = sqlite3.connect(
+            ":memory:" if transient else path, check_same_thread=False
+        )
         self._connection.execute("PRAGMA journal_mode = WAL")
         self._connection.execute("PRAGMA synchronous = NORMAL")
         self._connection.executescript(_SCHEMA)

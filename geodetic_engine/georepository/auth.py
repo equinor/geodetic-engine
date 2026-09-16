@@ -97,7 +97,17 @@ class GeorepositoryCredential:
                 f"the client is granted the {self._scope!r} scope"
             )
 
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise GeorepositoryAuthError(
+                f"token endpoint {self._token_url} returned a body that is not JSON"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise GeorepositoryAuthError(
+                f"token endpoint {self._token_url} returned "
+                f"{type(payload).__name__}, expected an object"
+            )
         token = payload.get("access_token") or payload.get("token")
         if not token:
             raise GeorepositoryAuthError(

@@ -59,7 +59,8 @@ def build(
             collision check, then discard it instead of committing. Nothing is
             left on disk. This exercises the same code as a real build rather
             than approximating it, so a dry run that succeeds means a real build
-            would too.
+            would too. Responses are cached only in memory, without reading or
+            changing the persistent cache.
         skip_validation: Explicitly skip PROJ validation before publication.
             False by default; the choice is recorded in the build history.
 
@@ -78,7 +79,7 @@ def build(
     """
     owns_client = client is None
     cache = (
-        ResponseCache(config.cache_path())
+        ResponseCache(config.cache_path(), transient=dry_run)
         if owns_client and config.cache_mode is not CacheMode.OFF
         else None
     )
@@ -144,6 +145,10 @@ def build(
             common.finish_build(
                 context, report, source="projdb", skip_validation=skip_validation
             )
+            if cache is not None and (
+                config.cache_mode is CacheMode.REFRESH or not cache.stats.versions
+            ):
+                cache.record_versions(versions)
     finally:
         if owns_client:
             client.close()
@@ -170,11 +175,13 @@ def _reconcile_versions(
         "register versions: %s",
         ", ".join(f"{name} {version}" for name, version in versions.items()) or "none",
     )
-    if cache is None or not versions:
+    if cache is None:
         return versions
 
     cached = cache.versions()
     cache.stats.versions = cached
+    if config.cache_mode is CacheMode.REFRESH or not cached:
+        cache.clear()
     stale = [
         f"{source} {cached[source]} -> {version}"
         for source, version in versions.items()
@@ -182,13 +189,13 @@ def _reconcile_versions(
     ]
     if stale:
         cache.stats.stale = stale
-        logger.warning(
-            "the register has moved on since this cache was filled (%s); the "
-            "build will use the cached responses and so will not see those "
-            "changes -- rerun with --refresh-cache or --no-cache to pick them up",
-            "; ".join(stale),
-        )
-    cache.record_versions(versions)
+        if config.cache_mode is CacheMode.USE:
+            logger.warning(
+                "the register has moved on since this cache was filled (%s); the "
+                "build will use the cached responses and so will not see those "
+                "changes -- rerun with --refresh-cache or --no-cache to pick them up",
+                "; ".join(stale),
+            )
     return versions
 
 

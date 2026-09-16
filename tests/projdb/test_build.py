@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from typing import Any
 
+import httpx
 import pytest
 
+from geodetic_engine.georepository.cache import CacheMode, ResponseCache
 from geodetic_engine.georepository.client import GeorepositoryClient
+from geodetic_engine.projdb import common
 from geodetic_engine.projdb.build import build
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.validate import validate
@@ -221,6 +225,99 @@ def report(config: ProjDbBuildConfig, fake_instance: FakeGeorepository):
         config.georepository, transport=fake_instance.transport()
     )
     return build(config, client=client)
+
+
+@pytest.fixture
+def cached_instance(
+    fake_instance: FakeGeorepository, monkeypatch: pytest.MonkeyPatch
+) -> FakeGeorepository:
+    fake_instance.collections["VersionHistory"] = [
+        {"Code": 40000000, "Name": "1.103", "RevisionDate": "2026-06-17T00:00:00"}
+    ]
+    monkeypatch.setattr(httpx, "HTTPTransport", fake_instance.transport)
+    return fake_instance
+
+
+def test_stale_cache_versions_and_warnings_survive_repeated_builds(
+    config: ProjDbBuildConfig, cached_instance: FakeGeorepository, caplog
+) -> None:
+    build(config, skip_validation=True)
+    cached_instance.collections["VersionHistory"][0]["Name"] = "1.104"
+
+    for _ in range(2):
+        caplog.clear()
+        report = build(config, skip_validation=True)
+        assert report.cache["versions_when_cached"] == {AUTHORITY: "1.103"}
+        assert report.cache["stale_against"] == [f"{AUTHORITY} 1.103 -> 1.104"]
+        assert "register has moved on" in caplog.text
+        with ResponseCache(config.cache_path()) as cache:
+            assert cache.versions() == {AUTHORITY: "1.103"}
+
+
+def test_successful_refresh_updates_versions_and_removes_old_responses(
+    config: ProjDbBuildConfig, cached_instance: FakeGeorepository, caplog
+) -> None:
+    build(config, skip_validation=True)
+    with ResponseCache(config.cache_path()) as cache:
+        cache.write("https://example.test/unused", "", 200, None, b"obsolete")
+    cached_instance.collections["VersionHistory"][0]["Name"] = "1.104"
+
+    build(replace(config, cache_mode=CacheMode.REFRESH), skip_validation=True)
+
+    with ResponseCache(config.cache_path()) as cache:
+        assert cache.versions() == {AUTHORITY: "1.104"}
+        assert cache.read("https://example.test/unused", "") is None
+    report = build(config, skip_validation=True)
+    assert report.cache["versions_when_cached"] == {AUTHORITY: "1.104"}
+    assert report.cache["stale_against"] == []
+    assert "register has moved on" not in caplog.text
+
+
+@pytest.mark.parametrize("existing_cache", [False, True])
+def test_failed_build_does_not_advance_cache_versions(
+    config: ProjDbBuildConfig,
+    cached_instance: FakeGeorepository,
+    monkeypatch: pytest.MonkeyPatch,
+    existing_cache: bool,
+) -> None:
+    if existing_cache:
+        build(config, skip_validation=True)
+    cached_instance.collections["VersionHistory"][0]["Name"] = "1.104"
+
+    def fail_finish(*args, **kwargs):
+        raise RuntimeError("injected build failure")
+
+    monkeypatch.setattr(common, "finish_build", fail_finish)
+    with pytest.raises(RuntimeError, match="injected build failure"):
+        build(replace(config, cache_mode=CacheMode.REFRESH), skip_validation=True)
+
+    with ResponseCache(config.cache_path()) as cache:
+        assert cache.versions() == ({AUTHORITY: "1.103"} if existing_cache else {})
+
+
+@pytest.mark.parametrize("existing_cache", [False, True])
+@pytest.mark.parametrize("cache_mode", [CacheMode.USE, CacheMode.REFRESH])
+def test_dry_run_leaves_persistent_cache_untouched(
+    config: ProjDbBuildConfig,
+    cached_instance: FakeGeorepository,
+    existing_cache: bool,
+    cache_mode: CacheMode,
+) -> None:
+    path = config.cache_path()
+    if existing_cache:
+        build(config, skip_validation=True)
+    original = path.read_bytes() if existing_cache else None
+    original_files = set(path.parent.glob(f"{path.name}*"))
+    cached_instance.collections["VersionHistory"][0]["Name"] = "1.104"
+
+    report = build(
+        replace(config, cache_mode=cache_mode), dry_run=True, skip_validation=True
+    )
+
+    assert report.dry_run
+    assert report.cache["stored"] > 0
+    assert set(path.parent.glob(f"{path.name}*")) == original_files
+    assert (path.read_bytes() if path.exists() else None) == original
 
 
 def test_custom_objects_are_written(report, config: ProjDbBuildConfig) -> None:

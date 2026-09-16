@@ -542,8 +542,9 @@ uv run geodetic-projdb build --dry-run
 ```
 
 This optional run performs the full build and validation, then discards the
-staged database. It takes roughly as long as a normal build and provides **no
-warm start** for the next run. To inspect settings and credential presence
+staged database. Responses are fetched afresh and cached only in memory; the
+persistent response cache is neither read nor modified. This takes the full
+import time and provides **no warm start** for the next run. To inspect settings and credential presence
 without contacting the API, use `uv run geodetic-projdb config` instead.
 
 Or from Python:

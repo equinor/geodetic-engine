@@ -157,6 +157,44 @@ def test_versions_round_trip(cache: ResponseCache) -> None:
     assert cache.versions() == {"EPSG": "12.053", "Equinor": "1.103"}
 
 
+def test_transient_cache_does_not_create_files(tmp_path: Path) -> None:
+    path = tmp_path / "absent" / "proj.db.cache"
+    with ResponseCache(path, transient=True) as transient:
+        transient.write(f"{API}/Unit", "", 200, "application/json", b"fresh")
+        transient.record_versions({"Equinor": "1.104"})
+        assert transient.read(f"{API}/Unit", "") == (200, "application/json", b"fresh")
+    assert not path.parent.exists()
+
+
+@pytest.mark.parametrize("refresh", [False, True])
+def test_transient_cache_fetches_without_mutating_disk(
+    tmp_path: Path, refresh: bool
+) -> None:
+    path = tmp_path / "proj.db.cache"
+    with ResponseCache(path) as persistent:
+        persistent.write(f"{API}/Unit", "*/*", 200, "text/plain", b"cached")
+        persistent.record_versions({"Equinor": "1.103"})
+    original = path.read_bytes()
+    original_files = set(tmp_path.iterdir())
+    upstream = CountingTransport(lambda request: httpx.Response(200, text="fresh"))
+
+    with (
+        ResponseCache(path, transient=True) as transient,
+        httpx.Client(
+            transport=CachingTransport(transient, wrapped=upstream, refresh=refresh)
+        ) as client,
+    ):
+        assert transient.versions() == {}
+        assert client.get(f"{API}/Unit").text == "fresh"
+        assert client.get(f"{API}/Unit").text == "fresh"
+        client.get(f"{API}/Datum")
+        transient.record_versions({"Equinor": "1.104"})
+
+    assert len(upstream.requests) == (3 if refresh else 2)
+    assert path.read_bytes() == original
+    assert set(tmp_path.iterdir()) == original_files
+
+
 def test_clear_drops_responses_but_keeps_versions(cache: ResponseCache) -> None:
     upstream = CountingTransport(_json_ok())
     httpx.Client(transport=CachingTransport(cache, wrapped=upstream)).get(f"{API}/Unit")

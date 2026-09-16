@@ -94,6 +94,21 @@ echo "patching grid_alternatives in $db"
 backup="${db}.grid-alternatives.bak"
 cp -- "$db" "$backup"
 
+restore_on_exit() {
+    local status=$?
+    trap - EXIT
+    if [[ "$status" -ne 0 ]]; then
+        echo "restoring backup because grid_alternatives patching failed" >&2
+        if cp -- "$backup" "$db"; then
+            rm -f -- "$backup"
+        else
+            echo "error: could not restore database; backup retained at $backup" >&2
+        fi
+    fi
+    exit "$status"
+}
+trap restore_on_exit EXIT
+
 # Each row: original_grid_name | proj_grid_name | proj_grid_format |
 #           proj_method | url (or "" if none) | reason
 #
@@ -158,11 +173,9 @@ for entry in "${patches[@]}"; do
 done
 
 if [[ "$failed" -gt 0 ]]; then
-    echo "restoring backup because $failed patch(es) could not be verified" >&2
-    cp -- "$backup" "$db"
-    rm -f -- "$backup"
-    die "$failed grid_alternatives patch(es) failed; database left unchanged"
+    die "$failed grid_alternatives patch(es) could not be verified"
 fi
 
+trap - EXIT
 rm -f -- "$backup"
 echo "done: $patched patched, $skipped already present"

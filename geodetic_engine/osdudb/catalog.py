@@ -130,7 +130,7 @@ class OsduCatalog:
         cls, document: JsonObject, *, path: Path | None = None
     ) -> OsduCatalog:
         """Index an already parsed manifest."""
-        entries = document.get(REFERENCE_DATA)
+        entries = document.get(REFERENCE_DATA) if isinstance(document, dict) else None
         if not isinstance(entries, list):
             raise OsduCatalogError(
                 f"{path or 'the catalogue'} has no {REFERENCE_DATA} array; it "

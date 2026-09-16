@@ -5,12 +5,15 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
+import httpx
 import pytest
 
+from geodetic_engine.georepository.auth import GeorepositoryCredential
 from geodetic_engine.georepository.client import GeorepositoryClient
 from geodetic_engine.georepository.config import GeorepositoryConfig
 from geodetic_engine.georepository.errors import (
     GeorepositoryApiError,
+    GeorepositoryAuthError,
     GeorepositoryConfigError,
     PaginationTruncatedError,
 )
@@ -194,6 +197,23 @@ def test_http_token_endpoint_is_rejected(
 ) -> None:
     with pytest.raises(GeorepositoryConfigError, match="https"):
         replace(georepository_config, token_url="http://identity.example/token")
+
+
+@pytest.mark.parametrize("body", ["not JSON", "[]", "null", "42", '"token"'])
+def test_malformed_token_response_raises_auth_error(body: str) -> None:
+    with (
+        GeorepositoryCredential(
+            token_url="https://example.test/token",
+            client_id="test-client",
+            client_secret="test-secret",
+            scope="test-scope",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, text=body)
+            ),
+        ) as credential,
+        pytest.raises(GeorepositoryAuthError, match="token endpoint"),
+    ):
+        credential.authorization_header()
 
 
 def test_wkt_exports_are_cached(georepository_config: GeorepositoryConfig) -> None:

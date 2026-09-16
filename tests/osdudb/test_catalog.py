@@ -116,3 +116,12 @@ class TestFromFile:
     def test_a_document_without_reference_data_is_not_a_manifest(self) -> None:
         with pytest.raises(OsduCatalogError, match="not an OSDU manifest"):
             OsduCatalog.from_document({"kind": "something else"})
+
+    @pytest.mark.parametrize("body", ["[]", "null", "42", '"manifest"', "true"])
+    def test_a_non_object_root_is_not_a_manifest(
+        self, tmp_path: Path, body: str
+    ) -> None:
+        path = tmp_path / "CRS_CT.json"
+        path.write_text(body, encoding="utf-8")
+        with pytest.raises(OsduCatalogError, match="not an OSDU manifest"):
+            OsduCatalog.from_file(path)
