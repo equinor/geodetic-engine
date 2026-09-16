@@ -10,7 +10,7 @@
 #
 # When run with no arguments, local/tests is also run if it exists and holds
 # test files. That directory (like the rest of local/) is gitignored: it is
-# for Equinor-internal regression data and the tests that read it, shared
+# for local internal regression data and the tests that read it, shared
 # outside of git, so most checkouts will not have it. It runs as a separate
 # pytest invocation because it is a directory named "tests" too, and pytest
 # cannot collect two same-named directories in one run without a module name
