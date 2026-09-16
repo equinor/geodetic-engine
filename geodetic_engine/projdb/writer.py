@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import stat
 import tempfile
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -348,6 +349,10 @@ class ProjDbWriter:
     ) -> None:
         """Commit staging, optionally validate it, then publish atomically.
 
+        Existing destination permission bits are preserved. New databases keep
+        staging's private permissions (0600 on POSIX). Staging remains private
+        until validation succeeds; ownership and ACLs are not copied.
+
         Args:
             validate: Callback run against the committed staging database.
                 Any exception leaves the published database unchanged.
@@ -362,6 +367,12 @@ class ProjDbWriter:
         self.connection.close()
         self._connection = None
         with self._staging.open("rb") as stream:
+            try:
+                mode = stat.S_IMODE(self._config.output_db.stat().st_mode)
+            except FileNotFoundError:
+                pass
+            else:
+                self._staging.chmod(mode)
             os.fsync(stream.fileno())
         os.replace(self._staging, self._config.output_db)
         directory = os.open(self._config.output_db.parent, os.O_RDONLY)

@@ -299,6 +299,10 @@ if $dry_run; then
     exit 0
 fi
 
+if [[ -f "$published_output" ]]; then
+    chmod --reference="$published_output" -- "$output"
+fi
+
 for sidecar in "$output"*.report.json "$output"*.log; do
     [[ -f "$sidecar" ]] || continue
     mv -- "$sidecar" "${published_output}${sidecar#"$output"}"

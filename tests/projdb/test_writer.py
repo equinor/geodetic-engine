@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import stat
 from contextlib import closing
 from pathlib import Path
 
@@ -29,6 +31,36 @@ def test_base_database_is_never_modified(config: ProjDbBuildConfig) -> None:
         writer.commit()
     assert config.base_proj_db.stat().st_mtime_ns == before
     assert config.output_db.is_file()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX permission bits")
+@pytest.mark.parametrize("mode", [0o600, 0o640, 0o644, 0o660])
+@pytest.mark.parametrize("append", [False, True])
+def test_publication_preserves_existing_permissions(
+    config: ProjDbBuildConfig, mode: int, append: bool
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+    config.output_db.chmod(mode)
+    updated = make_config(config.base_proj_db, config.output_db, append=append)
+
+    def check_staging(database: Path) -> None:
+        assert stat.S_IMODE(database.stat().st_mode) == 0o600
+        assert stat.S_IMODE(config.output_db.stat().st_mode) == mode
+
+    with ProjDbWriter(updated) as writer:
+        writer.insert("scope", [_SCOPE_ROW])
+        writer.commit(validate=check_staging)
+
+    assert stat.S_IMODE(config.output_db.stat().st_mode) == mode
+    assert _scopes(config.output_db) == {("Example", "1")}
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX permission bits")
+def test_new_database_is_private_by_default(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+    assert stat.S_IMODE(config.output_db.stat().st_mode) == 0o600
 
 
 def test_foreign_authority_rows_are_refused(config: ProjDbBuildConfig) -> None:
@@ -92,6 +124,8 @@ def test_validation_failure_does_not_publish(config: ProjDbBuildConfig) -> None:
     with ProjDbWriter(config) as writer:
         writer.insert("scope", [_SCOPE_ROW])
         writer.commit()
+    config.output_db.chmod(0o644)
+    before_mode = stat.S_IMODE(config.output_db.stat().st_mode)
     before = config.output_db.read_bytes()
 
     def reject(database: Path) -> None:
@@ -104,6 +138,33 @@ def test_validation_failure_does_not_publish(config: ProjDbBuildConfig) -> None:
     ):
         writer.commit(validate=reject)
     assert config.output_db.read_bytes() == before
+    assert stat.S_IMODE(config.output_db.stat().st_mode) == before_mode
+
+
+def test_permission_failure_does_not_publish(
+    config: ProjDbBuildConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+    config.output_db.chmod(0o644)
+    before = config.output_db.read_bytes()
+    before_mode = stat.S_IMODE(config.output_db.stat().st_mode)
+
+    def reject_permissions(database: Path, mode: int) -> None:
+        assert database != config.output_db
+        raise PermissionError("cannot set staging permissions")
+
+    monkeypatch.setattr(Path, "chmod", reject_permissions)
+    with (
+        pytest.raises(PermissionError, match="staging permissions"),
+        ProjDbWriter(config) as writer,
+    ):
+        writer.insert("scope", [_SCOPE_ROW])
+        writer.commit()
+
+    assert config.output_db.read_bytes() == before
+    assert stat.S_IMODE(config.output_db.stat().st_mode) == before_mode
+    assert not list(config.output_db.parent.glob("*.staging"))
 
 
 def test_existing_keys_reads_the_base_database(config: ProjDbBuildConfig) -> None:

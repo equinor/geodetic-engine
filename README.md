@@ -593,6 +593,12 @@ metadata. Resolution caches distinguish database paths and generations.
 Applications changing PROJ's global search path must serialize that change
 against their own pyproj calls; validation does not change the caller's context.
 
+Database publication preserves an existing output file's permission bits for
+rebuilds and appends, including the combined-build script. New output databases
+are private by default (`0600` on POSIX); explicitly grant access when sharing
+them with another account. Staging stays private during validation. Ownership
+and ACLs are not copied to the replacement file.
+
 Operation metadata includes `execution_direction`, relative to the raw
 operation definition, not the registry entry. A chained operation executed in
 reverse retains its forward definition with `execution_direction="INVERSE"`.
