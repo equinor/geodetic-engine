@@ -149,7 +149,7 @@ class TestAliases:
         ("alias_type_id", "expected"),
         [
             ("ns:reference-data--AliasNameType:EPSGname:", "EPSGname"),
-            ("ns:reference-data--AliasNameType:Equinor:", "Equinor"),
+            ("ns:reference-data--AliasNameType:Example:", "Example"),
             ("nonsense", ""),
             (None, ""),
         ],

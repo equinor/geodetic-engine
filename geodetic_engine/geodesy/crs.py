@@ -303,9 +303,9 @@ def _rebound(crs: CRS) -> CRS:
     carries. See :mod:`geodetic_engine.geodesy.database`.
 
     The code is tried first, then the name. A bound CRS over another authority's
-    base comes back identifying itself as that base -- ``Equinor:2100152`` says
-    it is ``EPSG:26703`` -- so its own code cannot be recovered from it, and the
-    name is the only thing that survives the unwrapping.
+    base comes back identifying itself as that base, so its own code cannot
+    be recovered from it, and the name is the only thing that survives the
+    unwrapping.
     """
     if crs.is_bound:
         return crs

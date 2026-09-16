@@ -413,7 +413,7 @@ class GeorepositoryClient:
 
         Returns:
             Version by dataset, such as ``{"EPSG": "12.053",
-            "Equinor": "1.103"}``. Empty when the instance exposes no version
+            "Example": "1.103"}``. Empty when the instance exposes no version
             history.
         """
         newest: dict[str, tuple[tuple[str, int], str]] = {}

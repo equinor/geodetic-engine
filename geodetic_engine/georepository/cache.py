@@ -112,7 +112,7 @@ class ResponseCache:
 
     Example:
         >>> with ResponseCache(Path("build/proj.db.cache")) as cache:  # doctest: +SKIP
-        ...     cache.record_versions({"EPSG": "12.053", "Equinor": "1.103"})
+        ...     cache.record_versions({"EPSG": "12.053", "Example": "1.103"})
     """
 
     def __init__(self, path: Path, *, transient: bool = False) -> None:

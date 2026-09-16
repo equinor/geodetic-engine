@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pyproj
 import pytest
+from pyproj.crs import BoundCRS, CoordinateOperation
 
 from geodetic_engine.geodesy import (
     AmbiguousOperationError,
@@ -138,25 +139,29 @@ def test_1_2_an_unregistered_chain_names_every_operation_it_applies(
         assert candidate.name == " + ".join(step.name for step in candidate.steps)
 
 
-def test_1_2_a_transformed_result_names_every_operation_it_applied(
-    osdu_registered: None,
-) -> None:
+def test_1_2_a_transformed_result_names_every_operation_it_applied() -> None:
     """The applied operation must not claim one step's code either.
 
     The same understatement as the candidate case, on the result side: with a
     bound CRS on each side and nothing named by the caller, the source's own
     declared shift identifies the pipeline but a second shift is applied
-    alongside it. Reporting EPSG:1613 here would describe half the
-    transformation, and its WKT would look complete while computing something
-    about 1.4 m away.
+    alongside it. Reporting EPSG:1613 here would describe only half the
+    transformation.
     """
-    result = Transformation("OSDU:4230024", "Equinor:1100177").transform(10, 60)
+    source_operation = CoordinateOperation.from_authority("EPSG", 1613)
+    target_operation = CoordinateOperation.from_authority("EPSG", 1146)
+    hub = pyproj.CRS(4326)
+    source = BoundCRS(pyproj.CRS(4230), hub, source_operation)
+    target = BoundCRS(pyproj.CRS(4231), hub, target_operation)
+    result = Transformation(source, target).transform(10, 60)
     applied = result.operation
 
     assert applied.authority_code is None
     assert applied.method_name is None
-    assert applied.name == ("ED50 to WGS 84 (24) + Inverse of ST_ETRS89_WGS84_T3000034")
-    assert {"ED50 to WGS 84 (24)", "Inverse of ST_ETRS89_WGS84_T3000034"} <= set(
+    assert applied.name == (
+        f"{source_operation.name} + Inverse of {target_operation.name}"
+    )
+    assert {source_operation.name, f"Inverse of {target_operation.name}"} <= set(
         applied.steps
     )
     # Both Helmerts really are applied, and the second one inverted.
@@ -325,7 +330,7 @@ def test_an_operation_authority_keeps_the_spelling_proj_registered_it_under() ->
     """A custom authority must not be uppercased on its way to PROJ.
 
     PROJ matches authority names case-sensitively, so rewriting a request for
-    ``Equinor:3000034`` as ``EQUINOR::3000034`` makes the URN unresolvable and
+    ``Example:3000034`` as ``EXAMPLE::3000034`` makes the URN unresolvable and
     every operation published by an authority whose registered name is not
     uppercase unreachable. Known authorities resolve to the spelling proj.db
     stores; an unknown one is left exactly as the caller wrote it.

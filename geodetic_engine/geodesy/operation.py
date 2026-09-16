@@ -1046,8 +1046,8 @@ def _canonical_authority(authority: str, identity: DatabaseIdentity) -> str:
     """Spell an authority the way the PROJ database does.
 
     PROJ matches authority names case-sensitively, so a request written as
-    ``"EQUINOR:3000034"`` or ``"equinor:3000034"`` has to be resolved against
-    the spelling ``proj.db`` actually stores (``"Equinor"``) before it can be
+    ``"EXAMPLE:3000034"`` or ``"example:3000034"`` has to be resolved against
+    the spelling ``proj.db`` actually stores (such as ``"Example"``) before it can be
     looked up or turned into a URN. Uppercasing instead would leave every
     authority whose registered name is not uppercase unreachable.
 
