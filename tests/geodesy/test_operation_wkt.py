@@ -7,6 +7,7 @@ it. A collapsed chain has no code, so the WKT has to come from what PROJ built.
 from __future__ import annotations
 
 import json
+import pickle
 
 import pytest
 from pyproj import CRS, Transformer
@@ -153,6 +154,39 @@ def test_an_inverted_datum_shift_refuses_to_export() -> None:
         assert candidate.to_json_dict() is None
         # The raw text stays reachable for anyone who needs it knowing the caveat.
         assert candidate.projjson
+
+
+@pytest.mark.parametrize("operation", ["EPSG:8047", "EPSG:8569"])
+@pytest.mark.parametrize("pretty", [False, True])
+def test_inverse_chained_operation_preserves_execution_direction(
+    operation: str, pretty: bool
+) -> None:
+    forward = Transformation(23031, 32631, operation=operation)
+    inverse = Transformation(32631, 23031, operation=operation)
+
+    assert str(inverse.operation.route) == "chained"
+    assert inverse.operation.to_wkt(pretty=pretty) is None
+    assert forward.operation.to_wkt(pretty=pretty) is not None
+    assert inverse.operation.name == f"Inverse of {forward.operation.name}"
+    assert inverse.operation.authority_code == operation
+    assert inverse.operation.requested == operation
+    assert inverse.operation.execution_direction.value == "INVERSE"
+    assert forward.operation.execution_direction.value == "FORWARD"
+
+    point = (500000.0, 6650000.0)
+    result = inverse.transform(point)
+    metadata = result.to_json_dict()["operation"]
+    assert metadata["execution_direction"] == "INVERSE"
+    assert metadata["definition"] == json.loads(inverse.operation.projjson)
+    assert json.loads(result.to_json())["operation"] == metadata
+    saved_operation = pickle.loads(pickle.dumps(inverse.operation))
+    assert saved_operation.execution_direction == inverse.operation.execution_direction
+    assert saved_operation.to_wkt(pretty=pretty) is None
+    assert result.pipeline is not None
+    replayed = Transformer.from_pipeline(result.pipeline).transform(*point)
+    assert replayed == pytest.approx(result.coordinates[0], abs=1e-9)
+    restored = forward.transform(result.coordinates)
+    assert restored.coordinates[0] == pytest.approx(point, abs=0.02)
 
 
 def test_an_inverted_conversion_still_exports() -> None:

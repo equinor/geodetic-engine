@@ -24,6 +24,7 @@ from typing import Any
 
 from pyproj.crs import CoordinateOperation
 from pyproj.database import get_authorities
+from pyproj.enums import TransformDirection
 from pyproj.exceptions import CRSError
 
 from geodetic_engine.geodesy.database import DatabaseIdentity, database_identity
@@ -219,6 +220,8 @@ class AppliedOperation:
         ballpark: Whether the applied operation is a ballpark approximation.
         requires_epoch: Whether the applied operation reads the coordinate epoch.
         steps: Names of the individual steps, for a concatenated operation.
+        execution_direction: Direction the raw operation definition is executed
+            in, separate from any inversions already embedded by PROJ.
     """
 
     requested: str | None
@@ -249,6 +252,15 @@ class AppliedOperation:
     which keeps the inversion explicit.
     """
 
+    execution_direction: TransformDirection = TransformDirection.FORWARD
+    """Execution direction relative to ``projjson``, not the registry entry.
+
+    A chained fallback may execute its forward core in reverse. Its raw
+    definition and step names remain as constructed, so consumers must retain
+    this direction with them. A PROJ-built inverse already describes its own
+    direction and is executed FORWARD.
+    """
+
     @property
     def authority_code(self) -> str | None:
         """``"AUTH:CODE"`` of the applied operation, or None if unidentified."""
@@ -275,6 +287,7 @@ class AppliedOperation:
             exported faithfully: either PROJ built something that is not a
             coordinate operation in its own right, or a step is applied
             inverted and WKT2 cannot say so (see :func:`has_inverted_step`).
+            Also returns None when the raw definition was executed in reverse.
             Use :attr:`TransformationResult.pipeline` in the latter case,
             which keeps the inversion explicit.
 
@@ -284,7 +297,11 @@ class AppliedOperation:
             >>> tfm.operation.to_wkt()[:19]
             'COORDINATEOPERATION'
         """
-        if not self.projjson or has_inverted_step(json.loads(self.projjson)):
+        if (
+            self.execution_direction is not TransformDirection.FORWARD
+            or not self.projjson
+            or has_inverted_step(json.loads(self.projjson))
+        ):
             return None
         try:
             operation = CoordinateOperation.from_json(self.projjson)

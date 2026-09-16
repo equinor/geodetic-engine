@@ -146,6 +146,15 @@ class _Pipeline:
         return values
 
     @property
+    def core_direction(self) -> TransformDirection:
+        """Direction in which the raw core definition is executed."""
+        return next(
+            direction
+            for transformer, direction in self.steps
+            if transformer is self.core
+        )
+
+    @property
     def definition(self) -> dict[str, Any]:
         """PROJJSON of the resolved operation."""
         try:
@@ -1419,13 +1428,16 @@ def _describe(
         name for name in operation_names(definition) if name != definition.get("name")
     )
     method = node.get("method")
+    name = str(node.get("name") or pipeline.core.description).removesuffix(
+        _VISUALIZATION_SUFFIX
+    )
+    if pipeline.core_direction is TransformDirection.INVERSE:
+        name = f"Inverse of {name}"
     return AppliedOperation(
         requested=None if not requests else " + ".join(r.text for r in requests),
         auth_name=None if identifier is None else identifier[0],
         code=None if identifier is None else identifier[1],
-        name=str(node.get("name") or pipeline.core.description).removesuffix(
-            _VISUALIZATION_SUFFIX
-        ),
+        name=name,
         method_name=(
             None
             if unnamed_chain
@@ -1439,6 +1451,7 @@ def _describe(
         requires_epoch=requires_epoch,
         steps=tuple(sorted(steps)),
         projjson=json.dumps(node),
+        execution_direction=pipeline.core_direction,
     )
 
 

@@ -593,6 +593,13 @@ metadata. Resolution caches distinguish database paths and generations.
 Applications changing PROJ's global search path must serialize that change
 against their own pyproj calls; validation does not change the caller's context.
 
+Operation metadata includes `execution_direction`, relative to the raw
+operation definition, not the registry entry. A chained operation executed in
+reverse retains its forward definition with `execution_direction="INVERSE"`.
+Its `operation.to_wkt()` returns `None` rather than exporting the wrong direction.
+Use the result's `pipeline` to replay the complete transformation, including
+inversions and surrounding conversions.
+
 Every build writes `<output>.report.json` recording the PROJ version, the EPSG
 dataset version, the proj.db layout version, where the definitions came from and
 at what version, every imported object, every skipped object with its reason,

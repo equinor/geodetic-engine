@@ -234,6 +234,7 @@ class TransformationResult:
                 "steps": list(self.operation.steps),
                 "ballpark": self.operation.ballpark,
                 "requires_epoch": self.operation.requires_epoch,
+                "execution_direction": self.operation.execution_direction.value,
                 "definition": json.loads(self.operation.projjson)
                 if self.operation.projjson
                 else None,
