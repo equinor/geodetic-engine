@@ -553,6 +553,36 @@ class TestRefusals:
         assert len(report.skipped) == 1
         assert "but its WKT defines" in str(report.skipped[0]["reason"])
 
+    def test_a_projected_crs_whose_base_contradicts_its_wkt_is_skipped(
+        self, run: Build, output_db: Path
+    ) -> None:
+        report = run(geographic(), projected(BaseCRS=authority_code("EPSG", 4326)))
+
+        assert len(report.skipped) == 1
+        skipped = report.skipped[0]
+        assert skipped["table"] == "projected_crs"
+        assert skipped["code"] == "32100"
+        assert "declares base CRS EPSG:4326" in str(skipped["reason"])
+        assert "but its WKT defines OSDU:4100" in str(skipped["reason"])
+        assert (
+            rows(
+                output_db,
+                "SELECT code FROM projected_crs WHERE auth_name = ? AND code = ?",
+                AUTHORITY,
+                "32100",
+            )
+            == []
+        )
+        assert (
+            rows(
+                output_db,
+                "SELECT code FROM conversion_table WHERE auth_name = ? AND code = ?",
+                AUTHORITY,
+                "17100",
+            )
+            == []
+        )
+
     def test_a_record_without_wkt_is_skipped(self, run: Build) -> None:
         record = geographic()
         del record["data"]["OGCWellKnownText2"]

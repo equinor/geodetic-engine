@@ -122,6 +122,12 @@ def collect_projected(context: OsduBuildContext) -> None:
     for record in _candidates(context, PROJECTED_CRS, "projected_crs"):
         try:
             crs = df.parse_crs(tr.wkt(record.data), record.described)
+            _agreed(
+                record,
+                "BaseCRS",
+                df.identifier_of(crs.to_json_dict().get("base_crs")),
+                "base CRS",
+            )
             blocks = _building_blocks(context, record, crs, "geodetic_datum")
             staged = blocks.rows
             conversion = _conversion(context, record, crs, staged)
