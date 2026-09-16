@@ -1,0 +1,301 @@
+"""Points are plain lists, tuples or numpy arrays; one point is a batch of one."""
+
+from __future__ import annotations
+
+import copy
+import json
+import pickle
+
+import numpy as np
+import pytest
+
+from geodetic_engine.geodesy import CoordinateReferenceSystem, Transformation, transform
+from geodetic_engine.geodesy.transformation import _columns
+
+OSLO_XY = (10.7522, 59.9139)
+BERGEN_XY = (5.3221, 60.3913)
+
+
+def test_single_point_and_batch_agree() -> None:
+    """One point through the batch path gives the same answer as in a batch."""
+    single = transform("EPSG:4326", "EPSG:3395", [OSLO_XY])
+    batch = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+    assert single.coordinates[0] == batch.coordinates[0]
+    assert batch.count == 2
+
+
+def test_a_single_point_can_be_given_flat() -> None:
+    """(lon, lat) works directly, without wrapping it in an outer list."""
+    wrapped = transform("EPSG:4326", "EPSG:3395", [OSLO_XY])
+    flat_tuple = transform("EPSG:4326", "EPSG:3395", OSLO_XY)
+    flat_list = transform("EPSG:4326", "EPSG:3395", list(OSLO_XY))
+    flat_array = transform("EPSG:4326", "EPSG:3395", np.array(OSLO_XY))
+
+    assert flat_tuple.coordinates == wrapped.coordinates
+    assert flat_list.coordinates == wrapped.coordinates
+    assert flat_array.coordinates == wrapped.coordinates
+
+
+def test_x_y_z_can_be_given_as_separate_axes() -> None:
+    """Matches pyproj.Transformer.transform(xx, yy, zz): axes, not rows."""
+    expected = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+    lons = [OSLO_XY[0], BERGEN_XY[0]]
+    lats = [OSLO_XY[1], BERGEN_XY[1]]
+
+    by_axes = transform("EPSG:4326", "EPSG:3395", lons, lats)
+    by_keyword = transform("EPSG:4326", "EPSG:3395", x=lons, y=lats)
+    by_arrays = transform("EPSG:4326", "EPSG:3395", np.array(lons), np.array(lats))
+
+    assert by_axes.coordinates == expected.coordinates
+    assert by_keyword.coordinates == expected.coordinates
+    assert by_arrays.coordinates == expected.coordinates
+
+
+def test_a_single_point_can_be_given_as_scalar_axes() -> None:
+    """x, y as bare scalars is one point, matching flat and wrapped forms."""
+    wrapped = transform("EPSG:4326", "EPSG:3395", [OSLO_XY])
+    by_axes = transform("EPSG:4326", "EPSG:3395", *OSLO_XY)
+    assert by_axes.coordinates == wrapped.coordinates
+
+
+def test_a_scalar_z_is_broadcast_across_a_batch() -> None:
+    """One height applies to every point rather than being repeated by hand."""
+    lons = [OSLO_XY[0], BERGEN_XY[0]]
+    lats = [OSLO_XY[1], BERGEN_XY[1]]
+
+    broadcast = transform("EPSG:4326", "EPSG:3395", lons, lats, 100.0)
+    repeated = transform("EPSG:4326", "EPSG:3395", lons, lats, [100.0, 100.0])
+
+    assert broadcast.coordinates == repeated.coordinates
+
+
+def test_mismatched_axis_batch_sizes_are_rejected() -> None:
+    """x and y must hold the same number of points."""
+    with pytest.raises(ValueError, match="differing batch sizes"):
+        transform("EPSG:4326", "EPSG:3395", [10.0, 11.0], [60.0, 61.0, 62.0])
+
+
+def test_z_without_y_is_rejected() -> None:
+    """z alone is ambiguous: it cannot be told apart from a lone points batch."""
+    tfm = Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3858")
+    with pytest.raises(TypeError, match="z was given without y"):
+        tfm.transform(-144.0, None, 548.4082)
+
+
+def test_transform_accepts_a_numpy_array() -> None:
+    """A 2D numpy array of shape (n_points, n_axes) works, one row per point."""
+    rows = np.array([OSLO_XY, BERGEN_XY])
+    expected = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+    result = transform("EPSG:4326", "EPSG:3395", rows)
+
+    assert result.coordinates == expected.coordinates
+
+
+def test_points_are_stored_per_axis() -> None:
+    """Values are reshaped one list per axis, which is the shape PROJ wants."""
+    crs = CoordinateReferenceSystem.from_user_input("EPSG:4326")
+    columns = _columns(crs, [OSLO_XY, BERGEN_XY])
+    assert columns == ((10.7522, 5.3221), (59.9139, 60.3913))
+
+
+def test_wrong_number_of_values_is_rejected() -> None:
+    """A point must carry one value per axis the CRS declares, or one more."""
+    tfm = Transformation("EPSG:4326", "EPSG:3395")
+    with pytest.raises(ValueError, match="declares 2 axes"):
+        tfm.transform([(1.0,)])
+    with pytest.raises(ValueError, match="declares 2 axes"):
+        tfm.transform([(1.0, 2.0, 3.0, 4.0)])
+
+
+def test_differing_value_counts_are_rejected() -> None:
+    """Every point in a batch must carry the same number of values."""
+    tfm = Transformation("EPSG:4326", "EPSG:3395")
+    with pytest.raises(ValueError, match="differing numbers of values"):
+        tfm.transform([OSLO_XY, (5.3221, 60.3913, 10.0)])
+
+
+def test_a_lone_number_is_not_a_point() -> None:
+    """Naming the shape expected, rather than failing on iterating a float."""
+    tfm = Transformation("EPSG:4326", "EPSG:3395")
+    with pytest.raises(TypeError, match="a single number is not a point"):
+        tfm.transform(10.7522)
+
+
+def test_one_extra_value_passes_through_unchanged() -> None:
+    """A height alongside a 2D horizontal CRS is carried through, not dropped.
+
+    Matches pyproj's own convention: ``Transformer.transform(xx, yy, zz)``
+    accepts and returns the height regardless of what the CRS pair declares.
+    """
+    result = transform("EPSG:4326", "EPSG:3395", [(10.0, 60.0, 100.0)])
+    assert result.coordinates[0][2] == 100.0
+    assert result.target_axes == ("E", "N")
+
+
+def test_result_carries_its_provenance() -> None:
+    """A result answers what produced it, not just what the numbers are."""
+    result = transform(
+        "EPSG:4979", "EPSG:3855", [(-144.0, 72.0, 548.4082)], operation="EPSG:3858"
+    )
+    assert result.operation.requested == "EPSG:3858"
+    assert result.operation.authority_code == "EPSG:3858"
+    assert [grid.name for grid in result.grids] == ["us_nga_egm08_25.tif"]
+    assert result.coordinate_order == "xy"
+    assert result.pipeline is not None
+
+    rendered = result.to_json_dict()
+    assert rendered["operation"]["applied"] == "EPSG:3858"
+    assert rendered["target_axes"] == ["H"]
+    assert rendered["target_units"] == ["metre"]
+
+
+def test_to_json_matches_to_json_dict_and_can_be_compact() -> None:
+    """to_json() serialises the same fields as to_json_dict(), pretty by default."""
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY])
+
+    assert json.loads(result.to_json()) == result.to_json_dict()
+    assert "\n" in result.to_json()
+    assert "\n" not in result.to_json(pretty=False)
+
+
+def test_to_list_is_plain_python() -> None:
+    """No dependency beyond the standard library."""
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+
+    rendered = result.coordinates.to_list()
+
+    assert rendered == [list(row) for row in result.coordinates]
+    assert all(isinstance(row, list) for row in rendered)
+
+
+def test_to_numpy_matches_coordinates() -> None:
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+
+    array = result.coordinates.to_numpy()
+
+    assert array.shape == (2, 2)
+    assert array.dtype == np.float64
+    np.testing.assert_array_equal(array, np.array(result.coordinates))
+
+
+@pytest.mark.parametrize(
+    "source,target,operation,width",
+    [
+        ("EPSG:4326", "EPSG:3857", None, 2),
+        ("EPSG:4979", "EPSG:3855", "EPSG:3858", 1),
+    ],
+)
+def test_empty_numpy_export_preserves_width(
+    source: str, target: str, operation: str | None, width: int
+) -> None:
+    result = transform(source, target, [], operation=operation)
+    assert result.coordinates.to_numpy().shape == (0, width)
+
+
+def test_equal_crss_are_unhashable() -> None:
+    first = CoordinateReferenceSystem.from_user_input("EPSG:4326")
+    second = CoordinateReferenceSystem.from_user_input(first.crs.to_wkt())
+    assert first == second
+    with pytest.raises(TypeError):
+        hash(first)
+
+
+def test_serialization_preserves_operation_and_crs_definitions() -> None:
+    result = transform("EPSG:4230", "EPSG:4326", (10, 60), operation="EPSG:1133")
+    serialized = result.to_json_dict()
+    assert serialized["operation"]["ballpark"] is False
+    assert serialized["operation"]["requires_epoch"] is False
+    assert serialized["operation"]["definition"] == json.loads(
+        result.operation.projjson
+    )
+    assert (
+        CoordinateReferenceSystem.from_user_input(serialized["source_crs_wkt"])
+        == result.source_crs
+    )
+
+
+def test_to_dataframe_columns_are_named_after_target_axes() -> None:
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+
+    frame = result.coordinates.to_dataframe()
+
+    assert list(frame.columns) == list(result.target_axes)
+    assert len(frame) == 2
+
+
+def test_to_dataframe_names_the_extra_column_z_for_a_cartesian_target() -> None:
+    """A height alongside a projected (Cartesian) 2D target is named "Z"."""
+    result = transform("EPSG:4326", "EPSG:3395", [(10.0, 60.0, 100.0)])
+
+    frame = result.coordinates.to_dataframe()
+
+    assert list(frame.columns) == ["E", "N", "Z"]
+
+
+def test_to_dataframe_names_the_extra_column_h_for_a_geographic_target() -> None:
+    """A height alongside a geographic 2D target is named "h", not "Z"."""
+    result = transform("EPSG:3395", "EPSG:4326", [(597868.38, 6642681.51, 100.0)])
+
+    frame = result.coordinates.to_dataframe()
+
+    assert list(frame.columns) == ["Lon", "Lat", "h"]
+
+
+def test_to_dataframe_columns_are_in_value_order_not_declared_order() -> None:
+    """EPSG:4326 declares (Lat, Lon) but values are (lon, lat): labels follow values."""
+    projected = transform("EPSG:4326", "EPSG:3395", [OSLO_XY]).coordinates
+    result = transform("EPSG:3395", "EPSG:4326", projected)
+
+    frame = result.coordinates.to_dataframe()
+
+    assert result.target_axes == ("Lat", "Lon")
+    assert list(frame.columns) == ["Lon", "Lat"]
+    assert frame["Lon"][0] == pytest.approx(OSLO_XY[0], abs=1e-9)
+    assert frame["Lat"][0] == pytest.approx(OSLO_XY[1], abs=1e-9)
+
+
+def test_result_survives_a_pickle_round_trip() -> None:
+    """External services cache results and cross process boundaries with them."""
+    result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+
+    restored = pickle.loads(pickle.dumps(result))
+
+    assert restored.coordinates == result.coordinates
+    assert restored.coordinates.to_dataframe().columns.tolist() == (
+        result.coordinates.to_dataframe().columns.tolist()
+    )
+    assert copy.deepcopy(result.coordinates) == result.coordinates
+
+
+def test_vertical_target_returns_one_value_per_point() -> None:
+    """The result matches the target CRS's declared axis count, not PROJ's output."""
+    result = transform(
+        "EPSG:4979", "EPSG:3855", [(-144.0, 72.0, 548.4082)], operation="EPSG:3858"
+    )
+    assert result.target_crs.dimension == 1
+    assert len(result.coordinates[0]) == 1
+
+
+@pytest.mark.parametrize("point", [(100.0,), (10.0, 100.0)])
+def test_a_vertical_source_refuses_a_point_without_its_position(
+    point: tuple[float, ...],
+) -> None:
+    """A lone height would reach PROJ as a longitude, so the shape is refused.
+
+    Values go to PROJ in x, y, z order whatever the source CRS declares, so
+    fewer than three values put the height in the wrong slot. Refusing names
+    the input shape; letting it through blames the coordinates instead.
+    """
+    tfm = Transformation("EPSG:3855", "EPSG:4979", operation="EPSG:3858")
+
+    with pytest.raises(ValueError, match="is a vertical CRS"):
+        tfm.transform([point])
+
+
+def test_a_vertical_source_accepts_the_full_triple() -> None:
+    """The documented (lon, lat, h) form is what a vertical source takes."""
+    result = transform(
+        "EPSG:3855", "EPSG:4979", [(-144.0, 72.0, 20.0)], operation="EPSG:3858"
+    )
+
+    assert len(result.coordinates[0]) == 3
