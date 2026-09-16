@@ -15,11 +15,11 @@ PROJ, so they are compared with a tolerance in metres and never for equality.
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from pyproj import Geod
 
@@ -168,39 +168,99 @@ def residual_metres(
     Returns:
         The separation in metres.
     """
+    return float(_residuals(crs, [produced], [expected])[0])
+
+
+def residuals_metres(
+    crs: CoordinateReferenceSystem,
+    produced: Sequence[Sequence[float]],
+    expected: Sequence[Sequence[float]],
+) -> np.ndarray:
+    """Residuals in metres for many points, both sets in ``xy`` order.
+
+    The batch counterpart of :func:`residual_metres`, taking the order this
+    package actually produces and compares against: ``xy``, as
+    ``TransformationResult.coordinates`` gives and as the regression datasets
+    record. Reordering into each CRS's declared axis order is done here, since
+    forgetting it is silent for an east-first CRS and returns ``nan`` for a
+    lat-first one.
+
+    Args:
+        crs: The CRS both sets of points are expressed in.
+        produced: Points produced, one row per point, in ``xy`` order.
+        expected: Points expected, one row per point, in ``xy`` order.
+
+    Returns:
+        One residual per point.
+
+    Raises:
+        ValueError: If the two sets disagree on how many points or axes they
+            hold, or on the CRS's dimension.
+    """
+    permutation = list(xy_permutation(crs))
+    one, other = _points(crs, produced), _points(crs, expected)
+    declared_one, declared_other = np.empty_like(one), np.empty_like(other)
+    declared_one[:, permutation] = one
+    declared_other[:, permutation] = other
+    return _residuals(crs, declared_one, declared_other)
+
+
+def _points(crs: CoordinateReferenceSystem, values: Any) -> np.ndarray:
+    """Read points as a float array of one row per point, checking the width."""
+    points = np.asarray(values, dtype=float)
+    if points.ndim != 2 or points.shape[1] != len(crs.axes):
+        raise ValueError(
+            f"expected points of {len(crs.axes)} values for {crs!r}, "
+            f"got an array of shape {points.shape}"
+        )
+    return points
+
+
+def _residuals(
+    crs: CoordinateReferenceSystem,
+    produced: Any,
+    expected: Any,
+) -> np.ndarray:
+    """Residuals in metres for points already in the CRS's declared order.
+
+    The one implementation behind both public forms, so the single point and
+    batch answers cannot drift apart. Vectorised throughout: ``Geod.inv``
+    takes arrays, which is what makes the geodesic case affordable in bulk.
+    """
+    one, other = _points(crs, produced), _points(crs, expected)
+    if one.shape != other.shape:
+        raise ValueError(
+            f"cannot compare {one.shape[0]} produced points with {other.shape[0]} "
+            "expected ones"
+        )
+
     axes = crs.axes
     directions = [axis.direction.lower() for axis in axes]
     east = next((i for i, d in enumerate(directions) if d in _EASTINGS), None)
     north = next((i for i, d in enumerate(directions) if d in _NORTHINGS), None)
 
-    offsets: list[float] = []
+    squares = np.zeros(len(one))
     horizontal = {east, north} - {None}
 
-    if east is not None and north is not None:
-        if axes[east].unit_name.lower() in _ANGULAR:
-            geod = crs.crs.get_geod() or _FALLBACK_GEOD
-            _, _, distance = geod.inv(
-                math.degrees(produced[east] * axes[east].unit_conversion_factor),
-                math.degrees(produced[north] * axes[north].unit_conversion_factor),
-                math.degrees(expected[east] * axes[east].unit_conversion_factor),
-                math.degrees(expected[north] * axes[north].unit_conversion_factor),
-            )
-            offsets.append(distance)
-        else:
-            offsets.append(
-                math.hypot(
-                    (produced[east] - expected[east])
-                    * axes[east].unit_conversion_factor,
-                    (produced[north] - expected[north])
-                    * axes[north].unit_conversion_factor,
-                )
-            )
-
-    for index, axis in enumerate(axes):
-        if index in horizontal:
-            continue
-        offsets.append(
-            abs(produced[index] - expected[index]) * axis.unit_conversion_factor
+    if (
+        east is not None
+        and north is not None
+        and axes[east].unit_name.lower() in _ANGULAR
+    ):
+        geod = crs.crs.get_geod() or _FALLBACK_GEOD
+        _, _, distance = geod.inv(
+            np.degrees(one[:, east] * axes[east].unit_conversion_factor),
+            np.degrees(one[:, north] * axes[north].unit_conversion_factor),
+            np.degrees(other[:, east] * axes[east].unit_conversion_factor),
+            np.degrees(other[:, north] * axes[north].unit_conversion_factor),
         )
+        squares += np.asarray(distance, dtype=float) ** 2
+        remaining = (i for i in range(len(axes)) if i not in horizontal)
+    else:
+        remaining = iter(range(len(axes)))
 
-    return math.sqrt(sum(offset * offset for offset in offsets))
+    for index in remaining:
+        offset = (one[:, index] - other[:, index]) * axes[index].unit_conversion_factor
+        squares += offset**2
+
+    return np.sqrt(squares)

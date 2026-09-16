@@ -25,6 +25,7 @@ import os
 import sqlite3
 from collections.abc import Mapping
 from contextlib import closing
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from threading import local
@@ -108,11 +109,41 @@ def bound_definition(auth_name: str, code: str) -> str | None:
         >>> bound_definition("Equinor", "1100001")  # doctest: +SKIP
         'BOUNDCRS[SOURCECRS[GEOGCRS["ED50",...'
     """
-    return _definitions(database_identity()).get((auth_name.casefold(), str(code)))
+    return _definitions(database_identity()).by_code.get(
+        (auth_name.casefold(), str(code))
+    )
+
+
+def bound_definition_by_name(name: str) -> str | None:
+    """The stored ``BOUNDCRS`` WKT going by a CRS's name.
+
+    Needed because PROJ answers a bound CRS's own code with the *base* CRS,
+    which reports the base's authority: ``Equinor:2100152`` comes back
+    identifying itself as ``EPSG:26703``, so its code is no way back to the
+    definition. The name survives that unwrapping.
+
+    A name defined by more than one bound CRS is not resolved, since there
+    would be no way to tell which was meant.
+
+    Args:
+        name: The CRS name, compared case insensitively.
+
+    Returns:
+        The WKT, or None when no single bound CRS goes by that name.
+    """
+    return _definitions(database_identity()).by_name.get(name.strip().casefold())
+
+
+@dataclass(frozen=True, slots=True)
+class _BoundDefinitions:
+    """Bound CRS definitions, reachable by code and by name."""
+
+    by_code: Mapping[tuple[str, str], str]
+    by_name: Mapping[str, str]
 
 
 @lru_cache(maxsize=8)
-def _definitions(identity: DatabaseIdentity) -> Mapping[tuple[str, str], str]:
+def _definitions(identity: DatabaseIdentity) -> _BoundDefinitions:
     """Every bound CRS definition in the databases PROJ is currently reading.
 
     Read once per data directory and kept, because the alternative is a query
@@ -120,12 +151,13 @@ def _definitions(identity: DatabaseIdentity) -> Mapping[tuple[str, str], str]:
     the first database defining a code wins, exactly as PROJ resolves it.
     """
     found: dict[tuple[str, str], str] = {}
+    names: dict[str, str] = {}
     for path, *_ in identity:
         database = Path(path)
         if not database.is_file():
             continue
         try:
-            _read_into(found, database)
+            _read_into(found, names, database)
         except sqlite3.Error as error:
             # A database that cannot be read tells us nothing about bound CRSs;
             # it must not stop an ordinary CRS from resolving.
@@ -133,7 +165,7 @@ def _definitions(identity: DatabaseIdentity) -> Mapping[tuple[str, str], str]:
         break
     if found:
         logger.debug("%d bound CRS definitions available", len(found))
-    return found
+    return _BoundDefinitions(by_code=found, by_name=names)
 
 
 def skip_reason(definition: str) -> str | None:
@@ -209,19 +241,31 @@ def _has_table(connection: sqlite3.Connection, table: str) -> bool:
     )
 
 
-def _read_into(found: dict[tuple[str, str], str], database: Path) -> None:
-    """Collect the bound CRS rows of one database into ``found``."""
+def _read_into(
+    found: dict[tuple[str, str], str], names: dict[str, str], database: Path
+) -> None:
+    """Collect the bound CRS rows of one database into ``found`` and ``names``."""
+    ambiguous: set[str] = set()
     with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         for table in _CRS_TABLES:
             if not _has_text_definition(connection, table):
                 continue
             rows = connection.execute(
-                f"SELECT auth_name, code, text_definition FROM {table} "
+                f"SELECT auth_name, code, name, text_definition FROM {table} "
                 "WHERE text_definition IS NOT NULL"
             )
-            for auth_name, code, text in rows:
-                if str(text).lstrip().upper().startswith(_BOUND_KEYWORD):
-                    found.setdefault((str(auth_name).casefold(), str(code)), str(text))
+            for auth_name, code, name, text in rows:
+                if not str(text).lstrip().upper().startswith(_BOUND_KEYWORD):
+                    continue
+                found.setdefault((str(auth_name).casefold(), str(code)), str(text))
+                if not name:
+                    continue
+                key = str(name).strip().casefold()
+                if key in names and names[key] != str(text):
+                    ambiguous.add(key)
+                names.setdefault(key, str(text))
+    for key in ambiguous:
+        del names[key]
 
 
 def _has_text_definition(connection: sqlite3.Connection, table: str) -> bool:

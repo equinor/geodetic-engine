@@ -29,6 +29,7 @@ from pyproj.exceptions import CRSError
 from geodetic_engine.geodesy.database import (
     DatabaseIdentity,
     bound_definition,
+    bound_definition_by_name,
     database_identity,
     skip_reason,
 )
@@ -300,23 +301,29 @@ def _rebound(crs: CRS) -> CRS:
     keeping the binding for operation selection but not on the object. Reading
     the stored definition back gives an object that can say which operation it
     carries. See :mod:`geodetic_engine.geodesy.database`.
+
+    The code is tried first, then the name. A bound CRS over another authority's
+    base comes back identifying itself as that base -- ``Equinor:2100152`` says
+    it is ``EPSG:26703`` -- so its own code cannot be recovered from it, and the
+    name is the only thing that survives the unwrapping.
     """
     if crs.is_bound:
         return crs
     # An exact identification only: a fuzzy match could rebind a CRS onto a
     # different authority's bound definition.
     authority = crs.to_authority(min_confidence=100)
-    if authority is None:
-        return crs
-    definition = bound_definition(*authority)
+    definition = bound_definition(*authority) if authority else None
+    described = f"{authority[0]}:{authority[1]}" if authority else crs.name
+    if definition is None and crs.name:
+        definition = bound_definition_by_name(crs.name)
     if definition is None:
         return crs
     try:
         rebound = CRS.from_wkt(definition)
     except CRSError as error:
         logger.warning(
-            "%s:%s is stored as a bound CRS that could not be read back: %s",
-            *authority,
+            "%s is stored as a bound CRS that could not be read back: %s",
+            described,
             error,
         )
         return crs
