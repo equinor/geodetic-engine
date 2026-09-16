@@ -8,6 +8,7 @@ cannot embed is collapsed first, or refused and reported.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import closing
 from typing import Any
@@ -15,8 +16,10 @@ from typing import Any
 import pytest
 from pyproj import CRS
 from pyproj.crs import CoordinateOperation
+from pyproj.exceptions import CRSError
 
 from geodetic_engine.georepository.client import GeorepositoryClient
+from geodetic_engine.projdb import bound
 from geodetic_engine.projdb.build import build
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from tests.projdb.conftest import API, AUTHORITY, FakeGeorepository
@@ -147,8 +150,35 @@ def test_bound_crs_over_a_chain_is_collapsed(config: ProjDbBuildConfig) -> None:
     assert "collapsed" in transformation["name"]
 
 
+def test_invalid_bound_crs_logs_one_warning_with_reason(
+    config: ProjDbBuildConfig,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject(*args: Any, **kwargs: Any) -> None:
+        raise CRSError("invalid bound definition")
+
+    monkeypatch.setattr(bound, "BoundCRS", reject)
+    with caplog.at_level(logging.INFO):
+        report = _build(config, _register(_bound(BOUND_GEODETIC, SINGLE_STEP)))
+
+    assert not _rows(config)
+    assert len(report.skipped) == 1
+    reason = str(report.skipped[0]["reason"])
+    assert "invalid bound definition" in reason
+    messages = [
+        record
+        for record in caplog.records
+        if f"{AUTHORITY}:{BOUND_GEODETIC}" in record.getMessage()
+    ]
+    assert len(messages) == 1
+    assert messages[0].levelno == logging.WARNING
+    assert reason in messages[0].getMessage()
+
+
 def test_uncollapsible_chain_is_skipped_and_reported(
     config: ProjDbBuildConfig,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A chain that is not equivalent to one Helmert must not be guessed at."""
     try:
@@ -156,8 +186,17 @@ def test_uncollapsible_chain_is_skipped_and_reported(
     except Exception:  # pragma: no cover - depends on the EPSG release
         pytest.skip(f"EPSG:{GRID_CHAIN} is not in this EPSG release")
 
-    report = _build(config, _register(_bound(BOUND_GEODETIC, GRID_CHAIN)))
+    with caplog.at_level(logging.INFO):
+        report = _build(config, _register(_bound(BOUND_GEODETIC, GRID_CHAIN)))
 
     assert not _rows(config)
     reasons = [item["reason"] for item in report.skipped]
     assert any("is not a Helmert" in str(reason) for reason in reasons)
+    messages = [
+        record
+        for record in caplog.records
+        if f"{AUTHORITY}:{BOUND_GEODETIC}" in record.getMessage()
+    ]
+    assert len(messages) == 1
+    assert messages[0].levelno == logging.WARNING
+    assert str(reasons[0]) in messages[0].getMessage()

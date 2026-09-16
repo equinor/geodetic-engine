@@ -177,18 +177,15 @@ def _definition(
     try:
         operation = _single_step(operation)
     except UnembeddableOperationError as exc:
-        # Logged as an error, not merely skipped: the register defines a bound
-        # CRS that PROJ cannot represent, which is a defect in the definition
-        # rather than an object this workflow chose not to model.
-        logger.error("%s cannot be imported: %s", described, exc)
         context.skip(table, auth, code, obj, str(exc))
         return None
 
     try:
         return str(BoundCRS(base, hub, operation).to_wkt()), base
     except CRSError as exc:
-        logger.error("%s could not be assembled as a BOUNDCRS: %s", described, exc)
-        context.skip(table, auth, code, obj, f"{described} is not a valid BOUNDCRS")
+        context.skip(
+            table, auth, code, obj, f"{described} is not a valid BOUNDCRS: {exc}"
+        )
         return None
 
 

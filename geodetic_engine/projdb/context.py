@@ -127,7 +127,7 @@ class BuildContext:
                 table, auth, str(code), tr.text(obj, "Name"), reason, deprecated
             )
         )
-        logger.info(
+        logger.warning(
             "skipped %s %s:%s%s (%s)",
             table,
             auth,
