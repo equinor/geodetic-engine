@@ -234,4 +234,5 @@ local/
 
 # Local build settings; holds no secrets, but is specific to whoever ran it.
 geodetic-projdb.toml
+geodetic-osdudb.toml
 .github/*.md
