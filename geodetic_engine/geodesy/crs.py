@@ -33,7 +33,10 @@ from geodetic_engine.geodesy.database import (
     database_identity,
     skip_reason,
 )
-from geodetic_engine.geodesy.errors import UnresolvableCRSError
+from geodetic_engine.geodesy.errors import (
+    UnembeddableOperationError,
+    UnresolvableCRSError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +128,8 @@ class CoordinateReferenceSystem:
 
         Args:
             value: An authority code such as ``"EPSG:4326"`` or ``4326``, a WKT
-                string, a PROJ string, a PROJJSON string, or an existing
+                string, a PROJ string, a PROJJSON string, an OSDU
+                ``persistableReference`` payload, or an existing
                 :class:`pyproj.CRS` or :class:`CoordinateReferenceSystem`.
 
         Returns:
@@ -143,6 +147,33 @@ class CoordinateReferenceSystem:
         if isinstance(value, CRS):
             return cls(_rebound(value), value.srs)
         return _cached(_normalize(value), database_identity())
+
+    @classmethod
+    def from_persistable_reference(cls, payload: str) -> CoordinateReferenceSystem:
+        """Resolve a CRS from an OSDU ``persistableReference`` payload.
+
+        The payload carries its own definition, so the CRS is built from the
+        ESRI WKT it states rather than from the authority code beside it. A
+        payload that binds a transformation resolves to a bound CRS, which
+        settles the datum shift that would otherwise be a choice. See
+        :mod:`geodetic_engine.persistablereference`.
+
+        :meth:`from_user_input` accepts these too, so a payload can be passed
+        anywhere a CRS can. This is for when a caller wants the input read as a
+        reference and nothing else.
+
+        Args:
+            payload: The payload, plain or URL-encoded JSON.
+
+        Returns:
+            The resolved CRS.
+
+        Raises:
+            UnresolvableCRSError: If the payload is not a readable
+                persistableReference, states something other than a CRS, or
+                states a definition this package will not translate.
+        """
+        return _cached_reference(_normalize(payload), database_identity())
 
     @property
     def crs(self) -> CRS:
@@ -282,6 +313,13 @@ def _normalize(value: Any) -> str:
 @lru_cache(maxsize=256)
 def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceSystem:
     """Resolve and cache a CRS by its textual definition."""
+    # Imported where it is used rather than at module scope: reading a
+    # reference builds bound CRSs through geodesy.utils, which reads this
+    # module.
+    from geodetic_engine.persistablereference import looks_like_reference
+
+    if looks_like_reference(definition):
+        return _cached_reference(definition, identity)
     try:
         crs = CRS.from_user_input(definition)
     except CRSError as error:
@@ -292,6 +330,43 @@ def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceS
             f"could not resolve {definition!r} as a CRS: {detail}"
         ) from error
     return CoordinateReferenceSystem(_rebound(crs), definition)
+
+
+@lru_cache(maxsize=256)
+def _cached_reference(
+    definition: str, identity: DatabaseIdentity
+) -> CoordinateReferenceSystem:
+    """Resolve only persistableReferences, shared by both public constructors."""
+    return CoordinateReferenceSystem(_reference(definition), definition)
+
+
+def _reference(definition: str) -> CRS:
+    """Read an OSDU persistableReference payload as a CRS.
+
+    Raises:
+        UnresolvableCRSError: If the payload cannot be read, or states
+            something other than a CRS. Every way this fails is a statement
+            about the input rather than about PROJ, so all of them are reported
+            as one failure to resolve.
+    """
+    from geodetic_engine.persistablereference import (
+        CrsReference,
+        PersistableReferenceError,
+        parse_persistable_reference,
+    )
+
+    try:
+        reference = parse_persistable_reference(definition)
+        if not isinstance(reference, CrsReference):
+            stated = reference.kind.name.lower().replace("_", " ")
+            raise UnresolvableCRSError(
+                f"the persistableReference given states a {stated}, not a CRS"
+            )
+        return reference.to_crs()
+    except (PersistableReferenceError, UnembeddableOperationError) as error:
+        raise UnresolvableCRSError(
+            f"could not resolve a persistableReference as a CRS: {error}"
+        ) from error
 
 
 def _rebound(crs: CRS) -> CRS:

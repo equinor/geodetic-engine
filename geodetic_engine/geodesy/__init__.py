@@ -56,6 +56,7 @@ from geodetic_engine.geodesy.operation import (
     OperationRequest,
     OperationRoute,
     OperationStep,
+    StatedOperation,
 )
 from geodetic_engine.geodesy.result import Coordinates, TransformationResult
 from geodetic_engine.geodesy.transformation import (
@@ -83,6 +84,7 @@ __all__ = [
     "OperationRequest",
     "OperationRoute",
     "OperationStep",
+    "StatedOperation",
     "Transformation",
     "TransformationFailedError",
     "TransformationResult",
