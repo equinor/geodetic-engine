@@ -11,8 +11,8 @@ vocabulary is turned into the other.
 Everything here is a static table rather than a lookup in a vendor database.
 The set is small, it changes at the pace of the EPSG register, and a table that
 is wrong is caught by
-``tests/persistablereference/test_methods.py::test_codes_match_the_database``,
-which checks every code against the transformations PROJ itself ships.
+the method and parameter code tests in ``tests/persistablereference/test_methods.py``,
+which check every code against the transformations PROJ itself ships.
 
 A method that is absent is refused by name, with the reason, rather than
 translated into whichever EPSG method takes a similar list of parameters.

@@ -30,6 +30,7 @@ import json
 from pyproj import CRS
 from pyproj.crs import CoordinateOperation
 from pyproj.enums import WktVersion
+from pyproj.exceptions import CRSError
 
 from geodetic_engine.persistablereference import esriwkt, methods
 from geodetic_engine.persistablereference.envelope import (
@@ -257,7 +258,19 @@ def _geographic(definition: JsonObject, end: str, described: str) -> Node:
 
 def _esri_wkt(crs: CRS) -> str:
     """Ask PROJ for a CRS in ESRI's dialect."""
-    written = crs.to_wkt(version=WktVersion.WKT1_ESRI)
+    for component in crs.sub_crs_list or [crs]:
+        datum = component.datum
+        if datum is not None and datum.type_name.startswith("Dynamic"):
+            raise UnsupportedReferenceError(
+                f"{_described(crs.name)} has a dynamic datum; ESRI WKT cannot "
+                "preserve its frame reference epoch"
+            )
+    try:
+        written = crs.to_wkt(version=WktVersion.WKT1_ESRI)
+    except CRSError as error:
+        raise MalformedReferenceError(
+            f"{_described(crs.name)} is a CRS PROJ will not write as ESRI WKT: {error}"
+        ) from error
     if not written:
         raise MalformedReferenceError(
             f"{_described(crs.name)} is a CRS PROJ will not write as ESRI WKT"
@@ -285,7 +298,7 @@ def _identifier(definition: JsonObject) -> Node | None:
     authority, code = identifier.get("authority"), identifier.get("code")
     if not isinstance(authority, str) or code is None:
         return None
-    return Node("AUTHORITY", (authority, int(code)))
+    return Node("AUTHORITY", (authority, code if isinstance(code, int) else str(code)))
 
 
 def _described(name: str) -> str:

@@ -12,7 +12,9 @@ from geodetic_engine.persistablereference import (
     AuthorityCode,
     CrsReference,
     Kind,
+    MalformedReferenceError,
     UnsupportedMethodError,
+    UnsupportedReferenceError,
     esriwkt,
     parse_persistable_reference,
     to_persistable_reference,
@@ -172,3 +174,37 @@ def test_a_method_esri_has_no_name_for_is_refused(code: str) -> None:
     """Writing it as the nearest method that fits would change the transformation."""
     with pytest.raises(UnsupportedMethodError, match="no ESRI equivalent"):
         geogtran(CoordinateOperation.from_authority("EPSG", code))
+
+
+@pytest.mark.parametrize("code", [7912, 7789])
+def test_dynamic_datums_are_not_exported_as_static_datums(code: int) -> None:
+    with pytest.raises(UnsupportedReferenceError, match="dynamic datum"):
+        to_persistable_reference(CRS.from_epsg(code))
+
+
+def test_dynamic_datum_in_a_compound_crs_is_refused() -> None:
+    from pyproj.crs import CompoundCRS
+
+    compound = CompoundCRS(
+        "dynamic compound", [CRS.from_epsg(9000), CRS.from_epsg(5703)]
+    )
+    with pytest.raises(UnsupportedReferenceError, match="dynamic datum"):
+        to_persistable_reference(compound)
+
+
+def test_proj_export_errors_use_the_package_exception() -> None:
+    with pytest.raises(MalformedReferenceError, match="ESRI WKT"):
+        to_persistable_reference(CRS.from_epsg(4978))
+
+
+@pytest.mark.parametrize("code", ["survey_1", "custom:shift-2"])
+def test_operation_identifiers_can_be_alphanumeric(code: str, payload: Any) -> None:
+    original = parse_persistable_reference(payload("st_position_vector")).to_operation()
+    definition = original.to_json_dict()
+    definition["id"] = {"authority": "OSDU", "code": code}
+    operation = CoordinateOperation.from_json_dict(definition)
+    written = parse_persistable_reference(to_persistable_reference(operation))
+    assert written.steps[0].node("AUTHORITY").children == ("OSDU", code)
+    assert [parameter.value for parameter in written.to_operation().params] == [
+        parameter.value for parameter in original.params
+    ]

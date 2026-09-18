@@ -744,16 +744,30 @@ def transform(
         >>> result.coordinates
         ((597868.38..., 6642681.51...),)
     """
-    resolved = _cached_transformation(
-        _cache_key(source_crs),
-        _cache_key(target_crs),
-        operation
+    references = (
+        ()
         if operation is None
-        or isinstance(operation, (str, int, OperationCandidate, StatedOperation))
-        else tuple(operation),
-        allow_any_operation,
-        database_identity(),
+        else (operation,)
+        if isinstance(operation, (str, int, OperationCandidate, StatedOperation))
+        else tuple(operation)
     )
+    if any(isinstance(reference, StatedOperation) for reference in references):
+        resolved = Transformation(
+            source_crs, target_crs, references, allow_any_operation=allow_any_operation
+        )
+    else:
+        cacheable = tuple(
+            reference
+            for reference in references
+            if not isinstance(reference, StatedOperation)
+        )
+        resolved = _cached_transformation(
+            _cache_key(source_crs),
+            _cache_key(target_crs),
+            cacheable or None,
+            allow_any_operation,
+            database_identity(),
+        )
     return resolved.transform(x, y, z, coordinate_epoch=coordinate_epoch)
 
 
@@ -936,8 +950,7 @@ def _cached_transformation(
         str
         | int
         | OperationReference
-        | StatedOperation
-        | tuple[str | int | OperationReference | StatedOperation, ...]
+        | tuple[str | int | OperationReference, ...]
         | None
     ),
     allow_any_operation: bool,

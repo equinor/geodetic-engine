@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from pyproj.crs import BoundCRS, CoordinateOperation
 
 from geodetic_engine.persistablereference import (
     CrsReference,
+    MalformedReferenceError,
     OperationReference,
     UnitReference,
     UnsupportedMethodError,
@@ -202,3 +204,33 @@ def test_units_measuring_different_things_do_not_convert() -> None:
         parse_persistable_reference(FOOT).convert_to(
             parse_persistable_reference(DEGREES_FAHRENHEIT), 1.0
         )
+
+
+@pytest.mark.parametrize("name", ["X_Axis_Translation", "x_axis_translation"])
+def test_duplicate_parameters_are_refused(name: str, payload: Any) -> None:
+    stated = json.loads(payload("st_position_vector"))
+    stated["wkt"] = stated["wkt"][:-1] + f',PARAMETER["{name}",0.0]]'
+    with pytest.raises(MalformedReferenceError, match="duplicate parameter"):
+        parse_persistable_reference(json.dumps(stated)).to_operation()
+
+
+def test_grid_method_must_match_the_dataset(payload: Any) -> None:
+    stated = json.loads(payload("st_nadcon_grid"))
+    stated["wkt"] = stated["wkt"].replace('METHOD["NADCON"]', 'METHOD["NTv2"]')
+    with pytest.raises(MalformedReferenceError, match="requires NADCON"):
+        parse_persistable_reference(json.dumps(stated)).to_operation()
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), 10**400])
+@pytest.mark.parametrize(
+    ("definition", "member", "coefficient"),
+    [(FOOT, "scaleOffset", key) for key in ("scale", "offset")]
+    + [(DEGREES_FAHRENHEIT, "abcd", key) for key in ("a", "b", "c", "d")],
+)
+def test_unit_coefficients_must_be_finite(
+    definition: str, member: str, coefficient: str, value: float | int
+) -> None:
+    stated = json.loads(definition)
+    stated[member][coefficient] = value
+    with pytest.raises(MalformedReferenceError, match="nonfinite"):
+        parse_persistable_reference(json.dumps(stated))

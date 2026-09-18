@@ -40,6 +40,7 @@ def test_url_encoding_is_undone(rounds: int) -> None:
     for _ in range(rounds):
         text = quote(text)
     assert decode(text).kind is Kind.LATE_BOUND_CRS
+    assert looks_like_reference(text)
 
 
 def test_decoding_stops_rather_than_running_to_a_fixed_point() -> None:
@@ -100,6 +101,25 @@ def test_projjson_is_not_mistaken_for_a_payload(code: int) -> None:
 def test_a_payload_with_no_recognisable_member_is_not_claimed() -> None:
     """Opening brace and all, a document stating none of these members is not one."""
     assert not looks_like_reference('{"type":"GeographicCRS","name":"WGS 84"}')
+
+
+@pytest.mark.parametrize("name", ["wkt", "authCode", "lateBoundCRS"])
+def test_values_are_not_mistaken_for_reference_keys(name: str) -> None:
+    assert not looks_like_reference(json.dumps({"type": "GeographicCRS", "name": name}))
+
+
+def test_detection_is_independent_of_key_order_and_name_length() -> None:
+    assert looks_like_reference(
+        json.dumps({"name": "x" * 5000, **LATE_BOUND, "ver": "x" * 5000})
+    )
+    assert looks_like_reference(json.dumps({"name": "x" * 5000, "wkt": "GEOGCS[...]"}))
+
+
+def test_string_encoded_members_have_depth_limits() -> None:
+    from geodetic_engine.persistablereference.envelope import object_field
+
+    with pytest.raises(MalformedReferenceError, match="nests"):
+        object_field({"lateBoundCRS": json.dumps(_nested(64))}, "lateBoundCRS")
 
 
 @pytest.mark.parametrize(

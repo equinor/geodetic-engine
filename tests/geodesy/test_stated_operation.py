@@ -15,9 +15,12 @@ result would silently be EPSG's.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from urllib.parse import quote
 
 import pytest
 from pyproj import Geod
+from pyproj.crs import CoordinateOperation
 
 from geodetic_engine.geodesy import (
     OperationNotAvailableError,
@@ -97,6 +100,12 @@ def test_a_stated_payload_agrees_with_the_code_it_stamps_on_itself() -> None:
     named = transform(ED50, WGS84, POINT, operation="EPSG:1133")
 
     assert stated.coordinates[0] == pytest.approx(named.coordinates[0], abs=1e-9)
+
+
+def test_a_twice_encoded_operation_payload_is_recognised() -> None:
+    assert transform(
+        ED50, WGS84, POINT, operation=quote(quote(payload()))
+    ).coordinates == (transform(ED50, WGS84, POINT, operation=payload()).coordinates)
 
 
 def test_a_parsed_reference_is_accepted_as_readily_as_its_payload() -> None:
@@ -225,3 +234,31 @@ def test_a_vertical_esri_transformation_is_refused_as_unmodelled() -> None:
 
     with pytest.raises(ValueError, match="does not model"):
         transform(ED50, WGS84, POINT, operation=verttran)
+
+
+@pytest.mark.parametrize("as_sequence", [False, True])
+def test_mutable_stated_operations_are_not_cached(as_sequence: bool) -> None:
+    @dataclass
+    class MutableOperation:
+        x_translation: float
+
+        def to_operation(self) -> CoordinateOperation:
+            from geodetic_engine.persistablereference import operation_from_geogtran
+
+            return operation_from_geogtran(geogtran(self.x_translation))
+
+    stated = MutableOperation(PUBLISHED_X)
+    operation = [stated] if as_sequence else stated
+    before = transform(ED50, WGS84, POINT, operation=operation)
+    stated.x_translation = ALTERED_X
+    after = transform(ED50, WGS84, POINT, operation=operation)
+
+    assert (
+        before.coordinates
+        == transform(ED50, WGS84, POINT, operation=payload(PUBLISHED_X)).coordinates
+    )
+    assert (
+        after.coordinates
+        == transform(ED50, WGS84, POINT, operation=payload(ALTERED_X)).coordinates
+    )
+    assert before.coordinates != after.coordinates

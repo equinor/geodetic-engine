@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -129,6 +130,39 @@ def test_ordinary_definitions_still_resolve() -> None:
     assert CoordinateReferenceSystem.from_user_input("EPSG:4326").authority_code == (
         "EPSG:4326"
     )
+
+
+@pytest.mark.parametrize("rounds", [0, 1, 2])
+def test_encoded_payloads_resolve_through_both_constructors(
+    rounds: int, payloads: dict[str, str]
+) -> None:
+    definition = payloads["lbc_wgs84_geographic"]
+    for _ in range(rounds):
+        definition = quote(definition)
+    assert CoordinateReferenceSystem.from_user_input(definition) is (
+        CoordinateReferenceSystem.from_persistable_reference(definition)
+    )
+
+
+@pytest.mark.parametrize(
+    "definition", ["EPSG:4326", "4326", "+proj=longlat +datum=WGS84"]
+)
+def test_reference_constructor_rejects_ordinary_definitions(definition: str) -> None:
+    CoordinateReferenceSystem.from_user_input(definition)
+    with pytest.raises(UnresolvableCRSError):
+        CoordinateReferenceSystem.from_persistable_reference(definition)
+
+
+def test_projjson_named_like_a_reference_key_still_resolves() -> None:
+    from pyproj import CRS
+
+    definition = CRS.from_epsg(4326).to_json_dict()
+    definition["name"] = "wkt"
+    assert (
+        CoordinateReferenceSystem.from_user_input(json.dumps(definition)).name == "wkt"
+    )
+    with pytest.raises(UnresolvableCRSError):
+        CoordinateReferenceSystem.from_persistable_reference(json.dumps(definition))
 
 
 def test_a_pyproj_crs_still_resolves() -> None:

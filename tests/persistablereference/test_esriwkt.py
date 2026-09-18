@@ -90,3 +90,19 @@ def test_unreadable_wkt_is_refused(broken: str) -> None:
     """Text that is not one well-formed element is an error, not a partial tree."""
     with pytest.raises(MalformedReferenceError):
         read(broken)
+
+
+def test_deeply_nested_wkt_is_refused_before_recursion_exhaustion() -> None:
+    with pytest.raises(MalformedReferenceError, match="nesting"):
+        read("GEOGTRAN[" + "NODE[" * 600 + "0" + "]" * 601)
+
+
+def test_oversized_bare_wkt_is_refused() -> None:
+    with pytest.raises(MalformedReferenceError, match="exceeds"):
+        read('GEOGTRAN["' + "x" * (1 << 20) + '"]')
+
+
+@pytest.mark.parametrize("number", ["1e309", "-1e309", "9" * 400])
+def test_nonfinite_numeric_values_are_refused(number: str) -> None:
+    with pytest.raises(MalformedReferenceError, match="finite"):
+        read(f'PARAMETER["X_Axis_Translation",{number}]')

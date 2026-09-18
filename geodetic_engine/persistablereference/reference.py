@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import pairwise
+from math import isfinite
 from typing import Any
 
 from pyproj import CRS
@@ -520,7 +521,15 @@ def _number(data: JsonObject, described: str, *names: str) -> float:
             f"{_described(described)} states {names[0]} as "
             f"{type(value).__name__}, not a number"
         )
-    return float(value)
+    try:
+        converted = float(value)
+    except OverflowError:
+        converted = float("inf")
+    if not isfinite(converted):
+        raise MalformedReferenceError(
+            f"{_described(described)} states {names[0]} as a nonfinite number"
+        )
+    return converted
 
 
 def _crs(wkt: str, described: str) -> CRS:
@@ -597,7 +606,7 @@ def _transformation(node: Node) -> JsonObject:
         "target_crs": _frame(frames[1], described),
     }
     if methods.is_grid_method(stated.name):
-        definition |= _grid_method(node, described)
+        definition |= _grid_method(node, stated.name, described)
     else:
         definition |= _parameter_method(node, stated.name, described)
     if (accuracy := node.node("OPERATIONACCURACY")) is not None and accuracy.values:
@@ -610,6 +619,10 @@ def _parameter_method(node: Node, name: str, described: str) -> JsonObject:
     found = methods.method(name)
     stated: dict[str, float] = {}
     for parameter in node.nodes("PARAMETER"):
+        if parameter.name.casefold() in stated:
+            raise MalformedReferenceError(
+                f"{_described(described)} states duplicate parameter {parameter.name!r}"
+            )
         if not parameter.values:
             raise MalformedReferenceError(
                 f"{_described(described)} states parameter {parameter.name!r} "
@@ -643,7 +656,7 @@ def _parameter_method(node: Node, name: str, described: str) -> JsonObject:
     }
 
 
-def _grid_method(node: Node, described: str) -> JsonObject:
+def _grid_method(node: Node, name: str, described: str) -> JsonObject:
     """State a grid-based method, resolved against PROJ's own database."""
     datasets = [
         parameter.name
@@ -658,6 +671,12 @@ def _grid_method(node: Node, described: str) -> JsonObject:
             f"{len(datasets)} dataset parameters; it states exactly one"
         )
     found = methods.grid(datasets[0])
+    expected_code = "9615" if name.casefold() == "ntv2" else "9613"
+    if found.method_code != expected_code:
+        raise MalformedReferenceError(
+            f"{_described(described)} states method {name}, but dataset "
+            f"{datasets[0]!r} requires {found.method_name}"
+        )
     return {
         "method": {
             "name": found.method_name,

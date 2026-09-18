@@ -46,19 +46,17 @@ _MAX_LENGTH = 1 << 20
 _MAX_DEPTH = 32
 # Enough for a payload that was encoded on its way through two services.
 _MAX_DECODES = 2
-# How far into a payload to look for a member that identifies the format. Every
-# one of them appears within the first few dozen characters in practice.
-_PROBE_LENGTH = 4096
-# Members no other JSON CRS format carries. Quoted, so that a name inside a
-# PROJJSON document cannot pass for a key.
-_MARKERS = (
-    '"authcode"',
-    '"lateboundcrs"',
-    '"singlect"',
-    '"compoundct"',
-    '"scaleoffset"',
-    '"abcd"',
-    '"wkt"',
+_MARKERS = frozenset(
+    {
+        "authcode",
+        "lateboundcrs",
+        "singlect",
+        "compoundct",
+        "cts",
+        "scaleoffset",
+        "abcd",
+        "wkt",
+    }
 )
 
 
@@ -124,9 +122,8 @@ class Envelope:
 def looks_like_reference(value: str) -> bool:
     """Whether a string is shaped like a persistableReference.
 
-    A structural check only, cheap enough to run on every CRS definition a
-    caller passes in. It does not parse the payload, so a string that passes
-    here can still turn out to be malformed.
+    Inspects top-level JSON keys after bounded URL decoding. The embedded
+    definition is not validated, so a matching payload can still be malformed.
 
     Opening as a JSON object is not enough to go on: PROJJSON opens the same
     way, and claiming one of those would stop a perfectly good CRS definition
@@ -147,15 +144,19 @@ def looks_like_reference(value: str) -> bool:
         >>> looks_like_reference('{"type":"GeographicCRS","name":"WGS 84"}')
         False
     """
-    text = value.lstrip()
-    if not (text.startswith("{") or text[:3].casefold() == "%7b"):
+    try:
+        text = _decoded(value)
+    except MalformedReferenceError:
+        return value.lstrip().startswith(("{", "%"))
+    if not text.startswith("{"):
         return False
-    probe = text[:_PROBE_LENGTH]
-    if probe.startswith("%"):
-        # A slice may cut a percent escape in half, which unquote leaves alone;
-        # a half-decoded probe is still enough to find a member name in.
-        probe = unquote(probe)
-    return any(marker in probe.casefold() for marker in _MARKERS)
+    try:
+        data = _object(text)
+    except MalformedReferenceError:
+        return True
+    return text_field(data, "type").upper() in Kind or bool(
+        _MARKERS.intersection(key.casefold() for key in data)
+    )
 
 
 def decode(raw: str) -> Envelope:
@@ -177,27 +178,7 @@ def decode(raw: str) -> Envelope:
         >>> decode('{"type":"LBC","name":"WGS 84","wkt":"GEOGCS[...]"}').kind
         <Kind.LATE_BOUND_CRS: 'LBC'>
     """
-    text = _decoded(raw)
-    if len(text) > _MAX_LENGTH:
-        raise MalformedReferenceError(
-            f"persistableReference is {len(text)} characters, over the "
-            f"{_MAX_LENGTH} a single definition is allowed"
-        )
-    if (depth := _depth(text)) > _MAX_DEPTH:
-        raise MalformedReferenceError(
-            f"persistableReference nests {depth} levels deep, over the "
-            f"{_MAX_DEPTH} a single definition is allowed"
-        )
-    try:
-        data = json.loads(text)
-    except (ValueError, RecursionError) as error:
-        raise MalformedReferenceError(
-            f"persistableReference is not readable JSON: {error}"
-        ) from error
-    if not isinstance(data, dict):
-        raise MalformedReferenceError(
-            f"persistableReference is a JSON {type(data).__name__}, not an object"
-        )
+    data = _object(raw)
     return Envelope(
         raw=raw,
         data=data,
@@ -293,14 +274,15 @@ def object_field(data: JsonObject, *names: str) -> JsonObject | None:
         *names: Candidate keys, in order of preference.
 
     Returns:
-        The nested object, or None when absent or unreadable.
+        The nested object, or None when absent or not an object or string.
+
+    Raises:
+        MalformedReferenceError: If a string is not a readable object or
+            exceeds the payload limits.
     """
     value = field(data, *names)
     if isinstance(value, str):
-        try:
-            value = json.loads(_decoded(value))
-        except ValueError:
-            return None
+        value = _object(value)
     return value if isinstance(value, dict) else None
 
 
@@ -322,12 +304,42 @@ def authority_code(value: Any) -> AuthorityCode | None:
 
 def _decoded(raw: str) -> str:
     """Undo the URL encoding a payload may still be carrying."""
+    if len(raw) > _MAX_LENGTH * 3**_MAX_DECODES:
+        raise MalformedReferenceError(
+            "encoded persistableReference is over the size limit"
+        )
     text = raw.strip()
     for _ in range(_MAX_DECODES):
         if not text.startswith("%"):
             break
         text = unquote(text).strip()
     return text
+
+
+def _object(raw: str) -> JsonObject:
+    """Read an object with the same limits for outer and string-encoded members."""
+    text = _decoded(raw)
+    if len(text) > _MAX_LENGTH:
+        raise MalformedReferenceError(
+            f"persistableReference is {len(text)} characters, over the "
+            f"{_MAX_LENGTH} a single definition is allowed"
+        )
+    if (depth := _depth(text)) > _MAX_DEPTH:
+        raise MalformedReferenceError(
+            f"persistableReference nests {depth} levels deep, over the "
+            f"{_MAX_DEPTH} a single definition is allowed"
+        )
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError) as error:
+        raise MalformedReferenceError(
+            f"persistableReference is not readable JSON: {error}"
+        ) from error
+    if not isinstance(data, dict):
+        raise MalformedReferenceError(
+            f"persistableReference is a JSON {type(data).__name__}, not an object"
+        )
+    return data
 
 
 def _depth(text: str) -> int:

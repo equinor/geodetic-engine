@@ -27,6 +27,7 @@ back unchanged.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import NoReturn
 
 from geodetic_engine.persistablereference.errors import MalformedReferenceError
@@ -52,6 +53,9 @@ _NUMBER_CHARACTERS = "0123456789+-.eE"
 # Characters one may begin with. An exponent marker is not among them, or the
 # axis direction ``east`` would be read as the start of a number.
 _NUMBER_START = "0123456789+-."
+
+_MAX_LENGTH = 1 << 20
+_MAX_DEPTH = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +157,8 @@ def read(text: str) -> Node:
         >>> node.node("METHOD").name
         'Position_Vector'
     """
+    if len(text) > _MAX_LENGTH:
+        raise MalformedReferenceError(f"ESRI WKT exceeds {_MAX_LENGTH} characters")
     scanner = _Scanner(text)
     node = scanner.node()
     scanner.end()
@@ -197,14 +203,16 @@ class _Scanner:
         self._text = text
         self._at = 0
 
-    def node(self, keyword: str | None = None) -> Node:
+    def node(self, keyword: str | None = None, depth: int = 1) -> Node:
         """Read one element, starting at its keyword unless one is given."""
+        if depth > _MAX_DEPTH:
+            self._fail(f"nesting exceeds {_MAX_DEPTH} levels")
         keyword = self._keyword() if keyword is None else keyword
         self._take("[")
-        children: list[Child] = [self._child()]
+        children: list[Child] = [self._child(depth)]
         while self._peek() == ",":
             self._at += 1
-            children.append(self._child())
+            children.append(self._child(depth))
         self._take("]")
         return Node(keyword, tuple(children))
 
@@ -213,7 +221,7 @@ class _Scanner:
         if self._peek() is not None:
             self._fail("unexpected trailing text")
 
-    def _child(self) -> Child:
+    def _child(self, depth: int) -> Child:
         character = self._peek()
         if character is None:
             self._fail("element ends before its contents")
@@ -224,7 +232,7 @@ class _Scanner:
         keyword = self._keyword()
         # A keyword followed by a bracket opens an element; one that is not is
         # an enumeration value, which WKT writes unquoted.
-        return self.node(keyword) if self._peek() == "[" else Word(keyword)
+        return self.node(keyword, depth + 1) if self._peek() == "[" else Word(keyword)
 
     def _keyword(self) -> str:
         self._skip_space()
@@ -259,15 +267,17 @@ class _Scanner:
             self._at += 1
         literal = self._text[start : self._at]
         try:
+            value = float(literal)
+        except ValueError:
+            self._fail(f"{literal!r} is not a number")
+        if not isfinite(value):
+            self._fail("numeric values must be finite")
+        try:
             # An integer literal is kept an integer so that it is written back
             # the way ESRI writes authority codes, without a decimal point.
             return int(literal)
         except ValueError:
-            pass
-        try:
-            return float(literal)
-        except ValueError:
-            self._fail(f"{literal!r} is not a number")
+            return value
 
     def _take(self, character: str) -> None:
         if self._peek() != character:

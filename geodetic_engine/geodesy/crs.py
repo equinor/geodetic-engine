@@ -173,7 +173,7 @@ class CoordinateReferenceSystem:
                 persistableReference, states something other than a CRS, or
                 states a definition this package will not translate.
         """
-        return _cached(_normalize(payload), database_identity())
+        return _cached_reference(_normalize(payload), database_identity())
 
     @property
     def crs(self) -> CRS:
@@ -319,7 +319,7 @@ def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceS
     from geodetic_engine.persistablereference import looks_like_reference
 
     if looks_like_reference(definition):
-        return CoordinateReferenceSystem(_reference(definition), definition)
+        return _cached_reference(definition, identity)
     try:
         crs = CRS.from_user_input(definition)
     except CRSError as error:
@@ -330,6 +330,14 @@ def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceS
             f"could not resolve {definition!r} as a CRS: {detail}"
         ) from error
     return CoordinateReferenceSystem(_rebound(crs), definition)
+
+
+@lru_cache(maxsize=256)
+def _cached_reference(
+    definition: str, identity: DatabaseIdentity
+) -> CoordinateReferenceSystem:
+    """Resolve only persistableReferences, shared by both public constructors."""
+    return CoordinateReferenceSystem(_reference(definition), definition)
 
 
 def _reference(definition: str) -> CRS:
