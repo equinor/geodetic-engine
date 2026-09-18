@@ -27,7 +27,7 @@ from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from threading import local
 
 from pyproj import datadir
@@ -46,6 +46,25 @@ _CRS_TABLES = (
 
 _DATABASE_NAME = "proj.db"
 _BOUND_KEYWORD = "BOUNDCRS"
+
+# Extensions a grid file is published under, by any of the authorities whose
+# grids PROJ references. A name ending in anything else is a name, not a file.
+_GRID_SUFFIXES = frozenset(
+    {
+        ".asc",
+        ".bin",
+        ".byn",
+        ".dat",
+        ".grd",
+        ".gsa",
+        ".gsb",
+        ".gtx",
+        ".las",
+        ".los",
+        ".tif",
+        ".txt",
+    }
+)
 
 # Where a build of this package records what it wrote and what it left out.
 # Spelled here rather than imported from geodetic_engine.projdb, which depends
@@ -271,3 +290,137 @@ def _has_text_definition(connection: sqlite3.Connection, table: str) -> bool:
     """Whether a table exists in this database and carries a text definition."""
     columns = connection.execute(f"PRAGMA table_info({table})").fetchall()
     return any(column[1] == "text_definition" for column in columns)
+
+
+@dataclass(frozen=True, slots=True)
+class GridDataset:
+    """A grid transformation identified by the grid files it reads.
+
+    Attributes:
+        method_code: EPSG code of the method, for example ``"9615"`` for NTv2.
+        method_name: EPSG name of that method.
+        files: The grid file parameters, each as an EPSG parameter code, the
+            parameter's name, and the file name the database states. NADCON
+            states two, one per direction; NTv2 states one.
+    """
+
+    method_code: str
+    method_name: str
+    files: tuple[tuple[str, str, str], ...]
+
+
+def grid_dataset(name: str) -> GridDataset | None:
+    """Find a grid transformation by the bare name of the grid it reads.
+
+    A grid is named differently by every dialect that references it -- EPSG
+    states ``A66 National (13.09.01).gsb``, another dialect
+    ``A66_National_13_09_01``, PROJ ships it as
+    ``au_icsm_A66_National_13_09_01.tif`` -- but the letters and digits are
+    stable across all of them. Matching on those resolves a foreign dialect's
+    grid reference to the method and file names PROJ's own database uses, which
+    is what PROJ will accept in a definition.
+
+    Args:
+        name: The grid name, with or without an extension. Punctuation, case
+            and spacing are ignored; ``A66_National_13_09_01`` and
+            ``A66 National (13.09.01)`` are the same grid.
+
+    Returns:
+        The transformation, or None when the database references no such grid,
+        or references it from transformations that disagree on the method or on
+        which files it reads, in which case there is no single answer to give.
+
+    Example:
+        >>> grid_dataset("conus").method_name  # doctest: +SKIP
+        'NADCON'
+    """
+    found = _grid_datasets(database_identity()).get(_grid_key(name))
+    if not found:
+        return None
+    # Rows that agree on the method and on which grids they read are the same
+    # transformation written two ways, which several EPSG entries are: one
+    # states "rdtrans2008", another "rdtrans2008.gsb".
+    shapes = {
+        (dataset.method_code, tuple(_grid_key(file) for _, _, file in dataset.files))
+        for dataset in found
+    }
+    if len(shapes) != 1:
+        return None
+    # The spelling that carries file extensions is the one PROJ's own grid
+    # alternatives are keyed by.
+    return max(found, key=_spelling)
+
+
+def _spelling(dataset: GridDataset) -> tuple[int, tuple[str, ...]]:
+    """Rank one spelling of a grid transformation against another."""
+    names = tuple(file for _, _, file in dataset.files)
+    return sum("." in name for name in names), names
+
+
+def _grid_key(name: str) -> str:
+    """The letters and digits of a grid name, which every dialect agrees on."""
+    text = name.strip()
+    # Only a known grid extension is dropped. Taking everything after the last
+    # dot would cut "A66 National (13.09.01)" down to "A66 National (13.09".
+    if (suffix := PurePosixPath(text).suffix.casefold()) in _GRID_SUFFIXES:
+        text = text[: -len(suffix)]
+    return "".join(character for character in text if character.isalnum()).casefold()
+
+
+@lru_cache(maxsize=8)
+def _grid_datasets(
+    identity: DatabaseIdentity,
+) -> Mapping[str, tuple[GridDataset, ...]]:
+    """Every grid transformation in the active databases, by grid name.
+
+    Read once per data directory, like the bound CRS definitions above, and for
+    the same reason.
+    """
+    found: dict[str, set[GridDataset]] = {}
+    for path, *_ in identity:
+        database = Path(path)
+        if not database.is_file():
+            continue
+        try:
+            _read_grids_into(found, database)
+        except sqlite3.Error as error:
+            logger.debug(
+                "could not read grid transformations of %s: %s", database, error
+            )
+        break
+    return {key: tuple(datasets) for key, datasets in found.items()}
+
+
+def _read_grids_into(found: dict[str, set[GridDataset]], database: Path) -> None:
+    """Index one database's grid transformations by each grid name it reads."""
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+        if not _has_table(connection, "grid_transformation"):
+            return
+        rows = connection.execute(
+            "SELECT method_code, method_name, "
+            "grid_param_code, grid_param_name, grid_name, "
+            "grid2_param_code, grid2_param_name, grid2_name "
+            "FROM grid_transformation WHERE deprecated = 0 AND grid_name IS NOT NULL"
+        )
+        for (
+            method_code,
+            method_name,
+            code,
+            parameter,
+            grid,
+            code2,
+            parameter2,
+            grid2,
+        ) in rows:
+            files = [(str(code), str(parameter), str(grid))]
+            if grid2:
+                files.append((str(code2), str(parameter2), str(grid2)))
+            dataset = GridDataset(
+                method_code=str(method_code),
+                method_name=str(method_name),
+                files=tuple(files),
+            )
+            # Every file of one transformation shares a name in practice, but
+            # each is indexed so that a reference to either one resolves.
+            for _, _, file_name in files:
+                found.setdefault(_grid_key(file_name), set()).add(dataset)

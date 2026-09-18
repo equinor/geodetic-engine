@@ -22,6 +22,15 @@
             "justMyCode": true
         },
         {
+            "name": "Python Debugger: Debug PersistableReference Worked Examples (pytest)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${workspaceFolder}/tests/persistablereference/test_worked_examples.py", "-vv"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
             "name": "Python Debugger: test_pipeline_replay.py (pytest)",
             "type": "debugpy",
             "request": "launch",
