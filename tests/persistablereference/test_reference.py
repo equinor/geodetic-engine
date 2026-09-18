@@ -11,6 +11,7 @@ from pyproj.crs import BoundCRS, CoordinateOperation
 
 from geodetic_engine.persistablereference import (
     CrsReference,
+    Kind,
     MalformedReferenceError,
     OperationReference,
     UnitReference,
@@ -49,6 +50,63 @@ def test_a_bound_reference_carries_its_transformation(payload: Any) -> None:
     crs = reference.to_crs()
     assert crs.is_bound
     assert crs.name == "ED50 / UTM zone 32N"
+
+
+@pytest.mark.parametrize("member", ["lateBoundCRS", "singleCT", "compoundCT"])
+@pytest.mark.parametrize("as_text", [False, True])
+def test_a_late_bound_crs_refuses_binding_members(
+    member: str, as_text: bool, payload: Any
+) -> None:
+    stated = json.loads(payload("lbc_ed50_geographic"))
+    value = json.loads(
+        payload(
+            {
+                "lateBoundCRS": "lbc_ed50_geographic",
+                "singleCT": "st_position_vector",
+                "compoundCT": "ct_concatenated",
+            }[member]
+        )
+    )
+    stated[member.upper()] = json.dumps(value) if as_text else value
+    with pytest.raises(MalformedReferenceError, match="early-bound members"):
+        parse_persistable_reference(json.dumps(stated))
+
+
+@pytest.mark.parametrize(
+    ("member", "case", "expected"),
+    [
+        ("lateBoundCRS", "lbc_ed50_geographic", Kind.LATE_BOUND_CRS),
+        ("singleCT", "st_position_vector", Kind.TRANSFORMATION),
+        ("compoundCT", "ct_concatenated", Kind.CONCATENATED_TRANSFORMATION),
+    ],
+)
+@pytest.mark.parametrize(
+    "stated_kind", [None, "LBC", "EBC", "ST", "CT", "USO", "UAD", "ZZZ"]
+)
+def test_nested_discriminators_match_their_container(
+    member: str, case: str, expected: Kind, stated_kind: str | None, payload: Any
+) -> None:
+    stated = json.loads(payload("ebc_projected_position_vector"))
+    nested = json.loads(payload(case))
+    nested.pop("type", None)
+    if stated_kind is not None:
+        nested["Type"] = stated_kind.lower()
+    if member == "compoundCT":
+        stated.pop("singleCT")
+    stated[member] = nested
+    if stated_kind == "ZZZ":
+        with pytest.raises(UnsupportedReferenceError, match="ZZZ"):
+            parse_persistable_reference(json.dumps(stated))
+    elif stated_kind is not None and stated_kind != expected.value:
+        with pytest.raises(MalformedReferenceError, match="nested type"):
+            parse_persistable_reference(json.dumps(stated))
+    else:
+        reference = parse_persistable_reference(json.dumps(stated))
+        child = (
+            reference.late_bound if member == "lateBoundCRS" else reference.operation
+        )
+        assert child.kind is expected
+        assert reference.to_crs().is_bound
 
 
 def test_the_authority_code_is_recorded_and_not_followed(payload: Any) -> None:

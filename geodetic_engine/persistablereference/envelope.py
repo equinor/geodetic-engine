@@ -220,7 +220,12 @@ def kind_of(data: JsonObject) -> Kind:
         return Kind.UNIT_SCALE_OFFSET
     if field(data, "abcd") is not None:
         return Kind.UNIT_ABCD
-    if (wkt := text_field(data, "wkt")).lstrip().upper().startswith("GEOGTRAN"):
+    if (
+        (wkt := text_field(data, "wkt"))
+        .lstrip()
+        .upper()
+        .startswith(("GEOGTRAN", "VERTTRAN"))
+    ):
         return Kind.TRANSFORMATION
     if wkt:
         return Kind.LATE_BOUND_CRS

@@ -65,10 +65,11 @@ def test_kind_is_settled_by_members_when_type_is_absent(
     assert decode(json.dumps({key: {}})).kind is expected
 
 
-def test_a_transformation_is_recognised_by_its_wkt() -> None:
+@pytest.mark.parametrize("keyword", ["GEOGTRAN", "VERTTRAN", "  verttran"])
+def test_a_transformation_is_recognised_by_its_wkt(keyword: str) -> None:
     """A payload stating only WKT is told apart by the dialect keyword."""
-    geogtran = json.dumps({"wkt": 'GEOGTRAN["a"]'})
-    assert decode(geogtran).kind is Kind.TRANSFORMATION
+    transformation = json.dumps({"wkt": f'{keyword}["a"]'})
+    assert decode(transformation).kind is Kind.TRANSFORMATION
     assert decode(json.dumps({"wkt": 'GEOGCS["a"]'})).kind is Kind.LATE_BOUND_CRS
 
 

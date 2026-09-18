@@ -100,6 +100,9 @@ def test_the_two_names_for_seven_parameters_agree() -> None:
         ("Dataset_canada/Ntv2_0", "NTv2"),
         ("Dataset_australia/A66_National_13_09_01", "NTv2"),
         ("A66 National (13.09.01).gsb", "NTv2"),
+        ("au_icsm_A66_National_13_09_01.tif", "NTv2"),
+        ("Dataset_australia/au_icsm_A66_National_13_09_01", "NTv2"),
+        ("us_noaa_conus.tif", "NADCON"),
     ],
 )
 def test_grid_datasets_resolve_however_they_are_spelt(
@@ -114,6 +117,20 @@ def test_nadcon_resolves_to_both_of_its_files() -> None:
     files = mt.grid("Dataset_conus").files
     assert [name for _, _, name in files] == ["conus.las", "conus.los"]
     assert [code for code, _, _ in files] == ["8657", "8658"]
+
+
+@pytest.mark.parametrize(
+    ("original", "alias"),
+    [
+        ("A66 National (13.09.01).gsb", "au_icsm_A66_National_13_09_01.tif"),
+        ("A66 National (13.09.01).gsb", "A66_National_13_09_01.gsb"),
+        ("conus.las", "us_noaa_conus.tif"),
+    ],
+)
+def test_grid_aliases_preserve_the_original_operation(
+    original: str, alias: str
+) -> None:
+    assert mt.grid(alias) == mt.grid(original)
 
 
 def test_an_unknown_grid_is_refused() -> None:

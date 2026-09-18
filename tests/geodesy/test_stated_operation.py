@@ -228,12 +228,16 @@ def test_every_end_may_be_esri_wkt_with_no_authority_code_anywhere() -> None:
     assert stated.coordinates[0] == pytest.approx(named.coordinates[0], abs=1e-9)
 
 
-def test_a_vertical_esri_transformation_is_refused_as_unmodelled() -> None:
+@pytest.mark.parametrize("as_payload", [False, True])
+def test_a_vertical_esri_transformation_is_refused_as_unmodelled(
+    as_payload: bool,
+) -> None:
     """VERTTRAN is read far enough to say plainly that it is not modelled."""
     verttran = 'VERTTRAN["Some_Vertical_Shift",PARAMETER["Vertical_Shift",1.0]]'
+    operation = json.dumps({"wkt": verttran}) if as_payload else verttran
 
     with pytest.raises(ValueError, match="does not model"):
-        transform(ED50, WGS84, POINT, operation=verttran)
+        transform(ED50, WGS84, POINT, operation=operation)
 
 
 @pytest.mark.parametrize("as_sequence", [False, True])

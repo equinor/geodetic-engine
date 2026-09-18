@@ -362,6 +362,14 @@ def parse_persistable_reference(raw: str) -> AnyReference:
 
 def _crs_reference(envelope: Envelope) -> CrsReference:
     """Read an ``LBC`` or ``EBC`` payload."""
+    if envelope.kind is Kind.LATE_BOUND_CRS and any(
+        field(envelope.data, key) is not None
+        for key in ("lateBoundCRS", "singleCT", "compoundCT")
+    ):
+        raise MalformedReferenceError(
+            f"{_described(envelope.name)} is a late bound CRS but carries "
+            "early-bound members"
+        )
     late_bound: CrsReference | None = None
     operation: OperationReference | None = None
     wkt = text_field(envelope.data, "wkt")
@@ -470,8 +478,15 @@ def _nested(envelope: Envelope, data: JsonObject, default: Kind) -> Envelope:
 
     try:
         kind = kind_of(data)
+    except UnsupportedReferenceError:
+        raise
     except PersistableReferenceError:
         kind = default
+    if kind is not default:
+        raise MalformedReferenceError(
+            f"{_described(envelope.name)} states nested type {kind.value!r}, "
+            f"where {default.value!r} is required"
+        )
     return Envelope(
         raw=envelope.raw,
         data=data,

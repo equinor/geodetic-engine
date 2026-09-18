@@ -315,10 +315,10 @@ def grid_dataset(name: str) -> GridDataset | None:
     A grid is named differently by every dialect that references it -- EPSG
     states ``A66 National (13.09.01).gsb``, another dialect
     ``A66_National_13_09_01``, PROJ ships it as
-    ``au_icsm_A66_National_13_09_01.tif`` -- but the letters and digits are
-    stable across all of them. Matching on those resolves a foreign dialect's
-    grid reference to the method and file names PROJ's own database uses, which
-    is what PROJ will accept in a definition.
+    ``au_icsm_A66_National_13_09_01.tif``. Punctuation is normalized, and PROJ's
+    grid-alternatives table supplies modern and legacy filename aliases. The
+    result retains the original method and file parameters PROJ accepts in a
+    definition; provider prefixes are never guessed or stripped.
 
     Args:
         name: The grid name, with or without an extension. Punctuation, case
@@ -358,7 +358,7 @@ def _spelling(dataset: GridDataset) -> tuple[int, tuple[str, ...]]:
 
 
 def _grid_key(name: str) -> str:
-    """The letters and digits of a grid name, which every dialect agrees on."""
+    """Normalize punctuation and extensions without guessing filename aliases."""
     text = name.strip()
     # Only a known grid extension is dropped. Taking everything after the last
     # dot would cut "A66 National (13.09.01)" down to "A66 National (13.09".
@@ -424,3 +424,17 @@ def _read_grids_into(found: dict[str, set[GridDataset]], database: Path) -> None
             # each is indexed so that a reference to either one resolves.
             for _, _, file_name in files:
                 found.setdefault(_grid_key(file_name), set()).add(dataset)
+
+        if not _has_table(connection, "grid_alternatives"):
+            return
+        aliases: dict[str, set[GridDataset]] = {}
+        for original, current, legacy in connection.execute(
+            "SELECT original_grid_name, proj_grid_name, old_proj_grid_name "
+            "FROM grid_alternatives"
+        ):
+            datasets = found.get(_grid_key(original), ())
+            for alias in (current, legacy):
+                if alias:
+                    aliases.setdefault(_grid_key(alias), set()).update(datasets)
+        for key, datasets in aliases.items():
+            found.setdefault(key, set()).update(datasets)
