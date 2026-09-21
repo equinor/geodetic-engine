@@ -89,6 +89,23 @@ def test_the_transformation_written_is_the_one_read(payload: Any) -> None:
     ]
 
 
+@pytest.mark.parametrize("index", [0, 3, 6])
+@pytest.mark.parametrize("authority", ["OSDU", "CUSTOM"])
+def test_numeric_parameter_codes_require_the_epsg_authority(
+    index: int, authority: str, payload: Any
+) -> None:
+    definition = (
+        parse_persistable_reference(payload("st_position_vector"))
+        .to_operation()
+        .to_json_dict()
+    )
+    definition["parameters"][index]["id"]["authority"] = authority
+    operation = CoordinateOperation.from_json_dict(definition)
+    assert operation.to_json_dict()["parameters"][index]["id"]["authority"] == authority
+    with pytest.raises(UnsupportedMethodError, match=r"parameter .* with no EPSG code"):
+        to_persistable_reference(operation)
+
+
 def test_parameters_are_restated_in_the_unit_esri_implies() -> None:
     """EPSG states these rotations in microradians; ESRI reads arc-seconds."""
     epsg = CoordinateOperation.from_authority("EPSG", "1066")

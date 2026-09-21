@@ -755,25 +755,31 @@ def _parameter(parameter: methods.Parameter, value: float) -> JsonObject:
 def _concatenation(steps: list[JsonObject], described: str) -> JsonObject:
     """State a chain of transformations as one concatenated operation.
 
+    Adjacent CRSs must be equivalent apart from axis order. When their axes
+    differ, restate the next step's source axes to match the preceding output
+    so PROJ can join them; the method and its parameters remain unchanged.
+
     Raises:
         UnsupportedReferenceError: If a step does not begin where the one
-            before it ended. Such a chain is meant to be read with that step
-            reversed, and a reversal cannot be stated in PROJJSON: swapping a
-            step's source and target leaves PROJ applying its parameters
-            forwards, which moves a position by the whole datum shift in the
-            wrong direction rather than failing.
+            before it ended. A reversal or an additional transformation may
+            be required; neither is inferred. Swapping a step's source and
+            target alone leaves PROJ applying its parameters forwards.
     """
     for before, after in pairwise(steps):
-        ending, beginning = (
-            _crs_name(before, "target_crs"),
-            _crs_name(after, "source_crs"),
-        )
-        if ending != beginning:
+        ending = CRS.from_json_dict(before["target_crs"])
+        beginning = CRS.from_json_dict(after["source_crs"])
+        if not ending.equals(beginning, ignore_axis_order=True):
             raise UnsupportedReferenceError(
-                f"{_described(described)} chains a step from {beginning} after "
-                f"one ending at {ending}, so a step is meant to be applied in "
-                f"reverse; this package does not model a reversed step"
+                f"{_described(described)} chains a step from {beginning.name!r} "
+                f"after one ending at {ending.name!r}, but their CRS definitions "
+                "are not equivalent; an additional transformation or a reversed "
+                "step would be required, which this package does not infer"
             )
+        if not ending.equals(beginning):
+            after["source_crs"] = {
+                **after["source_crs"],
+                "coordinate_system": before["target_crs"]["coordinate_system"],
+            }
     return {
         "type": "ConcatenatedOperation",
         "name": described or "concatenated transformation",
@@ -808,12 +814,6 @@ def operation_from_geogtran(wkt: str) -> CoordinateOperation:
     """
     node = _transformation_node(wkt, _TRANSFORMATION_KEYWORD)
     return _operation_from(_transformation(node), node.name or _TRANSFORMATION_KEYWORD)
-
-
-def _crs_name(step: JsonObject, end: str) -> str:
-    """Name one end of a transformation, for comparing where steps join."""
-    crs = step.get(end)
-    return str(crs.get("name", "")) if isinstance(crs, dict) else ""
 
 
 def _operation_from(definition: JsonObject, described: str) -> CoordinateOperation:

@@ -200,6 +200,74 @@ def test_a_chain_is_read_as_a_concatenated_operation(payload: Any) -> None:
     assert reference.to_operation().to_json_dict()["type"] == "ConcatenatedOperation"
 
 
+@pytest.mark.parametrize(
+    ("name", "radius", "meridian", "axes", "compatible"),
+    [
+        ("Shared label", 6378123, 0, "", True),
+        ("Different label", 6378123, 0, "", True),
+        ("Different label", 6378123, 0, ',AXIS["Lat",NORTH],AXIS["Lon",EAST]', True),
+        ("Shared label", 6378000, 0, "", False),
+        ("Shared label", 6378123, 1, "", False),
+    ],
+)
+def test_chain_connections_compare_crs_definitions(
+    name: str, radius: int, meridian: int, axes: str, compatible: bool
+) -> None:
+    ending = (
+        'GEOGCS["Shared label",DATUM["Custom datum",'
+        'SPHEROID["Custom ellipsoid",6378123,298.25]],'
+        'PRIMEM["Custom meridian",0],UNIT["Degree",0.0174532925199433]]'
+    )
+    beginning = (
+        f'GEOGCS["{name}",DATUM["Custom datum",'
+        f'SPHEROID["Custom ellipsoid",{radius},298.25]],'
+        f'PRIMEM["Custom meridian",{meridian}],'
+        f'UNIT["Degree",0.0174532925199433]{axes}]'
+    )
+    assert CRS.from_wkt(ending).to_authority() is None
+    assert (
+        CRS.from_wkt(ending).equals(CRS.from_wkt(beginning), ignore_axis_order=True)
+        is compatible
+    )
+    steps = []
+    for source, target in (
+        (CRS.from_epsg(4230).to_wkt("WKT1_ESRI"), ending),
+        (beginning, CRS.from_epsg(4326).to_wkt("WKT1_ESRI")),
+    ):
+        steps.append(
+            {
+                "type": "ST",
+                "wkt": (
+                    f'GEOGTRAN["Custom shift {len(steps)}",{source},{target},'
+                    'METHOD["Geocentric_Translation"],'
+                    'PARAMETER["X_Axis_Translation",1],'
+                    'PARAMETER["Y_Axis_Translation",2],'
+                    'PARAMETER["Z_Axis_Translation",3]]'
+                ),
+            }
+        )
+    reference = parse_persistable_reference(json.dumps({"type": "CT", "cts": steps}))
+    if not compatible:
+        with pytest.raises(
+            UnsupportedReferenceError, match="CRS definitions are not equivalent"
+        ):
+            reference.to_operation()
+        return
+    operation = reference.to_operation()
+    point = (7.5, 57.0)
+    expected = point
+    for step in steps:
+        transformer = Transformer.from_pipeline(
+            operation_from_geogtran(step["wkt"]).to_json(), always_xy=True
+        )
+        expected = transformer.transform(*expected)
+    actual = Transformer.from_pipeline(operation.to_json(), always_xy=True).transform(
+        *point
+    )
+    assert actual == pytest.approx(expected, abs=1e-9)
+    assert len(operation.operations) == 2
+
+
 def test_a_vertical_crs_reads(payload: Any) -> None:
     """VERTCS is a CRS PROJ parses, so it needs nothing from this package."""
     crs = parse_persistable_reference(payload("lbc_vertical")).to_crs()

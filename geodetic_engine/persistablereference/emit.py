@@ -225,7 +225,7 @@ def _dataset(files: list[str], stated: list[JsonObject], described: str) -> Node
 def _parameter(stated: JsonObject, described: str) -> Node:
     """State one numeric parameter, restated in the unit ESRI implies."""
     identifier = stated.get("id")
-    if not isinstance(identifier, dict):
+    if not isinstance(identifier, dict) or identifier.get("authority") != "EPSG":
         raise UnsupportedMethodError(
             f"{_described(described)} states parameter {stated.get('name')!r} "
             f"with no EPSG code"
