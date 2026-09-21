@@ -267,6 +267,70 @@ def test_units_measuring_different_things_do_not_convert() -> None:
         )
 
 
+@pytest.mark.parametrize("definition", [FOOT, DEGREES_FAHRENHEIT])
+@pytest.mark.parametrize("explicit_kind", [False, True])
+@pytest.mark.parametrize("as_text", [False, True])
+def test_unit_kinds_preserve_case_insensitive_and_encoded_members(
+    definition: str, explicit_kind: bool, as_text: bool
+) -> None:
+    original = parse_persistable_reference(definition)
+    stated = json.loads(definition)
+    kind = stated.pop("type")
+    if explicit_kind:
+        stated["Type"] = kind.lower()
+    member = "scaleOffset" if kind == "USO" else "abcd"
+    conversion = stated.pop(member)
+    stated[member.upper()] = json.dumps(conversion) if as_text else conversion
+    reference = parse_persistable_reference(json.dumps(stated))
+    assert reference.kind is original.kind
+    assert reference.coefficients == original.coefficients
+    assert reference.to_si(1.0) == original.to_si(1.0)
+
+
+@pytest.mark.parametrize("definition", [FOOT, DEGREES_FAHRENHEIT])
+def test_unit_kind_rejects_the_other_conversion_member(definition: str) -> None:
+    stated = json.loads(definition)
+    stated["type"] = "UAD" if stated["type"] == "USO" else "USO"
+    with pytest.raises(MalformedReferenceError, match="requires exactly one"):
+        parse_persistable_reference(json.dumps(stated))
+
+
+@pytest.mark.parametrize("kind", [None, "USO", "UAD"])
+@pytest.mark.parametrize("extra", [None, {}, {"a": 0, "b": 10, "c": 1, "d": 1}])
+def test_unit_payloads_reject_both_conversion_members(
+    kind: str | None, extra: Any
+) -> None:
+    stated = {"scaleOffset": {"scale": 2, "offset": 0}, "ABCD": extra}
+    if kind is not None:
+        stated["type"] = kind
+    with pytest.raises(MalformedReferenceError, match="requires exactly one"):
+        parse_persistable_reference(json.dumps(stated))
+
+
+@pytest.mark.parametrize("definition", [FOOT, DEGREES_FAHRENHEIT])
+def test_unit_payloads_reject_duplicate_conversion_keys(definition: str) -> None:
+    stated = json.loads(definition)
+    member = "scaleOffset" if stated["type"] == "USO" else "abcd"
+    stated[member.upper()] = stated[member]
+    with pytest.raises(MalformedReferenceError, match="requires exactly one"):
+        parse_persistable_reference(json.dumps(stated))
+
+
+@pytest.mark.parametrize("kind", ["USO", "UAD"])
+def test_unit_payloads_require_a_conversion_member(kind: str) -> None:
+    with pytest.raises(MalformedReferenceError, match="requires exactly one"):
+        parse_persistable_reference(json.dumps({"type": kind}))
+
+
+@pytest.mark.parametrize(("kind", "member"), [("USO", "scaleOffset"), ("UAD", "abcd")])
+@pytest.mark.parametrize("conversion", [None, [], 1, "null", {}, "{}"])
+def test_unit_conversion_members_must_be_complete_objects(
+    kind: str, member: str, conversion: Any
+) -> None:
+    with pytest.raises(MalformedReferenceError):
+        parse_persistable_reference(json.dumps({"type": kind, member: conversion}))
+
+
 @pytest.mark.parametrize("name", ["X_Axis_Translation", "x_axis_translation"])
 def test_duplicate_parameters_are_refused(name: str, payload: Any) -> None:
     stated = json.loads(payload("st_position_vector"))

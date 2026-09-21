@@ -447,21 +447,34 @@ def _operation_reference(envelope: Envelope) -> OperationReference:
 
 def _unit_reference(envelope: Envelope) -> UnitReference:
     """Read a ``USO`` or ``UAD`` payload."""
-    if (stated := object_field(envelope.data, "scaleOffset")) is not None:
+    member = "scaleOffset" if envelope.kind is Kind.UNIT_SCALE_OFFSET else "abcd"
+    conversions = [
+        key.casefold()
+        for key in envelope.data
+        if key.casefold() in {"scaleoffset", "abcd"}
+    ]
+    if conversions != [member.casefold()]:
+        raise MalformedReferenceError(
+            f"{_described(envelope.name)} states unit type {envelope.kind.value}, "
+            f"which requires exactly one {member} conversion member and no "
+            "other conversion member"
+        )
+    stated = object_field(envelope.data, member)
+    if stated is None:
+        raise MalformedReferenceError(
+            f"{_described(envelope.name)} states {member} as something other "
+            "than a conversion object"
+        )
+    if envelope.kind is Kind.UNIT_SCALE_OFFSET:
         scale = _number(stated, envelope.name, "scale")
         offset = _number(stated, envelope.name, "offset")
         coefficients = (offset, scale, 1.0, 0.0)
-    elif (stated := object_field(envelope.data, "abcd")) is not None:
+    else:
         coefficients = (
             _number(stated, envelope.name, "a"),
             _number(stated, envelope.name, "b"),
             _number(stated, envelope.name, "c"),
             _number(stated, envelope.name, "d"),
-        )
-    else:
-        raise MalformedReferenceError(
-            f"{_described(envelope.name)} is a unit that states neither a scale "
-            f"and offset nor a polynomial"
         )
     base = object_field(envelope.data, "baseMeasurement") or {}
     return UnitReference(
