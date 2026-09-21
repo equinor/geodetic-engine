@@ -53,6 +53,56 @@ def test_a_bound_reference_carries_its_transformation(payload: Any) -> None:
     assert crs.name == "ED50 / UTM zone 32N"
 
 
+@pytest.mark.parametrize("top_level", [23031, 4326, "not valid WKT"])
+@pytest.mark.parametrize("as_text", [False, True])
+def test_nested_crs_takes_precedence_over_top_level_wkt(
+    top_level: int | str, as_text: bool, payload: Any
+) -> None:
+    from geodetic_engine.geodesy import transform
+
+    original = payload("ebc_projected_position_vector")
+    stated = json.loads(original)
+    stated["WKT"] = (
+        CRS.from_epsg(top_level).to_wkt("WKT1_ESRI")
+        if isinstance(top_level, int)
+        else top_level
+    )
+    nested = stated.pop("lateBoundCRS")
+    stated["LateBoundCRS"] = json.dumps(nested) if as_text else nested
+    definition = json.dumps(stated)
+    reference = parse_persistable_reference(definition)
+    assert isinstance(reference, CrsReference)
+    assert reference.late_bound is not None
+    assert reference.wkt == reference.late_bound.wkt == nested["wkt"]
+    assert reference.to_crs().source_crs.equals(CRS.from_epsg(23032))
+    point = (500000.0, 6600000.0)
+    assert (
+        transform(definition, "EPSG:4326", point).coordinates
+        == transform(original, "EPSG:4326", point).coordinates
+    )
+
+
+def test_early_bound_crs_without_nested_crs_uses_top_level_wkt(payload: Any) -> None:
+    original = payload("ebc_projected_position_vector")
+    stated = json.loads(original)
+    stated["wkt"] = stated.pop("lateBoundCRS")["wkt"]
+    reference = parse_persistable_reference(json.dumps(stated))
+    assert reference.late_bound is None
+    assert reference.to_crs().equals(parse_persistable_reference(original).to_crs())
+
+
+@pytest.mark.parametrize("nested_wkt", [None, "not valid WKT"])
+def test_top_level_wkt_does_not_mask_invalid_nested_crs(
+    nested_wkt: str | None, payload: Any
+) -> None:
+    stated = json.loads(payload("ebc_projected_position_vector"))
+    stated["wkt"] = stated["lateBoundCRS"].pop("wkt")
+    if nested_wkt is not None:
+        stated["lateBoundCRS"]["wkt"] = nested_wkt
+    with pytest.raises(MalformedReferenceError):
+        parse_persistable_reference(json.dumps(stated)).to_crs()
+
+
 @pytest.mark.parametrize("member", ["lateBoundCRS", "singleCT", "compoundCT"])
 @pytest.mark.parametrize("as_text", [False, True])
 def test_a_late_bound_crs_refuses_binding_members(

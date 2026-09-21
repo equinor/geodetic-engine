@@ -124,7 +124,8 @@ class CrsReference(Reference):
 
     Attributes:
         wkt: The ESRI WKT of the CRS itself. For a bound reference this is the
-            late bound CRS's WKT.
+            nested late bound CRS's WKT when supplied, regardless of any
+            top-level WKT.
         late_bound: The CRS being bound, when this reference binds one.
         operation: The transformation it is bound by, when it binds one.
     """
@@ -380,7 +381,7 @@ def _crs_reference(envelope: Envelope) -> CrsReference:
 
     if (nested := object_field(envelope.data, "lateBoundCRS")) is not None:
         late_bound = _crs_reference(_nested(envelope, nested, Kind.LATE_BOUND_CRS))
-        wkt = wkt or late_bound.wkt
+        wkt = late_bound.wkt
     for key, kind in (
         ("singleCT", Kind.TRANSFORMATION),
         ("compoundCT", Kind.CONCATENATED_TRANSFORMATION),
