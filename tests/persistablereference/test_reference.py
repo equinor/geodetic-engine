@@ -17,6 +17,7 @@ from geodetic_engine.persistablereference import (
     UnitReference,
     UnsupportedMethodError,
     UnsupportedReferenceError,
+    operation_from_geogtran,
     parse_persistable_reference,
 )
 from tests.persistablereference.conftest import (
@@ -337,6 +338,59 @@ def test_duplicate_parameters_are_refused(name: str, payload: Any) -> None:
     stated["wkt"] = stated["wkt"][:-1] + f',PARAMETER["{name}",0.0]]'
     with pytest.raises(MalformedReferenceError, match="duplicate parameter"):
         parse_persistable_reference(json.dumps(stated)).to_operation()
+
+
+@pytest.mark.parametrize("as_payload", [False, True])
+@pytest.mark.parametrize(
+    "contents",
+    [
+        '"X_Axis_Translation"',
+        '"X_Axis_Translation",10,20',
+        '"X_Axis_Translation",bogus,10,20',
+        '"X_Axis_Translation",bogus,10',
+        '"X_Axis_Translation",10,bogus',
+        '"X_Axis_Translation","bogus",10',
+        '"X_Axis_Translation",10,"bogus"',
+        '"X_Axis_Translation",UNIT["metre",1],10',
+        '"X_Axis_Translation",10,UNIT["metre",1]',
+        '"X_Axis_Translation","10"',
+        "X_Axis_Translation,10",
+        '10,"X_Axis_Translation"',
+    ],
+)
+def test_malformed_numeric_parameter_nodes_are_refused(
+    contents: str, as_payload: bool, payload: Any
+) -> None:
+    stated = json.loads(payload("st_position_vector"))
+    original = 'PARAMETER["X_Axis_Translation",-116.641]'
+    assert original in stated["wkt"]
+    stated["wkt"] = stated["wkt"].replace(original, f"PARAMETER[{contents}]")
+    with pytest.raises(
+        MalformedReferenceError, match="quoted name and one numeric value"
+    ):
+        if as_payload:
+            parse_persistable_reference(json.dumps(stated)).to_operation()
+        else:
+            operation_from_geogtran(stated["wkt"])
+
+
+@pytest.mark.parametrize("as_payload", [False, True])
+@pytest.mark.parametrize("literal", ["0", "-10", "1.25", "1e1"])
+def test_single_numeric_parameter_values_are_preserved(
+    literal: str, as_payload: bool, payload: Any
+) -> None:
+    stated = json.loads(payload("st_position_vector"))
+    stated["wkt"] = stated["wkt"].replace(
+        'PARAMETER["X_Axis_Translation",-116.641]',
+        f'PARAMETER["X_Axis_Translation",{literal}]',
+    )
+    operation = (
+        parse_persistable_reference(json.dumps(stated)).to_operation()
+        if as_payload
+        else operation_from_geogtran(stated["wkt"])
+    )
+    assert operation.params[0].value == float(literal)
+    assert len(operation.params) == 7
 
 
 def test_grid_method_must_match_the_dataset(payload: Any) -> None:

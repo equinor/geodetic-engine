@@ -668,12 +668,16 @@ def _parameter_method(node: Node, name: str, described: str) -> JsonObject:
             raise MalformedReferenceError(
                 f"{_described(described)} states duplicate parameter {parameter.name!r}"
             )
-        if not parameter.values:
+        if (
+            not parameter.name
+            or len(parameter.children) != 2
+            or not isinstance(parameter.children[1], int | float)
+        ):
             raise MalformedReferenceError(
                 f"{_described(described)} states parameter {parameter.name!r} "
-                f"with no value"
+                "without exactly a quoted name and one numeric value"
             )
-        stated[parameter.name.casefold()] = parameter.values[0]
+        stated[parameter.name.casefold()] = float(parameter.children[1])
 
     expected = {esri.casefold() for esri in found.parameters}
     if not stated:
