@@ -93,6 +93,9 @@ def test_nested_discriminators_match_their_container(
         nested["Type"] = stated_kind.lower()
     if member == "compoundCT":
         stated.pop("singleCT")
+        operation = parse_persistable_reference(payload(case)).to_operation()
+        source = CRS.from_json_dict(operation.to_json_dict()["source_crs"])
+        stated["lateBoundCRS"] = {"type": "LBC", "wkt": source.to_wkt("WKT1_ESRI")}
     stated[member] = nested
     if stated_kind == "ZZZ":
         with pytest.raises(UnsupportedReferenceError, match="ZZZ"):

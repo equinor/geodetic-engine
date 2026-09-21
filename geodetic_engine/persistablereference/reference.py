@@ -147,7 +147,8 @@ class CrsReference(Reference):
 
         Raises:
             MalformedReferenceError: If the reference states no WKT, or PROJ
-                will not read it.
+                will not read it, or the bound operation's source CRS does not
+                match the base geodetic CRS.
             UnsupportedMethodError: If the bound transformation states a method
                 this package will not translate.
             UnembeddableOperationError: If the bound transformation cannot be
@@ -182,7 +183,10 @@ class CrsReference(Reference):
         Raises:
             ValueError: If this reference already states a transformation of
                 its own. Binding a second would discard the first in silence.
-            MalformedReferenceError: If PROJ will not assemble the two.
+            MalformedReferenceError: If the operation's source CRS does not
+                match this CRS's geodetic base (ignoring axis order), or PROJ
+                will not assemble the two. Reversed operations must be
+                explicitly inverted before binding.
             UnsupportedMethodError: If the transformation states a method this
                 package will not translate.
             UnembeddableOperationError: If it cannot be stated as the single
@@ -560,6 +564,19 @@ def _crs(wkt: str, described: str) -> CRS:
 def _bound(base: CRS, operation: OperationReference, described: str) -> CRS:
     """Package a CRS with the transformation that ties it to its hub."""
     built = operation.to_operation()
+    source = built.to_json_dict().get("source_crs")
+    geographic_base = base.geodetic_crs
+    if (
+        not isinstance(source, dict)
+        or geographic_base is None
+        or not geographic_base.equals(
+            CRS.from_json_dict(source), ignore_axis_order=True
+        )
+    ):
+        raise MalformedReferenceError(
+            f"{_described(described)} cannot bind {operation.name!r}: the "
+            "operation's source CRS does not match the base geodetic CRS"
+        )
     if operation.is_concatenated:
         # A bound CRS carries one transformation, so a chain has to become one
         # equivalent step or be refused. collapse_concatenated proves the

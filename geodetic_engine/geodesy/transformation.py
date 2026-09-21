@@ -111,9 +111,6 @@ _POSITION_FREE_VERTICAL_METHODS = frozenset(
     }
 )
 
-_DATUM_ENSEMBLE_SUFFIX = " ensemble"
-"""What EPSG appends to name the ensemble a plain datum is one realisation of."""
-
 
 @dataclass(frozen=True, slots=True)
 class _Pipeline:
@@ -1348,17 +1345,37 @@ def _operation_ends(transformer: Transformer) -> tuple[CRS, CRS] | None:
 def _datum_names(crs: CRS) -> frozenset[str]:
     """Names of every datum the CRS is built on, including compound components.
 
-    An ensemble and a plain datum of the same name are read as one frame. WKT1
-    has no ensembles, so a definition read from ESRI WKT names the datum that a
-    definition from EPSG names the ensemble of; taking those for two frames
-    would invent a datum change where PROJ itself performs none.
+    WKT1 cannot represent ensembles. A plain geodetic datum is normalized to
+    a registered ensemble only when its geographic CRS is equivalent to that
+    registry definition. The registry lookup only proposes a candidate; its
+    confidence score does not establish equivalence. A name suffix is not evidence
+    that two frames are interchangeable.
     """
     parts = crs.sub_crs_list or [crs]
     names = set()
     for part in parts:
         datum = part.datum
         if datum is not None:
-            names.add(str(datum.name).removesuffix(_DATUM_ENSEMBLE_SUFFIX).strip())
+            name = str(datum.name)
+            geographic = part.geodetic_crs
+            if (
+                datum.type_name == "Geodetic Reference Frame"
+                and geographic is not None
+                and geographic.is_geographic
+            ):
+                horizontal = geographic.to_2d()
+                if identified := horizontal.to_authority(
+                    auth_name="EPSG", min_confidence=0
+                ):
+                    registered = CRS.from_authority(*identified).to_2d()
+                    ensemble = registered.datum
+                    if (
+                        ensemble is not None
+                        and ensemble.type_name == "Datum Ensemble"
+                        and horizontal.equals(registered, ignore_axis_order=True)
+                    ):
+                        name = str(ensemble.name)
+            names.add(name)
     return frozenset(names)
 
 

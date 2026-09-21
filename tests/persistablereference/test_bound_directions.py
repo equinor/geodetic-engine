@@ -37,6 +37,7 @@ from pyproj import CRS
 from geodetic_engine.geodesy import transform
 from geodetic_engine.persistablereference import (
     CrsReference,
+    MalformedReferenceError,
     OperationReference,
     parse_persistable_reference,
 )
@@ -69,6 +70,46 @@ def _shift(payloads: dict[str, str], case: str) -> OperationReference:
     reference = parse_persistable_reference(payloads[case])
     assert isinstance(reference, OperationReference)
     return reference
+
+
+@pytest.mark.parametrize("base_code", [4326, 4267, 4277, 32632, 5703])
+@pytest.mark.parametrize("packaged", [False, True])
+def test_a_binding_refuses_an_unrelated_or_reversed_source(
+    base_code: int, packaged: bool, payload: dict[str, str]
+) -> None:
+    base = {
+        "type": "LBC",
+        "wkt": CRS.from_epsg(base_code).to_wkt("WKT1_ESRI"),
+    }
+    with pytest.raises(MalformedReferenceError, match="source CRS does not match"):
+        if packaged:
+            parse_persistable_reference(
+                json.dumps(
+                    {
+                        "type": "EBC",
+                        "lateBoundCRS": base,
+                        "singleCT": json.loads(payload[BOUND_SHIFT]),
+                    }
+                )
+            ).to_crs()
+        else:
+            parse_persistable_reference(json.dumps(base)).to_bound_crs(
+                _shift(payload, BOUND_SHIFT)
+            )
+
+
+@pytest.mark.parametrize("base_code", [4230, 23032])
+def test_a_binding_accepts_axis_equivalent_source_representations(
+    base_code: int, payload: dict[str, str]
+) -> None:
+    base = parse_persistable_reference(
+        json.dumps({"type": "LBC", "wkt": CRS.from_epsg(base_code).to_wkt("WKT1_ESRI")})
+    )
+    shift = _shift(payload, BOUND_SHIFT)
+    bound = base.to_bound_crs(shift)
+    assert bound.is_bound
+    assert bound.source_crs.equals(base.to_crs(), ignore_axis_order=True)
+    assert bound.coordinate_operation.name == shift.to_operation().name
 
 
 def _step_by_step(

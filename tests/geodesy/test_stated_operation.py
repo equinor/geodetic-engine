@@ -228,6 +228,28 @@ def test_every_end_may_be_esri_wkt_with_no_authority_code_anywhere() -> None:
     assert stated.coordinates[0] == pytest.approx(named.coordinates[0], abs=1e-9)
 
 
+@pytest.mark.parametrize("end", ["source", "target"])
+def test_stated_operations_do_not_bridge_custom_ensemble_suffixes(end: str) -> None:
+    original = (
+        'GEOGCS["Custom CRS",DATUM["Example",'
+        'SPHEROID["Custom",6378137,298.257223563]],'
+        'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
+    )
+    unrelated = original.replace('"Example"', '"Example ensemble"').replace(
+        "6378137", "6378000"
+    )
+    if end == "source":
+        operation = geogtran().replace(ED50_ESRI, original)
+        source, target = unrelated, WGS84_ESRI
+        message = "neither of which shares a datum"
+    else:
+        operation = geogtran().replace(WGS84_ESRI, original)
+        source, target = ED50_ESRI, unrelated
+        message = "additional, unrequested datum change"
+    with pytest.raises(OperationNotAvailableError, match=message):
+        transform(source, target, POINT, operation=operation)
+
+
 @pytest.mark.parametrize("as_payload", [False, True])
 def test_a_vertical_esri_transformation_is_refused_as_unmodelled(
     as_payload: bool,

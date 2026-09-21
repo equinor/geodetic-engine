@@ -36,7 +36,7 @@ from geodetic_engine.geodesy import (
     available_operations,
 )
 from geodetic_engine.geodesy.operation import is_ballpark
-from geodetic_engine.geodesy.transformation import _require_in_range
+from geodetic_engine.geodesy.transformation import _datum_names, _require_in_range
 
 # No datum shift is defined between the Puerto Rico datum and GDA94, so PROJ
 # can only offer a ballpark geographic offset between them.
@@ -119,6 +119,46 @@ def test_same_datum_conversion_needs_no_operation() -> None:
     transformation = Transformation("EPSG:4326", "EPSG:3395")
     assert transformation.operation.route == OperationRoute.PROJ_DEFAULT
     assert transformation.operation.authority_code is not None
+
+
+def test_custom_datums_are_not_equated_by_an_ensemble_suffix() -> None:
+    source = CRS.from_wkt(
+        'GEOGCS["Custom source",DATUM["Example",'
+        'SPHEROID["Custom",6378137,298.257223563]],'
+        'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
+    )
+    target = CRS.from_wkt(
+        'GEOGCS["Custom target",DATUM["Example ensemble",'
+        'SPHEROID["Custom",6378136,298.257223563]],'
+        'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
+    )
+    assert _datum_names(source) != _datum_names(target)
+    with pytest.raises(AmbiguousOperationError, match="datum change"):
+        Transformation(source, target)
+
+
+@pytest.mark.parametrize("code", [4326, 4258, 4979, 4937, 32632, 25832])
+def test_verified_wkt1_ensembles_remain_same_datum_conversions(code: int) -> None:
+    registered = CRS.from_epsg(code)
+    legacy = CRS.from_wkt(registered.to_wkt("WKT1_ESRI"))
+    assert _datum_names(legacy) == _datum_names(registered)
+    point = (500000.0, 6600000.0) if registered.is_projected else (10.0, 60.0)
+    if len(registered.axis_info) == 3:
+        point = (*point, 100.0)
+    for source, target in ((legacy, registered), (registered, legacy)):
+        result = Transformation(source, target).transform(point)
+        assert result.coordinates[0] == pytest.approx(point, abs=1e-8)
+
+
+def test_a_registry_identifier_does_not_override_a_different_datum_definition() -> None:
+    registered = CRS.from_epsg(4326)
+    definition = CRS.from_wkt(registered.to_wkt("WKT1_ESRI")).to_json_dict()
+    definition["id"] = {"authority": "EPSG", "code": 4326}
+    definition["datum"]["ellipsoid"]["semi_major_axis"] = 6378000.0
+    altered = CRS.from_json_dict(definition)
+    assert altered.to_authority(auth_name="EPSG", min_confidence=0) == ("EPSG", "4326")
+    assert not altered.equals(registered, ignore_axis_order=True)
+    assert _datum_names(altered) != _datum_names(registered)
 
 
 def test_requested_operation_is_the_one_reported() -> None:
