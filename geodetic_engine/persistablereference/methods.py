@@ -137,6 +137,9 @@ METHODS: dict[str, Method] = {
     "Molodensky_Badekas": Method(
         9636, "Molodensky-Badekas (CF geog2D domain)", (*_HELMERT, *_PIVOT)
     ),
+    "Molodensky_Badekas_Position_Vector": Method(
+        1063, "Molodensky-Badekas (PV geog2D domain)", (*_HELMERT, *_PIVOT)
+    ),
     "Longitude_Rotation": Method(9601, "Longitude rotation", ("Longitude_Offset",)),
     "Geographic_2D_Offset": Method(
         9619, "Geographic2D offsets", ("Latitude_Offset", "Longitude_Offset")
@@ -161,11 +164,6 @@ REFUSED: dict[str, str] = {
         "ESRI states no semi-major axis or flattening difference for it, so "
         "the EPSG form cannot be stated without inferring both from the two "
         "ellipsoids"
-    ),
-    "Molodensky_Badekas_Position_Vector": (
-        "EPSG defines Molodensky-Badekas in the position vector convention "
-        "only for geocentric coordinates, not for the geographic 2D domain a "
-        "GEOGTRAN acts on"
     ),
     "Time_Based_Helmert_Position_Vector": (
         "a 14-parameter Helmert reads a coordinate epoch, which a "

@@ -119,6 +119,38 @@ def test_bursa_wolf_lands_where_epsg_1237_does_with_rotations_negated() -> None:
     )
 
 
+def test_position_vector_molodensky_badekas_lands_where_epsg_6889_does() -> None:
+    """ESRI's published WKT for EPSG:6889, read here, matches PROJ's EPSG:6889."""
+    stated = operation_from_geogtran(
+        'GEOGTRAN["Ocotepeque_1935_to_WGS_1984_2_MB",'
+        'GEOGCS["GCS_Ocotepeque_1935",DATUM["D_Ocotepeque_1935",'
+        'SPHEROID["Clarke_1866",6378206.4,294.9786982]],'
+        'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],'
+        'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
+        'SPHEROID["WGS_1984",6378137.0,298.257223563]],'
+        'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],'
+        'METHOD["Molodensky_Badekas_Position_Vector"],'
+        'PARAMETER["X_Axis_Translation",213.116],'
+        'PARAMETER["Y_Axis_Translation",9.358],'
+        'PARAMETER["Z_Axis_Translation",-74.946],'
+        'PARAMETER["X_Axis_Rotation",2.351418791216898],'
+        'PARAMETER["Y_Axis_Rotation",-0.06146691226163471],'
+        'PARAMETER["Z_Axis_Rotation",6.394208993659987],'
+        'PARAMETER["Scale_Difference",5.22],'
+        'PARAMETER["X_Coordinate_of_Rotation_Origin",617749.7118],'
+        'PARAMETER["Y_Coordinate_of_Rotation_Origin",-6250547.7336],'
+        'PARAMETER["Z_Coordinate_of_Rotation_Origin",1102063.6099],'
+        "OPERATIONACCURACY[5.0]]"
+    )
+    mine = Transformer.from_pipeline(stated.to_json(), always_xy=True)
+    epsg = Transformer.from_pipeline(
+        CoordinateOperation.from_epsg(6889).to_json(), always_xy=True
+    )
+    assert mine.transform(-84.0, 10.0) == pytest.approx(
+        epsg.transform(-84.0, 10.0), abs=1e-9
+    )
+
+
 @pytest.mark.parametrize(
     ("dataset", "expected"),
     [
