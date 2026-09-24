@@ -66,6 +66,7 @@ from geodetic_engine.geodesy.operation import (
     datum_operation_count,
     fully_requested,
     grid_usages,
+    has_inverted_step,
     is_ballpark,
     operation_names,
     parse_operations,
@@ -1310,6 +1311,13 @@ def _stated_transformer(request: OperationRequest) -> Transformer:
     definition = request.definition
     if definition is None:
         raise ValueError(f"{request} states no operation to run")
+    if has_inverted_step(definition.to_json_dict()):
+        # PROJJSON writes an inverted step with its forward parameters.
+        raise OperationNotAvailableError(
+            f"{request} states an operation with a step applied inverted, which "
+            "PROJ would run forwards once handed over; state that step in the "
+            "direction it is applied"
+        )
     try:
         return Transformer.from_pipeline(definition.to_json(), always_xy=True)
     except (ProjError, CRSError) as error:

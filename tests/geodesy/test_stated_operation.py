@@ -195,6 +195,17 @@ def test_a_stated_operation_cannot_be_combined_with_a_named_one() -> None:
         transform(ED50, WGS84, POINT, operation=[payload(), "EPSG:1133"])
 
 
+def test_a_stated_operation_with_an_inverted_step_is_refused() -> None:
+    """EPSG:4837 run through PROJJSON lands 176 m from ESRI's and PROJ's own answer."""
+
+    class Stated:
+        def to_operation(self) -> CoordinateOperation:
+            return CoordinateOperation.from_epsg(4837)
+
+    with pytest.raises(OperationNotAvailableError, match="inverted"):
+        transform("EPSG:4289", ED50, (5.4, 52.2), operation=Stated())
+
+
 def test_a_bare_geogtran_states_the_same_operation_as_its_payload() -> None:
     """The envelope carries the WKT; without one the WKT still states it."""
     from_wkt = transform(ED50, WGS84, POINT, operation=geogtran())
