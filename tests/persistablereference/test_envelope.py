@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import quote
+from collections.abc import Callable
+from urllib.parse import quote, quote_plus
 
 import pytest
 
@@ -33,14 +34,31 @@ def test_reads_what_the_envelope_states() -> None:
     assert envelope.version == "PE_10_9_1"
 
 
+@pytest.mark.parametrize("encode", [quote, quote_plus])
 @pytest.mark.parametrize("rounds", [0, 1, 2])
-def test_url_encoding_is_undone(rounds: int) -> None:
+def test_url_encoding_is_undone(rounds: int, encode: Callable[[str], str]) -> None:
     """A payload encoded on its way through a service still reads."""
     text = json.dumps(LATE_BOUND)
     for _ in range(rounds):
-        text = quote(text)
+        text = encode(text)
     assert decode(text).kind is Kind.LATE_BOUND_CRS
     assert looks_like_reference(text)
+
+
+@pytest.mark.parametrize(
+    "encoders",
+    [(quote_plus,), (quote_plus, quote_plus), (quote_plus, quote), (quote, quote_plus)],
+    ids=["form", "form-form", "form-url", "url-form"],
+)
+def test_form_encoding_keeps_spaces_and_literal_plus_signs(
+    encoders: tuple[Callable[[str], str], ...],
+) -> None:
+    """Form encoding writes a space as ``+`` and a literal plus as ``%2B``."""
+    name = "ED50 / UTM zone 32N + 1 m"
+    text = json.dumps(dict(LATE_BOUND, name=name))
+    for encode in encoders:
+        text = encode(text)
+    assert decode(text).name == name
 
 
 def test_decoding_stops_rather_than_running_to_a_fixed_point() -> None:

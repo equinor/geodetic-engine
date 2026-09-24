@@ -30,7 +30,7 @@ import json
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import unquote_plus
 
 from geodetic_engine.persistablereference.errors import (
     MalformedReferenceError,
@@ -317,7 +317,8 @@ def _decoded(raw: str) -> str:
     for _ in range(_MAX_DECODES):
         if not text.startswith("%"):
             break
-        text = unquote(text).strip()
+        # A bare "+" is a form-encoded space; a literal "+" arrives as %2B.
+        text = unquote_plus(text).strip()
     return text
 
 
