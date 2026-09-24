@@ -26,6 +26,7 @@ payload that looks right.
 from __future__ import annotations
 
 import json
+from math import isclose
 
 from pyproj import CRS
 from pyproj.crs import CoordinateOperation
@@ -46,6 +47,7 @@ from geodetic_engine.persistablereference.errors import (
 from geodetic_engine.persistablereference.esriwkt import Node
 
 _TRANSFORMATION_KEYWORD = "GEOGTRAN"
+_OFFSET_METHODS = frozenset({"Longitude_Rotation", "Geographic_2D_Offset"})
 
 
 def to_persistable_reference(
@@ -109,7 +111,8 @@ def geogtran(operation: CoordinateOperation, name: str = "") -> Node:
         UnsupportedMethodError: If ESRI has no equivalent for the method or one
             of its parameters.
         UnsupportedReferenceError: If the operation is not a single step
-            between two geographic CRSs.
+            between two geographic CRSs, or states offsets across a prime
+            meridian change that ESRI cannot state unambiguously.
         MalformedReferenceError: If PROJ will not write either CRS as ESRI WKT.
     """
     definition = operation.to_json_dict()
@@ -128,7 +131,7 @@ def geogtran(operation: CoordinateOperation, name: str = "") -> Node:
         _geographic(definition, "target_crs", operation.name),
         Node("METHOD", (method,)),
     ]
-    children.extend(_parameters(definition, operation.name))
+    children.extend(_offsets(definition, method, operation.name))
     if isinstance(accuracy := definition.get("accuracy"), str | int | float):
         children.append(Node("OPERATIONACCURACY", (float(accuracy),)))
     if (stamped := _identifier(definition)) is not None:
@@ -182,6 +185,38 @@ def _operation_payload(operation: CoordinateOperation, name: str) -> JsonObject:
             for step in steps
         ],
     }
+
+
+def _offsets(definition: JsonObject, method: str, described: str) -> list[Node]:
+    """State the parameters, as ESRI reads offsets across a prime meridian."""
+    parameters = _parameters(definition, described)
+    if method not in _OFFSET_METHODS:
+        return parameters
+    radians = []
+    for end in ("source_crs", "target_crs"):
+        meridian = CRS.from_json_dict(definition[end]).prime_meridian
+        if meridian is None:
+            raise MalformedReferenceError(
+                f"{_described(described)} goes between frames PROJ states no "
+                "prime meridian for"
+            )
+        radians.append(meridian.longitude * float(meridian.unit_conversion_factor))
+    if not (
+        difference := (radians[0] - radians[1]) / methods.factor(methods.ARC_SECOND)
+    ):
+        return parameters
+    stated = parameters[0].children[1]
+    if (
+        method == "Longitude_Rotation"
+        and isinstance(stated, int | float)
+        and isclose(stated, difference, abs_tol=1e-6)
+    ):
+        # ESRI writes a pure prime meridian change with no parameter at all.
+        return []
+    raise UnsupportedReferenceError(
+        f"{_described(described)} states offsets between frames on different "
+        "prime meridians, which a GEOGTRAN cannot state unambiguously"
+    )
 
 
 def _parameters(definition: JsonObject, described: str) -> list[Node]:

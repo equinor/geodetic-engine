@@ -3,7 +3,7 @@
 A ``GEOGTRAN`` names its method and parameters in ESRI's vocabulary and states
 no units at all, because ESRI fixes one unit per parameter kind: translations
 are metres, rotations are arc-seconds, a scale difference is parts per million,
-and an offset is degrees. EPSG names the same methods and parameters
+and an offset is arc-seconds. EPSG names the same methods and parameters
 differently, and states the unit explicitly. These tables are that
 correspondence, and they are the only place in this package where one
 vocabulary is turned into the other.
@@ -40,10 +40,9 @@ from geodetic_engine.persistablereference.errors import (
 
 type Unit = str | dict[str, Any]
 
-# The four units a GEOGTRAN parameter is implicitly stated in. PROJJSON writes
-# metre and degree as bare names and anything else as an object.
+# The three units a GEOGTRAN parameter is implicitly stated in. PROJJSON writes
+# metre as a bare name and anything else as an object.
 METRE: Unit = "metre"
-DEGREE: Unit = "degree"
 ARC_SECOND: Unit = {
     "type": "AngularUnit",
     "name": "arc-second",
@@ -117,8 +116,9 @@ PARAMETERS: dict[str, Parameter] = {
     "Z_Coordinate_of_Rotation_Origin": Parameter(
         8667, "Ordinate 3 of evaluation point", METRE
     ),
-    "Latitude_Offset": Parameter(8601, "Latitude offset", DEGREE),
-    "Longitude_Offset": Parameter(8602, "Longitude offset", DEGREE),
+    # ESRI writes EPSG:3913's -17.6627833 degree offset as -63586.02.
+    "Latitude_Offset": Parameter(8601, "Latitude offset", ARC_SECOND),
+    "Longitude_Offset": Parameter(8602, "Longitude offset", ARC_SECOND),
 }
 
 METHODS: dict[str, Method] = {

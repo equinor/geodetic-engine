@@ -16,6 +16,7 @@ from geodetic_engine.persistablereference import (
     UnsupportedMethodError,
     UnsupportedReferenceError,
     esriwkt,
+    operation_from_geogtran,
     parse_persistable_reference,
     to_persistable_reference,
 )
@@ -191,6 +192,27 @@ def test_a_method_esri_has_no_name_for_is_refused(code: str) -> None:
     """Writing it as the nearest method that fits would change the transformation."""
     with pytest.raises(UnsupportedMethodError, match="no ESRI equivalent"):
         geogtran(CoordinateOperation.from_authority("EPSG", code))
+
+
+def test_a_prime_meridian_change_is_written_as_esri_does() -> None:
+    """ESRI states EPSG:1763 with no parameter, the two PRIMEMs carrying it."""
+    operation = CoordinateOperation.from_epsg(1763)
+    written = geogtran(operation)
+    assert not written.nodes("PARAMETER")
+    again = operation_from_geogtran(esriwkt.write(written))
+    mine, epsg = (
+        Transformer.from_pipeline(o.to_json(), always_xy=True)
+        for o in (again, operation)
+    )
+    assert mine.transform(0.0, 50.0) == pytest.approx(
+        epsg.transform(0.0, 50.0), abs=1e-9
+    )
+
+
+def test_an_offset_across_a_prime_meridian_change_is_refused() -> None:
+    """EPSG:1764 is not the Paris meridian, and ESRI would read it back as one."""
+    with pytest.raises(UnsupportedReferenceError, match="prime meridians"):
+        geogtran(CoordinateOperation.from_epsg(1764))
 
 
 @pytest.mark.parametrize("code", [7912, 7789])

@@ -20,6 +20,7 @@ from pyproj.crs import CoordinateOperation
 from geodetic_engine.persistablereference import (
     UnresolvableGridError,
     UnsupportedMethodError,
+    UnsupportedReferenceError,
     operation_from_geogtran,
 )
 from geodetic_engine.persistablereference import methods as mt
@@ -149,6 +150,66 @@ def test_position_vector_molodensky_badekas_lands_where_epsg_6889_does() -> None
     assert mine.transform(-84.0, 10.0) == pytest.approx(
         epsg.transform(-84.0, 10.0), abs=1e-9
     )
+
+
+_BESSEL = 'SPHEROID["Bessel_1841",6377397.155,299.1528128]]'
+_GREENWICH_DEGREE = 'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
+
+
+@pytest.mark.parametrize(
+    ("code", "point", "wkt"),
+    [
+        (
+            1447,
+            (-63.05, 18.2),
+            'GEOGTRAN["Anguilla_1957_To_WGS_1984_1",'
+            'GEOGCS["GCS_Anguilla_1957",DATUM["D_Anguilla_1957",'
+            'SPHEROID["Clarke_1880_RGS",6378249.145,293.465]],'
+            f"{_GREENWICH_DEGREE},"
+            'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
+            'SPHEROID["WGS_1984",6378137.0,298.257223563]],'
+            f"{_GREENWICH_DEGREE},"
+            'METHOD["Geographic_2D_Offset"],'
+            'PARAMETER["Longitude_Offset",4.4],PARAMETER["Latitude_Offset",-18.0]]',
+        ),
+        (
+            5133,
+            (135.0, 35.0),
+            'GEOGTRAN["Tokyo_1892_to_Tokyo_1",'
+            f'GEOGCS["Tokyo_1892",DATUM["Tokyo_1892",{_BESSEL},{_GREENWICH_DEGREE},'
+            f'GEOGCS["GCS_Tokyo",DATUM["D_Tokyo",{_BESSEL},{_GREENWICH_DEGREE},'
+            'METHOD["Longitude_Rotation"],PARAMETER["Longitude_Offset",10.405]]',
+        ),
+    ],
+    ids=["geographic-2d-offset", "longitude-rotation"],
+)
+def test_offsets_are_read_as_arc_seconds(
+    code: int, point: tuple[float, float], wkt: str
+) -> None:
+    """ESRI's published WKT for these EPSG operations lands where EPSG's does."""
+    mine = Transformer.from_pipeline(
+        operation_from_geogtran(wkt).to_json(), always_xy=True
+    )
+    epsg = Transformer.from_pipeline(
+        CoordinateOperation.from_epsg(code).to_json(), always_xy=True
+    )
+    assert mine.transform(*point) == pytest.approx(epsg.transform(*point), abs=1e-9)
+
+
+def test_offsets_across_a_prime_meridian_change_are_refused() -> None:
+    """ESRI's engine adds Athens to EPSG:8644's offsets, and EPSG does not."""
+    with pytest.raises(UnsupportedReferenceError, match="prime meridians"):
+        operation_from_geogtran(
+            'GEOGTRAN["Greek_(Athens)_to_WGS_1984_1",'
+            'GEOGCS["GCS_Greek_Athens",DATUM["D_Greek",'
+            f'{_BESSEL},PRIMEM["Athens",23.7163375],'
+            'UNIT["Degree",0.0174532925199433]],'
+            'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
+            'SPHEROID["WGS_1984",6378137.0,298.257223563]],'
+            f"{_GREENWICH_DEGREE},"
+            'METHOD["Geographic_2D_Offset"],'
+            'PARAMETER["Longitude_Offset",0.28],PARAMETER["Latitude_Offset",-5.86]]'
+        )
 
 
 @pytest.mark.parametrize(

@@ -341,7 +341,6 @@ def test_axis_order_is_reported_not_reinterpreted(payload: Any) -> None:
     [
         ("refused_reversible_polynomial", UnsupportedMethodError),
         ("refused_time_specific", UnsupportedMethodError),
-        ("refused_longitude_rotation_without_parameters", UnsupportedReferenceError),
         ("refused_reversed_step", UnsupportedReferenceError),
     ],
 )
@@ -358,6 +357,22 @@ def test_a_reversed_step_is_refused_rather_than_swapped(payload: Any) -> None:
     """Swapping a step's ends leaves PROJ applying it forwards, off by the shift."""
     with pytest.raises(UnsupportedReferenceError, match="reverse"):
         parse_persistable_reference(payload("refused_reversed_step")).to_operation()
+
+
+def test_a_longitude_rotation_reads_its_offset_from_the_prime_meridians(
+    payload: Any,
+) -> None:
+    """ESRI states EPSG:1763 as Paris and Greenwich PRIMEMs with no parameter."""
+    stated = parse_persistable_reference(
+        payload("st_longitude_rotation_from_prime_meridians")
+    ).to_operation()
+    mine = Transformer.from_pipeline(stated.to_json(), always_xy=True)
+    epsg = Transformer.from_pipeline(
+        CoordinateOperation.from_epsg(1763).to_json(), always_xy=True
+    )
+    assert mine.transform(0.0, 50.0) == pytest.approx(
+        epsg.transform(0.0, 50.0), abs=1e-9
+    )
 
 
 def test_a_unit_converts_both_ways() -> None:

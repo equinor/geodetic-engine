@@ -54,6 +54,8 @@ from geodetic_engine.persistablereference.esriwkt import Node
 
 _TRANSFORMATION_KEYWORD = "GEOGTRAN"
 _VERTICAL_KEYWORD = "VERTTRAN"
+_LONGITUDE_ROTATION = 9601
+_OFFSET_METHODS = frozenset({_LONGITUDE_ROTATION, 9619})
 
 
 @dataclass(frozen=True, slots=True)
@@ -692,6 +694,18 @@ def _parameter_method(node: Node, name: str, described: str) -> JsonObject:
         stated[parameter.name.casefold()] = float(parameter.children[1])
 
     expected = {esri.casefold() for esri in found.parameters}
+    if found.code in _OFFSET_METHODS:
+        meridians = _prime_meridian_offset(node, described)
+        if not stated and found.code == _LONGITUDE_ROTATION:
+            # ESRI leaves a prime meridian change implicit in the two PRIMEMs.
+            stated[found.parameters[0].casefold()] = meridians
+        elif stated and meridians:
+            raise UnsupportedReferenceError(
+                f"{_described(described)} states offsets between frames on "
+                "different prime meridians; ESRI's engine adds the prime "
+                "meridian change to them and EPSG does not, so which is meant "
+                "cannot be read from the payload"
+            )
     if not stated:
         raise UnsupportedReferenceError(
             f"{_described(described)} states method {name} with no parameters "
@@ -715,6 +729,20 @@ def _parameter_method(node: Node, name: str, described: str) -> JsonObject:
             for esri in found.parameters
         ],
     }
+
+
+def _prime_meridian_offset(node: Node, described: str) -> float:
+    """The source frame's prime meridian less the target's, in arc-seconds."""
+    radians = []
+    for frame in node.nodes("GEOGCS"):
+        meridian = _crs(esriwkt.write(frame), described).prime_meridian
+        if meridian is None:
+            raise MalformedReferenceError(
+                f"{_described(described)} states a frame with no prime meridian"
+            )
+        radians.append(meridian.longitude * float(meridian.unit_conversion_factor))
+    source, target = radians
+    return (source - target) / methods.factor(methods.ARC_SECOND)
 
 
 def _grid_method(node: Node, name: str, described: str) -> JsonObject:
