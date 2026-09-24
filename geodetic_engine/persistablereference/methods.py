@@ -128,11 +128,9 @@ METHODS: dict[str, Method] = {
     "Position_Vector": Method(
         9606, "Position Vector transformation (geog2D domain)", _HELMERT
     ),
-    # ESRI's own older name for the same seven parameters in the same
-    # convention, which its documentation states as equivalent.
-    "Bursa_Wolf": Method(
-        9606, "Position Vector transformation (geog2D domain)", _HELMERT
-    ),
+    # "In the Projection Engine, the Coordinate Frame and Bursa-Wolf methods are
+    # the same": ArcSDE 10.0 SDK, Geographic transformation methods.
+    "Bursa_Wolf": Method(9607, "Coordinate Frame rotation (geog2D domain)", _HELMERT),
     "Coordinate_Frame": Method(
         9607, "Coordinate Frame rotation (geog2D domain)", _HELMERT
     ),
@@ -268,9 +266,14 @@ def is_grid_method(name: str) -> bool:
 
 # What to call an EPSG method when writing ESRI WKT. Needed because the
 # correspondence is not one to one: ESRI has two names for the seven parameter
-# position vector method, and reads three grid methods this package resolves
+# coordinate frame method, and reads three grid methods this package resolves
 # through PROJ's database rather than through METHODS.
-_WRITTEN_AS: dict[int, str] = {9606: "Position_Vector", 9613: "NADCON", 9615: "NTv2"}
+_WRITTEN_AS: dict[int, str] = {
+    9606: "Position_Vector",
+    9607: "Coordinate_Frame",
+    9613: "NADCON",
+    9615: "NTv2",
+}
 
 
 def esri_method(code: int) -> str:

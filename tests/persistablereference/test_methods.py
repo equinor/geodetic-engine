@@ -14,12 +14,13 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from pyproj import datadir
+from pyproj import Transformer, datadir
 from pyproj.crs import CoordinateOperation
 
 from geodetic_engine.persistablereference import (
     UnresolvableGridError,
     UnsupportedMethodError,
+    operation_from_geogtran,
 )
 from geodetic_engine.persistablereference import methods as mt
 
@@ -86,10 +87,36 @@ def test_every_method_is_written_back_under_a_name_it_is_read_by(esri: str) -> N
     assert mt.esri_method(mt.METHODS[esri].code) in mt.METHODS
 
 
-def test_the_two_names_for_seven_parameters_agree() -> None:
-    """ESRI's older name for the position vector method is the same method."""
-    assert mt.METHODS["Bursa_Wolf"] == mt.METHODS["Position_Vector"]
+def test_bursa_wolf_is_the_coordinate_frame_convention() -> None:
+    """ESRI's Projection Engine reads Bursa_Wolf as Coordinate Frame, not Position Vector."""
+    assert mt.METHODS["Bursa_Wolf"] == mt.METHODS["Coordinate_Frame"]
+    assert mt.esri_method(9607) == "Coordinate_Frame"
     assert mt.esri_method(9606) == "Position_Vector"
+
+
+def test_bursa_wolf_lands_where_epsg_1237_does_with_rotations_negated() -> None:
+    """EPSG:1237 restated in Coordinate Frame signs, as ESRI's own example does."""
+    stated = operation_from_geogtran(
+        'GEOGTRAN["WGS_1972_To_WGS_1984_1",'
+        'GEOGCS["GCS_WGS_1972",DATUM["D_WGS_1972",'
+        'SPHEROID["WGS_1972",6378135.0,298.26]],'
+        'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],'
+        'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
+        'SPHEROID["WGS_1984",6378137.0,298.257223563]],'
+        'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],'
+        'METHOD["Bursa_Wolf"],'
+        'PARAMETER["X_Axis_Translation",0.0],PARAMETER["Y_Axis_Translation",0.0],'
+        'PARAMETER["Z_Axis_Translation",4.5],PARAMETER["X_Axis_Rotation",0.0],'
+        'PARAMETER["Y_Axis_Rotation",0.0],PARAMETER["Z_Axis_Rotation",-0.554],'
+        'PARAMETER["Scale_Difference",0.2263]]'
+    )
+    mine = Transformer.from_pipeline(stated.to_json(), always_xy=True)
+    epsg = Transformer.from_pipeline(
+        CoordinateOperation.from_epsg(1237).to_json(), always_xy=True
+    )
+    assert mine.transform(10.0, 60.0) == pytest.approx(
+        epsg.transform(10.0, 60.0), abs=1e-9
+    )
 
 
 @pytest.mark.parametrize(
