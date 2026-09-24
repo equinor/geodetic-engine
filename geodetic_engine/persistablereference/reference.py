@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import pairwise
-from math import isfinite
+from math import isclose, isfinite
 from typing import Any
 
 from pyproj import CRS
@@ -579,7 +579,13 @@ def _crs(wkt: str, described: str) -> CRS:
 
 def _bound(base: CRS, operation: OperationReference, described: str) -> CRS:
     """Package a CRS with the transformation that ties it to its hub."""
-    built = operation.to_operation()
+    steps = _without_meridian_step(
+        [_transformation(step) for step in operation.steps], base
+    )
+    built = _operation_from(
+        steps[0] if len(steps) == 1 else _concatenation(steps, operation.name),
+        operation.name,
+    )
     source = built.to_json_dict().get("source_crs")
     geographic_base = base.geodetic_crs
     if (
@@ -593,7 +599,7 @@ def _bound(base: CRS, operation: OperationReference, described: str) -> CRS:
             f"{_described(described)} cannot bind {operation.name!r}: the "
             "operation's source CRS does not match the base geodetic CRS"
         )
-    if operation.is_concatenated:
+    if len(steps) > 1:
         # A bound CRS carries one transformation, so a chain has to become one
         # equivalent step or be refused. collapse_concatenated proves the
         # rewrite against PROJ's own rendering of the chain.
@@ -606,6 +612,48 @@ def _bound(base: CRS, operation: OperationReference, described: str) -> CRS:
         raise MalformedReferenceError(
             f"{_described(described)} does not assemble into a bound CRS: {error}"
         ) from error
+
+
+def _without_meridian_step(steps: list[JsonObject], base: CRS) -> list[JsonObject]:
+    """Drop a leading prime meridian change that the base CRS already states.
+
+    A longitude rotation by exactly the difference between two prime meridians
+    on one ellipsoid only relabels longitudes, which a CRS on the first meridian
+    does by itself, so the rest of the chain can start from that CRS.
+    """
+    geographic = base.geodetic_crs
+    if len(steps) < 2 or geographic is None:
+        return steps
+    first, following = steps[0], steps[1]
+    if (first.get("method") or {}).get("id", {}).get("code") != _LONGITUDE_ROTATION:
+        return steps
+    source, target, joined = (
+        CRS.from_json_dict(frame)
+        for frame in (
+            first["source_crs"],
+            first["target_crs"],
+            following["source_crs"],
+        )
+    )
+    offset = first["parameters"][0]
+    ellipsoids = [
+        (e.semi_major_metre, e.inverse_flattening)
+        for e in (source.ellipsoid, target.ellipsoid)
+        if e
+    ]
+    if not (
+        geographic.equals(source, ignore_axis_order=True)
+        and target.equals(joined, ignore_axis_order=True)
+        and len(ellipsoids) == 2
+        and all(isclose(a, b) for a, b in zip(*ellipsoids, strict=True))
+        and isclose(
+            offset["value"] * methods.factor(offset["unit"]),
+            _meridian(source, "") - _meridian(target, ""),
+            abs_tol=1e-12,
+        )
+    ):
+        return steps
+    return [{**following, "source_crs": geographic.to_json_dict()}, *steps[2:]]
 
 
 def _frame(node: Node, described: str) -> JsonObject:
@@ -733,16 +781,21 @@ def _parameter_method(node: Node, name: str, described: str) -> JsonObject:
 
 def _prime_meridian_offset(node: Node, described: str) -> float:
     """The source frame's prime meridian less the target's, in arc-seconds."""
-    radians = []
-    for frame in node.nodes("GEOGCS"):
-        meridian = _crs(esriwkt.write(frame), described).prime_meridian
-        if meridian is None:
-            raise MalformedReferenceError(
-                f"{_described(described)} states a frame with no prime meridian"
-            )
-        radians.append(meridian.longitude * float(meridian.unit_conversion_factor))
-    source, target = radians
+    source, target = (
+        _meridian(_crs(esriwkt.write(frame), described), described)
+        for frame in node.nodes("GEOGCS")
+    )
     return (source - target) / methods.factor(methods.ARC_SECOND)
+
+
+def _meridian(crs: CRS, described: str) -> float:
+    """A frame's prime meridian, in radians."""
+    meridian = crs.prime_meridian
+    if meridian is None:
+        raise MalformedReferenceError(
+            f"{_described(described)} states a frame with no prime meridian"
+        )
+    return meridian.longitude * float(meridian.unit_conversion_factor)
 
 
 def _grid_method(node: Node, name: str, described: str) -> JsonObject:

@@ -359,6 +359,19 @@ def test_a_reversed_step_is_refused_rather_than_swapped(payload: Any) -> None:
         parse_persistable_reference(payload("refused_reversed_step")).to_operation()
 
 
+def test_a_bound_crs_base_carries_the_prime_meridian_step_of_its_chain(
+    payload: Any,
+) -> None:
+    """EPSG:8094's longitude rotation is the Paris meridian GCS_NTF_Paris states."""
+    crs = parse_persistable_reference(payload("ebc_ntf_paris_via_8094")).to_crs()
+    mine = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+    epsg = Transformer.from_pipeline(
+        CoordinateOperation.from_epsg(8094).to_json(), always_xy=True
+    )
+    for grads in ((0.0, 50.0), (-3.0, 48.0), (5.0, 54.0)):
+        assert mine.transform(*grads) == pytest.approx(epsg.transform(*grads), abs=1e-9)
+
+
 def test_a_longitude_rotation_reads_its_offset_from_the_prime_meridians(
     payload: Any,
 ) -> None:
