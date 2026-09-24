@@ -493,6 +493,32 @@ def test_malformed_numeric_parameter_nodes_are_refused(
 
 
 @pytest.mark.parametrize("as_payload", [False, True])
+@pytest.mark.parametrize(
+    "contents",
+    [
+        '"bad",1',
+        '"bad"',
+        "1,2",
+        "-1",
+        "OPERATIONACCURACY[1]",
+        "1.0],OPERATIONACCURACY[2.0",
+    ],
+)
+def test_malformed_or_duplicate_accuracy_is_refused(
+    contents: str, as_payload: bool, payload: Any
+) -> None:
+    stated = json.loads(payload("st_position_vector"))
+    original = "OPERATIONACCURACY[1.0]"
+    assert original in stated["wkt"]
+    stated["wkt"] = stated["wkt"].replace(original, f"OPERATIONACCURACY[{contents}]")
+    with pytest.raises(MalformedReferenceError, match="OPERATIONACCURACY"):
+        if as_payload:
+            parse_persistable_reference(json.dumps(stated)).to_operation()
+        else:
+            operation_from_geogtran(stated["wkt"])
+
+
+@pytest.mark.parametrize("as_payload", [False, True])
 @pytest.mark.parametrize("literal", ["0", "-10", "1.25", "1e1"])
 def test_single_numeric_parameter_values_are_preserved(
     literal: str, as_payload: bool, payload: Any

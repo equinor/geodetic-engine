@@ -655,8 +655,19 @@ def _transformation(node: Node) -> JsonObject:
         definition |= _grid_method(node, stated.name, described)
     else:
         definition |= _parameter_method(node, stated.name, described)
-    if (accuracy := node.node("OPERATIONACCURACY")) is not None and accuracy.values:
-        definition["accuracy"] = str(accuracy.values[0])
+    if accuracies := node.nodes("OPERATIONACCURACY"):
+        values = accuracies[0].children
+        if (
+            len(accuracies) > 1
+            or len(values) != 1
+            or not isinstance(values[0], int | float)
+            or values[0] < 0
+        ):
+            raise MalformedReferenceError(
+                f"{_described(described)} states OPERATIONACCURACY other than "
+                "once, as one non-negative number of metres"
+            )
+        definition["accuracy"] = str(float(values[0]))
     return definition
 
 
