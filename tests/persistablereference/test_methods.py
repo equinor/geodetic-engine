@@ -162,6 +162,9 @@ def test_position_vector_molodensky_badekas_lands_where_epsg_6889_does() -> None
         ("au_icsm_A66_National_13_09_01.tif", "NTv2"),
         ("Dataset_australia/au_icsm_A66_National_13_09_01", "NTv2"),
         ("us_noaa_conus.tif", "NADCON"),
+        # Two registry spellings of one grid PROJ reads from a single file.
+        ("Dataset_australia/National_84_02_07_01", "NTv2"),
+        ("Dataset_NA83SCRS", "NTv2"),
     ],
 )
 def test_grid_datasets_resolve_however_they_are_spelt(

@@ -334,14 +334,18 @@ def grid_dataset(name: str) -> GridDataset | None:
         >>> grid_dataset("conus").method_name  # doctest: +SKIP
         'NADCON'
     """
-    found = _grid_datasets(database_identity()).get(_grid_key(name))
+    index, reads = _grid_datasets(database_identity())
+    found = index.get(_grid_key(name))
     if not found:
         return None
-    # Rows that agree on the method and on which grids they read are the same
+    # Rows that agree on the method and on the files PROJ reads are the same
     # transformation written two ways, which several EPSG entries are: one
     # states "rdtrans2008", another "rdtrans2008.gsb".
     shapes = {
-        (dataset.method_code, tuple(_grid_key(file) for _, _, file in dataset.files))
+        (
+            dataset.method_code,
+            tuple(reads.get(k, k) for k in (_grid_key(f) for _, _, f in dataset.files)),
+        )
         for dataset in found
     }
     if len(shapes) != 1:
@@ -370,28 +374,32 @@ def _grid_key(name: str) -> str:
 @lru_cache(maxsize=8)
 def _grid_datasets(
     identity: DatabaseIdentity,
-) -> Mapping[str, tuple[GridDataset, ...]]:
+) -> tuple[Mapping[str, tuple[GridDataset, ...]], Mapping[str, str]]:
     """Every grid transformation in the active databases, by grid name.
 
-    Read once per data directory, like the bound CRS definitions above, and for
-    the same reason.
+    Also returns the file PROJ reads for each grid name it has an alternative
+    for. Read once per data directory, like the bound CRS definitions above,
+    and for the same reason.
     """
     found: dict[str, set[GridDataset]] = {}
+    reads: dict[str, str] = {}
     for path, *_ in identity:
         database = Path(path)
         if not database.is_file():
             continue
         try:
-            _read_grids_into(found, database)
+            _read_grids_into(found, reads, database)
         except sqlite3.Error as error:
             logger.debug(
                 "could not read grid transformations of %s: %s", database, error
             )
         break
-    return {key: tuple(datasets) for key, datasets in found.items()}
+    return {key: tuple(datasets) for key, datasets in found.items()}, reads
 
 
-def _read_grids_into(found: dict[str, set[GridDataset]], database: Path) -> None:
+def _read_grids_into(
+    found: dict[str, set[GridDataset]], reads: dict[str, str], database: Path
+) -> None:
     """Index one database's grid transformations by each grid name it reads."""
     with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         if not _has_table(connection, "grid_transformation"):
@@ -433,6 +441,10 @@ def _read_grids_into(found: dict[str, set[GridDataset]], database: Path) -> None
             "FROM grid_alternatives"
         ):
             datasets = found.get(_grid_key(original), ())
+            if current:
+                key, read = _grid_key(original), _grid_key(current)
+                # Names that normalize alike but read different files stay apart.
+                reads[key] = read if reads.get(key, read) == read else key
             for alias in (current, legacy):
                 if alias:
                     aliases.setdefault(_grid_key(alias), set()).update(datasets)
