@@ -1,0 +1,109 @@
+{
+  "description": "Worked examples asserting that a definition read from an OSDU persistableReference transforms points identically to the same definition named by authority code against PROJ's own database. Every payload is verbatim from an OSDU reference-data catalogue, and every point lies inside the area of use of the CRSs it is given in.",
+  "cases": [
+    {
+      "name": "bound projected CRS: ED50 / UTM zone 32N tied to WGS 84 by EPSG:1133",
+      "kind": "bound",
+      "comment": "The source is one early bound payload carrying both the CRS and its datum shift. Points are eastings and northings inside EPSG:23032's area of use, 6E to 12E.",
+      "source_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"OSDU\",\"code\":\"23032001\"},\"lateBoundCRS\":{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"23032\"},\"name\":\"ED_1950_UTM_Zone_32N\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"PROJCS[\\\"ED_1950_UTM_Zone_32N\\\",GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],PROJECTION[\\\"Transverse_Mercator\\\"],PARAMETER[\\\"False_Easting\\\",500000.0],PARAMETER[\\\"False_Northing\\\",0.0],PARAMETER[\\\"Central_Meridian\\\",9.0],PARAMETER[\\\"Scale_Factor\\\",0.9996],PARAMETER[\\\"Latitude_Of_Origin\\\",0.0],UNIT[\\\"Meter\\\",1.0],AUTHORITY[\\\"EPSG\\\",23032]]\"},\"name\":\"ED50 * DMA-mean / UTM zone 32N [23032,1133]\",\"singleCT\":{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"1133\"},\"name\":\"ED_1950_To_WGS_1984_1\",\"type\":\"ST\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGTRAN[\\\"ED_1950_To_WGS_1984_1\\\",GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],METHOD[\\\"Geocentric_Translation\\\"],PARAMETER[\\\"X_Axis_Translation\\\",-87.0],PARAMETER[\\\"Y_Axis_Translation\\\",-98.0],PARAMETER[\\\"Z_Axis_Translation\\\",-121.0],OPERATIONACCURACY[10.0],AUTHORITY[\\\"EPSG\\\",1133]]\"},\"type\":\"EBC\",\"ver\":\"PE_10_9_1\"}",
+        "osdu_record": "BoundProjected:EPSG::23032_EPSG::1133"
+      },
+      "target_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4326\"},\"name\":\"GCS_WGS_1984\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4326]]\"}",
+        "osdu_record": "Geographic2D:EPSG::4326"
+      },
+      "by_code": {
+        "source_crs": "EPSG:23032",
+        "target_crs": "EPSG:4326",
+        "operation": "EPSG:1133"
+      },
+      "points": [[408877.917, 6318527.895], [500000.0, 6818644.447], [586178.138, 6541169.824]],
+      "tolerance_m": 0.001
+    },
+    {
+      "name": "the first case run backwards: WGS 84 into ED50 / UTM zone 32N by EPSG:1133",
+      "kind": "bound",
+      "comment": "The same early bound payload as the first case, now the target rather than the source, so the datum shift is applied in reverse. Points are the first case's points transformed forward, so the two cases are the same three positions read in opposite directions.",
+      "source_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4326\"},\"name\":\"GCS_WGS_1984\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4326]]\"}",
+        "osdu_record": "Geographic2D:EPSG::4326"
+      },
+      "target_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"OSDU\",\"code\":\"23032001\"},\"lateBoundCRS\":{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"23032\"},\"name\":\"ED_1950_UTM_Zone_32N\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"PROJCS[\\\"ED_1950_UTM_Zone_32N\\\",GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],PROJECTION[\\\"Transverse_Mercator\\\"],PARAMETER[\\\"False_Easting\\\",500000.0],PARAMETER[\\\"False_Northing\\\",0.0],PARAMETER[\\\"Central_Meridian\\\",9.0],PARAMETER[\\\"Scale_Factor\\\",0.9996],PARAMETER[\\\"Latitude_Of_Origin\\\",0.0],UNIT[\\\"Meter\\\",1.0],AUTHORITY[\\\"EPSG\\\",23032]]\"},\"name\":\"ED50 * DMA-mean / UTM zone 32N [23032,1133]\",\"singleCT\":{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"1133\"},\"name\":\"ED_1950_To_WGS_1984_1\",\"type\":\"ST\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGTRAN[\\\"ED_1950_To_WGS_1984_1\\\",GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],METHOD[\\\"Geocentric_Translation\\\"],PARAMETER[\\\"X_Axis_Translation\\\",-87.0],PARAMETER[\\\"Y_Axis_Translation\\\",-98.0],PARAMETER[\\\"Z_Axis_Translation\\\",-121.0],OPERATIONACCURACY[10.0],AUTHORITY[\\\"EPSG\\\",1133]]\"},\"type\":\"EBC\",\"ver\":\"PE_10_9_1\"}",
+        "osdu_record": "BoundProjected:EPSG::23032_EPSG::1133"
+      },
+      "by_code": {
+        "source_crs": "EPSG:4326",
+        "target_crs": "EPSG:23032",
+        "operation": "EPSG:1133"
+      },
+      "points": [[7.49858809900676, 56.99940358629892], [8.998438036605195, 61.49959155263952], [10.498599354042149, 58.999510860970204]],
+      "tolerance_m": 0.001
+    },
+    {
+      "name": "late bound CRS named with its operation at use time: ED50 plus EPSG:1133, stated separately",
+      "kind": "late_bound",
+      "comment": "The CRS and the transformation are separate OSDU records, as a catalogue publishes them. Neither end carries the shift, so the operation is named explicitly at use rather than embedded in a bound CRS. Points are longitude and latitude inside EPSG:4230's area of use.",
+      "source_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4230\"},\"name\":\"GCS_European_1950\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4230]]\"}",
+        "osdu_record": "Geographic2D:EPSG::4230"
+      },
+      "operation": {
+        "reference": "{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"1133\"},\"name\":\"ED_1950_To_WGS_1984_1\",\"type\":\"ST\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGTRAN[\\\"ED_1950_To_WGS_1984_1\\\",GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],METHOD[\\\"Geocentric_Translation\\\"],PARAMETER[\\\"X_Axis_Translation\\\",-87.0],PARAMETER[\\\"Y_Axis_Translation\\\",-98.0],PARAMETER[\\\"Z_Axis_Translation\\\",-121.0],OPERATIONACCURACY[10.0],AUTHORITY[\\\"EPSG\\\",1133]]\"}",
+        "osdu_record": "EPSG::1133"
+      },
+      "target_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4326\"},\"name\":\"GCS_WGS_1984\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4326]]\"}",
+        "osdu_record": "Geographic2D:EPSG::4326"
+      },
+      "by_code": {
+        "source_crs": "EPSG:4230",
+        "target_crs": "EPSG:4326",
+        "operation": "EPSG:1133"
+      },
+      "points": [[7.5, 57.0], [9.0, 61.5], [10.5, 59.0]],
+      "tolerance_m": 0.001
+    },
+    {
+      "name": "bound geographic CRS: ED50 to WGS 84 by concatenated EPSG:8047",
+      "kind": "bound",
+      "comment": "The early bound payload carries the ED50 CRS and the two-step ED50 to ED87 to WGS 84 transformation together. Points are longitude and latitude inside the EPSG:8047 Svalbard area of use.",
+      "source_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"OSDU\",\"code\":\"1100078\"},\"compoundCT\":{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"8047\"},\"cts\":[{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"1147\"},\"name\":\"ST_ED50_ED87_T1147\",\"type\":\"ST\",\"wkt\":\"GEOGTRAN[\\\"ED_1950_To_ED_1987_2\\\",GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],GEOGCS[\\\"GCS_European_1987\\\",DATUM[\\\"D_European_1987\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],METHOD[\\\"Position_Vector\\\"],PARAMETER[\\\"X_Axis_Translation\\\",-1.51],PARAMETER[\\\"Y_Axis_Translation\\\",-0.84],PARAMETER[\\\"Z_Axis_Translation\\\",-3.5],PARAMETER[\\\"X_Axis_Rotation\\\",-0.39046],PARAMETER[\\\"Y_Axis_Rotation\\\",-0.14170],PARAMETER[\\\"Z_Axis_Rotation\\\",-0.57012],PARAMETER[\\\"Scale_Difference\\\",0.609],OPERATIONACCURACY[1.0],AUTHORITY[\\\"EPSG\\\",1147]]\"},{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"1146\"},\"name\":\"ST_ED87_WGS84_T1146\",\"type\":\"ST\",\"wkt\":\"GEOGTRAN[\\\"ED_1987_To_WGS_1984_1\\\",GEOGCS[\\\"GCS_European_1987\\\",DATUM[\\\"D_European_1987\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],METHOD[\\\"Position_Vector\\\"],PARAMETER[\\\"X_Axis_Translation\\\",-82.981],PARAMETER[\\\"Y_Axis_Translation\\\",-99.719],PARAMETER[\\\"Z_Axis_Translation\\\",-110.709],PARAMETER[\\\"X_Axis_Rotation\\\",-0.1047],PARAMETER[\\\"Y_Axis_Rotation\\\",0.0310],PARAMETER[\\\"Z_Axis_Rotation\\\",0.0804],PARAMETER[\\\"Scale_Difference\\\",-0.3143],OPERATIONACCURACY[0.8],AUTHORITY[\\\"EPSG\\\",1146]]\"}],\"name\":\"ST_ED50_WGS84_N65_T8047\",\"policy\":\"Concatenated\",\"type\":\"CT\"},\"lateBoundCRS\":{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4230\"},\"name\":\"ST_ED50_G4230\",\"type\":\"LBC\",\"wkt\":\"GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4230]]\"},\"name\":\"ST_ED50_N65_T8047\",\"type\":\"EBC\"}",
+        "osdu_record": "BoundGeographic2D:EPSG::4230_EPSG::8047"
+      },
+      "target_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4326\"},\"name\":\"GCS_WGS_1984\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4326]]\"}",
+        "osdu_record": "Geographic2D:EPSG::4326"
+      },
+      "by_code": {
+        "source_crs": "EPSG:4230",
+        "target_crs": "EPSG:4326",
+        "operation": "EPSG:8047"
+      },
+      "points": [[6.0, 65.0], [9.0, 75.0], [12.0, 83.0]],
+      "tolerance_m": 0.001
+    },
+    {
+      "name": "the EPSG:8047 case run backwards: WGS 84 into ED50",
+      "kind": "bound",
+      "comment": "The same early bound concatenated payload is now the target, so EPSG:8047 is applied in reverse. The points are the preceding EPSG:8047 case's WGS 84 results read in the opposite direction.",
+      "source_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4326\"},\"name\":\"GCS_WGS_1984\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4326]]\"}",
+        "osdu_record": "Geographic2D:EPSG::4326"
+      },
+      "target_crs": {
+        "reference": "{\"authCode\":{\"auth\":\"OSDU\",\"code\":\"1100078\"},\"compoundCT\":{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"8047\"},\"cts\":[{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"1147\"},\"name\":\"ST_ED50_ED87_T1147\",\"type\":\"ST\",\"wkt\":\"GEOGTRAN[\\\"ED_1950_To_ED_1987_2\\\",GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],GEOGCS[\\\"GCS_European_1987\\\",DATUM[\\\"D_European_1987\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],METHOD[\\\"Position_Vector\\\"],PARAMETER[\\\"X_Axis_Translation\\\",-1.51],PARAMETER[\\\"Y_Axis_Translation\\\",-0.84],PARAMETER[\\\"Z_Axis_Translation\\\",-3.5],PARAMETER[\\\"X_Axis_Rotation\\\",-0.39046],PARAMETER[\\\"Y_Axis_Rotation\\\",-0.14170],PARAMETER[\\\"Z_Axis_Rotation\\\",-0.57012],PARAMETER[\\\"Scale_Difference\\\",0.609],OPERATIONACCURACY[1.0],AUTHORITY[\\\"EPSG\\\",1147]]\"},{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"1146\"},\"name\":\"ST_ED87_WGS84_T1146\",\"type\":\"ST\",\"wkt\":\"GEOGTRAN[\\\"ED_1987_To_WGS_1984_1\\\",GEOGCS[\\\"GCS_European_1987\\\",DATUM[\\\"D_European_1987\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433]],METHOD[\\\"Position_Vector\\\"],PARAMETER[\\\"X_Axis_Translation\\\",-82.981],PARAMETER[\\\"Y_Axis_Translation\\\",-99.719],PARAMETER[\\\"Z_Axis_Translation\\\",-110.709],PARAMETER[\\\"X_Axis_Rotation\\\",-0.1047],PARAMETER[\\\"Y_Axis_Rotation\\\",0.0310],PARAMETER[\\\"Z_Axis_Rotation\\\",0.0804],PARAMETER[\\\"Scale_Difference\\\",-0.3143],OPERATIONACCURACY[0.8],AUTHORITY[\\\"EPSG\\\",1146]]\"}],\"name\":\"ST_ED50_WGS84_N65_T8047\",\"policy\":\"Concatenated\",\"type\":\"CT\"},\"lateBoundCRS\":{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4230\"},\"name\":\"ST_ED50_G4230\",\"type\":\"LBC\",\"wkt\":\"GEOGCS[\\\"GCS_European_1950\\\",DATUM[\\\"D_European_1950\\\",SPHEROID[\\\"International_1924\\\",6378388.0,297.0]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4230]]\"},\"name\":\"ST_ED50_N65_T8047\",\"type\":\"EBC\"}",
+        "osdu_record": "BoundGeographic2D:EPSG::4230_EPSG::8047"
+      },
+      "by_code": {
+        "source_crs": "EPSG:4326",
+        "target_crs": "EPSG:4230",
+        "operation": "EPSG:8047"
+      },
+      "points": [[5.998229522370339, 64.99972253951678], [8.997406236979943, 75.0001917563096], [11.995067885337313, 83.00059855723683]],
+      "tolerance_m": 0.001
+    }
+  ]
+}

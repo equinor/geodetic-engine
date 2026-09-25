@@ -20,7 +20,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from pyproj.crs import CoordinateOperation
 from pyproj.database import get_authorities
@@ -95,19 +95,37 @@ _INVERSE_NAME_PREFIX = re.compile(r"^Inverse of\s+", re.IGNORECASE)
 # this exact separator, each keeping its own "Inverse of" prefix independently.
 _FUSED_NAME_SEPARATOR = " + "
 
+_VISUALIZATION_SUFFIX = " (with axis order normalized for visualization)"
+"""What PROJ appends when it normalises an operation's axis order.
+
+An annotation on how the operation is presented, not a different operation, so
+it is stripped wherever names are compared or reported.
+"""
+
+_ESRI_TRANSFORMATION_KEYWORDS = ("GEOGTRAN", "VERTTRAN")
+"""ESRI's transformation keywords, neither of which is standard WKT.
+
+The vertical one is recognised only so that it can be refused as the shape this
+package does not model, rather than fall through to being read as a name.
+"""
+
 
 def _base_operation_name(name: str) -> str:
-    """Strip PROJ's "Inverse of" name prefix down to the underlying name.
+    """Strip PROJ's naming down to the underlying operation's own name.
 
     Mirrors :func:`base_authority`: building the inverse of a named operation
-    renames it, but applying it in the reverse direction does not change which
-    operation it is.
+    renames it, and so does normalising its axis order, but neither changes
+    which operation it is.
 
     Example:
         >>> _base_operation_name("Inverse of ED50 to WGS 84 (1)")
         'ED50 to WGS 84 (1)'
+        >>> _base_operation_name(
+        ...     "ED50 to WGS 84 (1) (with axis order normalized for visualization)"
+        ... )
+        'ED50 to WGS 84 (1)'
     """
-    stripped = name.strip()
+    stripped = name.strip().removesuffix(_VISUALIZATION_SUFFIX).strip()
     while (match := _INVERSE_NAME_PREFIX.match(stripped)) is not None:
         stripped = stripped[match.end() :].strip()
     return stripped
@@ -571,38 +589,150 @@ class OperationCandidate:
 type OperationReference = OperationCandidate
 
 
+@runtime_checkable
+class StatedOperation(Protocol):
+    """Something that states a coordinate operation outright.
+
+    A code names an operation for PROJ to look up; this states one, parameters
+    and all, for PROJ to run as given. An OSDU persistableReference is the case
+    this exists for: its parameters are the definition of record, and resolving
+    its authority code against PROJ's database would answer with a different
+    object that merely shares a code.
+
+    Structural rather than imported, because the package that reads payloads
+    reads this one.
+    """
+
+    def to_operation(self) -> CoordinateOperation:
+        """Build the operation stated."""
+        ...
+
+
+def _stated_operation(payload: str) -> CoordinateOperation:
+    """Build the operation an OSDU persistableReference payload states.
+
+    Raises:
+        ValueError: If the payload cannot be read, or states something that is
+            not a coordinate operation.
+    """
+    # Imported where it is used rather than at module scope: reading a payload
+    # goes through geodesy.utils, which reads this module.
+    from geodetic_engine.persistablereference import (
+        OperationReference as PayloadOperation,
+    )
+    from geodetic_engine.persistablereference import (
+        PersistableReferenceError,
+        parse_persistable_reference,
+    )
+
+    try:
+        reference = parse_persistable_reference(payload)
+        if not isinstance(reference, PayloadOperation):
+            stated = reference.kind.name.lower().replace("_", " ")
+            raise ValueError(
+                f"the persistableReference given states a {stated}, not a "
+                "coordinate operation"
+            )
+        return reference.to_operation()
+    except PersistableReferenceError as error:
+        raise ValueError(
+            f"could not read the persistableReference given as an operation: {error}"
+        ) from error
+
+
+def _looks_like_payload(text: str) -> bool:
+    """Whether the text is a persistableReference rather than a code or a name."""
+    from geodetic_engine.persistablereference import looks_like_reference
+
+    return bool(looks_like_reference(text))
+
+
+def _looks_like_esri_transformation(text: str) -> bool:
+    """Whether the text is ESRI transformation WKT rather than a code or a name."""
+    stripped = text.lstrip()
+    return any(
+        stripped[: len(keyword)].upper() == keyword
+        and stripped[len(keyword) :].lstrip().startswith("[")
+        for keyword in _ESRI_TRANSFORMATION_KEYWORDS
+    )
+
+
+def _esri_operation(wkt: str) -> CoordinateOperation:
+    """Build the operation an ESRI ``GEOGTRAN`` states.
+
+    Raises:
+        ValueError: If the WKT cannot be read as a coordinate operation.
+    """
+    from geodetic_engine.persistablereference import (
+        PersistableReferenceError,
+        operation_from_geogtran,
+    )
+
+    try:
+        return operation_from_geogtran(wkt)
+    except PersistableReferenceError as error:
+        raise ValueError(
+            f"could not read the ESRI transformation WKT given as an operation: {error}"
+        ) from error
+
+
 @dataclass(frozen=True, slots=True)
 class OperationRequest:
     """A caller's request for a particular coordinate operation.
 
-    Either an authority code or a name, never a substring of either.
+    Either an authority code or a name, never a substring of either -- or the
+    operation itself, when a payload stated it outright rather than naming it.
 
     Attributes:
         text: The reference as the caller wrote it.
         auth_name: Authority, when the reference is an authority code.
         code: Code, when the reference is an authority code.
         name: Operation name, when the reference is not an authority code.
+        definition: The operation itself, when it was stated rather than named.
+            Excluded from equality so that a request stays hashable whatever
+            PROJ's own objects do.
     """
 
     text: str
     auth_name: str | None
     code: str | None
     name: str | None
+    definition: CoordinateOperation | None = field(default=None, compare=False)
 
     @classmethod
-    def parse(cls, reference: str | int | OperationReference) -> OperationRequest:
+    def stated(cls, operation: CoordinateOperation) -> OperationRequest:
+        """A request for an operation supplied outright.
+
+        No authority code is recorded even when the definition carries one:
+        the code would invite a lookup, and what has to be applied is this
+        object, whose parameters need not agree with whatever a register
+        publishes under the same code.
+        """
+        name = str(operation.name)
+        return cls(
+            text=name, auth_name=None, code=None, name=name, definition=operation
+        )
+
+    @classmethod
+    def parse(
+        cls, reference: str | int | OperationReference | StatedOperation
+    ) -> OperationRequest:
         """Parse an operation reference.
 
         Args:
             reference: ``"EPSG:15670"``, a bare EPSG code such as ``15670``, an
                 OGC URN such as
                 ``"urn:ogc:def:coordinateOperation:EPSG::15670"``, an
-                operation name such as ``"ITRF2014 to ETRF2014 (1)"``, or an
+                operation name such as ``"ITRF2014 to ETRF2014 (1)"``, an
                 :class:`OperationCandidate` from
                 :func:`~geodetic_engine.geodesy.transformation.available_operations`
                 (its :attr:`~OperationCandidate.authority_code` is used when it
                 has one, its name otherwise -- the latter is the only way to
-                pin down a candidate PROJ built with no EPSG id of its own).
+                pin down a candidate PROJ built with no EPSG id of its own),
+                or an operation stated outright: an OSDU persistableReference
+                payload, an ESRI ``GEOGTRAN``, or anything that builds one
+                through :class:`StatedOperation`. A stated operation is
+                applied as given rather than looked up.
 
         Returns:
             The parsed request.
@@ -611,7 +741,7 @@ class OperationRequest:
             ValueError: If given an :class:`OperationCandidate` that no single
                 reference can name, because PROJ assembled it from operations
                 no authority publishes as one. Use :func:`parse_operations`,
-                which expands it.
+                which expands it. Or if a payload states no usable operation.
 
         Example:
             >>> OperationRequest.parse("EPSG:15670").code
@@ -628,6 +758,8 @@ class OperationRequest:
                     "request; pass it to parse_operations() instead"
                 )
             reference = references[0]
+        if isinstance(reference, StatedOperation):
+            return cls.stated(reference.to_operation())
         if isinstance(reference, int):
             return cls(
                 text=f"EPSG:{reference}",
@@ -637,6 +769,10 @@ class OperationRequest:
             )
 
         text = reference.strip()
+        if _looks_like_payload(text):
+            return cls.stated(_stated_operation(text))
+        if _looks_like_esri_transformation(text):
+            return cls.stated(_esri_operation(text))
         candidate = text
         if candidate.lower().startswith(_URN_PREFIX):
             candidate = candidate[len(_URN_PREFIX) :].replace("::", ":")
@@ -733,7 +869,11 @@ class OperationRequest:
 
 def parse_operations(
     reference: (
-        str | int | OperationReference | Iterable[str | int | OperationReference]
+        str
+        | int
+        | OperationReference
+        | StatedOperation
+        | Iterable[str | int | OperationReference | StatedOperation]
     ),
 ) -> tuple[OperationRequest, ...]:
     """Parse one operation reference, or several, into requests.
@@ -764,8 +904,10 @@ def parse_operations(
         >>> [r.text for r in parse_operations(["EPSG:11028", "EPSG:9484"])]
         ['EPSG:11028', 'EPSG:9484']
     """
-    if isinstance(reference, (str, int, OperationCandidate)):
-        references: Iterable[str | int | OperationReference] = (reference,)
+    if isinstance(reference, (str, int, OperationCandidate, StatedOperation)):
+        references: Iterable[str | int | OperationReference | StatedOperation] = (
+            reference,
+        )
     else:
         references = reference
     return tuple(
@@ -923,7 +1065,7 @@ def has_inverted_step(definition: object) -> bool:
     define: neither format has a flag for "apply this operation backwards".
     Re-reading an export that contains one yields the *forward* operation
     instead, silently reversing the sign of a datum shift, so such an export
-    must not be handed out.
+    must not be handed out. Reported as https://github.com/OSGeo/PROJ/issues/4866.
 
     Only datum-changing steps count. An inverted *conversion* -- a map
     projection or an axis-order reversal -- is analytically invertible from

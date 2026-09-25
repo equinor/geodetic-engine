@@ -52,6 +52,7 @@ from geodetic_engine.geodesy.errors import (
     TransformationFailedError,
 )
 from geodetic_engine.geodesy.operation import (
+    _VISUALIZATION_SUFFIX,
     AppliedOperation,
     AreaOfUse,
     GridUsage,
@@ -60,10 +61,12 @@ from geodetic_engine.geodesy.operation import (
     OperationRequest,
     OperationRoute,
     OperationStep,
+    StatedOperation,
     base_authority,
     datum_operation_count,
     fully_requested,
     grid_usages,
+    has_inverted_step,
     is_ballpark,
     operation_names,
     parse_operations,
@@ -108,11 +111,6 @@ _POSITION_FREE_VERTICAL_METHODS = frozenset(
         "height depth reversal",
     }
 )
-
-# What PROJ appends to the name of an operation it re-issued with normalised
-# axis order. It describes this package's calling convention, not the
-# operation, so it is stripped before a name is reported.
-_VISUALIZATION_SUFFIX = " (with axis order normalized for visualization)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,7 +272,8 @@ class Transformation:
             str
             | int
             | OperationReference
-            | Sequence[str | int | OperationReference]
+            | StatedOperation
+            | Sequence[str | int | OperationReference | StatedOperation]
             | None
         ) = None,
         *,
@@ -298,6 +297,15 @@ class Transformation:
                 built, so the order they are given in does not matter and
                 does not change the result. When omitted, only same-datum
                 conversions or explicitly bound operations are permitted.
+
+                An operation may also be stated outright rather than named: an
+                OSDU persistableReference payload, an ESRI ``GEOGTRAN``, or a
+                parsed reference. What is stated is then applied exactly as
+                given, parameters and all, instead of being resolved against
+                PROJ's database -- which is the point, since a payload's
+                parameters need not agree with whatever a register publishes
+                under the same code. A stated operation is applied on its own
+                and cannot be combined with other references.
             allow_any_operation: Retained for call compatibility. No longer
                 enables automatic datum selection or ballpark transformations.
 
@@ -661,7 +669,12 @@ def transform(
     z: Iterable[float] | float | None = None,
     *,
     operation: (
-        str | int | OperationReference | Sequence[str | int | OperationReference] | None
+        str
+        | int
+        | OperationReference
+        | StatedOperation
+        | Sequence[str | int | OperationReference | StatedOperation]
+        | None
     ) = None,
     allow_any_operation: bool = False,
     coordinate_epoch: float | None = None,
@@ -693,8 +706,11 @@ def transform(
             :class:`~geodetic_engine.geodesy.operation.OperationCandidate`
             from :func:`available_operations`. Or several, when a compound
             target CRS needs more than one pinned down -- order does not
-            matter, see :class:`Transformation`. Required whenever a datum
-            change is involved, except where a bound CRS already names it.
+            matter, see :class:`Transformation`. Or the operation itself,
+            stated as an OSDU persistableReference payload, an ESRI
+            ``GEOGTRAN`` or a parsed reference, which is then applied as given
+            rather than looked up. Required whenever a datum change is
+            involved, except where a bound CRS already names it.
         allow_any_operation: Compatibility keyword with no effect on strict
             datum-operation selection or ballpark refusal.
         coordinate_epoch: Decimal year the coordinates were observed at,
@@ -726,15 +742,30 @@ def transform(
         >>> result.coordinates
         ((597868.38..., 6642681.51...),)
     """
-    resolved = _cached_transformation(
-        _cache_key(source_crs),
-        _cache_key(target_crs),
-        operation
-        if operation is None or isinstance(operation, (str, int, OperationCandidate))
-        else tuple(operation),
-        allow_any_operation,
-        database_identity(),
+    references = (
+        ()
+        if operation is None
+        else (operation,)
+        if isinstance(operation, (str, int, OperationCandidate, StatedOperation))
+        else tuple(operation)
     )
+    if any(isinstance(reference, StatedOperation) for reference in references):
+        resolved = Transformation(
+            source_crs, target_crs, references, allow_any_operation=allow_any_operation
+        )
+    else:
+        cacheable = tuple(
+            reference
+            for reference in references
+            if not isinstance(reference, StatedOperation)
+        )
+        resolved = _cached_transformation(
+            _cache_key(source_crs),
+            _cache_key(target_crs),
+            cacheable or None,
+            allow_any_operation,
+            database_identity(),
+        )
     return resolved.transform(x, y, z, coordinate_epoch=coordinate_epoch)
 
 
@@ -975,6 +1006,18 @@ def _resolve(
             source, target, allow_any_operation=allow_any_operation
         )
 
+    if any(request.definition is not None for request in requests):
+        if len(requests) > 1:
+            raise OperationNotAvailableError(
+                f"{', '.join(str(r) for r in requests)} were requested for "
+                f"{_label(source)} to {_label(target)}, but an operation stated "
+                "outright is applied on its own; it cannot be combined with "
+                "others, which are selected from what PROJ offers for the pair"
+            )
+        # Never offered to the candidate search: what PROJ publishes under the
+        # same code is a different object from the one stated here.
+        return _from_operation(source, target, requests[0])
+
     found = _from_transformer_group(source, target, requests)
     if found is not None:
         return _Pipeline(
@@ -1200,23 +1243,29 @@ def _from_operation(
 
     Reached when the operation is not among the candidates for this CRS pair,
     which typically means it is published between geographic CRSs while the
-    caller is working in projected ones.
+    caller is working in projected ones, or when the operation was stated
+    outright and so was never a candidate to begin with.
     """
-    try:
-        core = Transformer.from_pipeline(request.urn or request.text, always_xy=True)
-    except (ProjError, CRSError) as error:
-        # PROJ reports an absent grid here as a malformed pipeline step, which
-        # says nothing about the grid. Its availability is only consulted now
-        # that building has already failed: PROJ resolves legacy grid names
-        # through proj.db's alternatives, so an operation whose grid reads as
-        # unavailable often still transforms, and checking earlier would
-        # refuse work that succeeds.
-        _require_grids(_grids_of(request), source, target)
-        raise OperationNotAvailableError(
-            f"{request} could not be built as a coordinate operation, and is "
-            f"not among the operations PROJ offers for {_label(source)} to "
-            f"{_label(target)}: {error}"
-        ) from error
+    if request.definition is not None:
+        core = _stated_transformer(request)
+    else:
+        try:
+            core = Transformer.from_pipeline(
+                request.urn or request.text, always_xy=True
+            )
+        except (ProjError, CRSError) as error:
+            # PROJ reports an absent grid here as a malformed pipeline step,
+            # which says nothing about the grid. Its availability is only
+            # consulted now that building has already failed: PROJ resolves
+            # legacy grid names through proj.db's alternatives, so an operation
+            # whose grid reads as unavailable often still transforms, and
+            # checking earlier would refuse work that succeeds.
+            _require_grids(_grids_of(request), source, target)
+            raise OperationNotAvailableError(
+                f"{request} could not be built as a coordinate operation, and is "
+                f"not among the operations PROJ offers for {_label(source)} to "
+                f"{_label(target)}: {error}"
+            ) from error
 
     ends = _operation_ends(core)
     if ends is None:
@@ -1253,6 +1302,30 @@ def _from_operation(
     return _Pipeline(steps=tuple(steps), core=core, route=OperationRoute.CHAINED)
 
 
+def _stated_transformer(request: OperationRequest) -> Transformer:
+    """Run the operation a caller stated, rather than one PROJ looked up.
+
+    The definition is handed over whole, so a chain stays a chain: nothing has
+    to be collapsed into a single step the way a bound CRS would require.
+    """
+    definition = request.definition
+    if definition is None:
+        raise ValueError(f"{request} states no operation to run")
+    if has_inverted_step(definition.to_json_dict()):
+        # PROJJSON writes an inverted step with its forward parameters.
+        raise OperationNotAvailableError(
+            f"{request} states an operation with a step applied inverted, which "
+            "PROJ would run forwards once handed over; state that step in the "
+            "direction it is applied"
+        )
+    try:
+        return Transformer.from_pipeline(definition.to_json(), always_xy=True)
+    except (ProjError, CRSError) as error:
+        raise OperationNotAvailableError(
+            f"{request} states an operation PROJ cannot run: {error}"
+        ) from error
+
+
 def _conversion(source: CRS, target: CRS, request: OperationRequest) -> Transformer:
     """Build a step that changes representation without changing datum.
 
@@ -1278,13 +1351,39 @@ def _operation_ends(transformer: Transformer) -> tuple[CRS, CRS] | None:
 
 
 def _datum_names(crs: CRS) -> frozenset[str]:
-    """Names of every datum the CRS is built on, including compound components."""
+    """Names of every datum the CRS is built on, including compound components.
+
+    WKT1 cannot represent ensembles. A plain geodetic datum is normalized to
+    a registered ensemble only when its geographic CRS is equivalent to that
+    registry definition. The registry lookup only proposes a candidate; its
+    confidence score does not establish equivalence. A name suffix is not evidence
+    that two frames are interchangeable.
+    """
     parts = crs.sub_crs_list or [crs]
     names = set()
     for part in parts:
         datum = part.datum
         if datum is not None:
-            names.add(datum.name)
+            name = str(datum.name)
+            geographic = part.geodetic_crs
+            if (
+                datum.type_name == "Geodetic Reference Frame"
+                and geographic is not None
+                and geographic.is_geographic
+            ):
+                horizontal = geographic.to_2d()
+                if identified := horizontal.to_authority(
+                    auth_name="EPSG", min_confidence=0
+                ):
+                    registered = CRS.from_authority(*identified).to_2d()
+                    ensemble = registered.datum
+                    if (
+                        ensemble is not None
+                        and ensemble.type_name == "Datum Ensemble"
+                        and horizontal.equals(registered, ignore_axis_order=True)
+                    ):
+                        name = str(ensemble.name)
+            names.add(name)
     return frozenset(names)
 
 
