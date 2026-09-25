@@ -709,6 +709,13 @@ def _transformation(node: Node) -> JsonObject:
         definition |= _parameter_method(node, stated.name, described)
     if accuracies := node.nodes("OPERATIONACCURACY"):
         values = accuracies[0].children
+        # OSDU writes some GEOGTRANs as OPERATIONACCURACY[OPERATIONACCURACY[x]].
+        if (
+            len(values) == 1
+            and isinstance(values[0], Node)
+            and values[0].keyword.casefold() == "operationaccuracy"
+        ):
+            values = values[0].children
         if (
             len(accuracies) > 1
             or len(values) != 1

@@ -558,7 +558,8 @@ def test_malformed_numeric_parameter_nodes_are_refused(
         '"bad"',
         "1,2",
         "-1",
-        "OPERATIONACCURACY[1]",
+        'OPERATIONACCURACY["bad"]',
+        "OPERATIONACCURACY[OPERATIONACCURACY[1]]",
         "1.0],OPERATIONACCURACY[2.0",
     ],
 )
@@ -574,6 +575,21 @@ def test_malformed_or_duplicate_accuracy_is_refused(
             parse_persistable_reference(json.dumps(stated)).to_operation()
         else:
             operation_from_geogtran(stated["wkt"])
+
+
+@pytest.mark.parametrize("as_payload", [False, True])
+def test_a_singly_nested_accuracy_is_read(as_payload: bool, payload: Any) -> None:
+    """Three OSDU catalogue GEOGTRANs state OPERATIONACCURACY[OPERATIONACCURACY[1]]."""
+    stated = json.loads(payload("st_position_vector"))
+    stated["wkt"] = stated["wkt"].replace(
+        "OPERATIONACCURACY[1.0]", "OPERATIONACCURACY[OPERATIONACCURACY[2.5]]"
+    )
+    operation = (
+        parse_persistable_reference(json.dumps(stated)).to_operation()
+        if as_payload
+        else operation_from_geogtran(stated["wkt"])
+    )
+    assert operation.accuracy == pytest.approx(2.5)
 
 
 @pytest.mark.parametrize("as_payload", [False, True])
