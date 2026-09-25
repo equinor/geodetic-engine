@@ -22,7 +22,6 @@ wraps them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import pairwise
 from math import isclose, isfinite
 from typing import Any
 
@@ -56,6 +55,9 @@ _TRANSFORMATION_KEYWORD = "GEOGTRAN"
 _VERTICAL_KEYWORD = "VERTTRAN"
 _LONGITUDE_ROTATION = 9601
 _OFFSET_METHODS = frozenset({_LONGITUDE_ROTATION, 9619})
+# Helmert methods a chain may apply backwards, with the sign that turns their
+# rotations into the position vector convention.
+_REVERSIBLE_HELMERT = {9603: 1.0, 9606: 1.0, 9607: -1.0}
 
 
 @dataclass(frozen=True, slots=True)
@@ -852,22 +854,38 @@ def _concatenation(steps: list[JsonObject], described: str) -> JsonObject:
     differ, restate the next step's source axes to match the preceding output
     so PROJ can join them; the method and its parameters remain unchanged.
 
+    ESRI states no direction for a step and its engine applies one backwards
+    when that is how the frames join, so a Helmert step that ends where the
+    one before it ended is restated as its inverse. The first step is taken
+    as stated.
+
     Raises:
-        UnsupportedReferenceError: If a step does not begin where the one
-            before it ended. A reversal or an additional transformation may
-            be required; neither is inferred. Swapping a step's source and
-            target alone leaves PROJ applying its parameters forwards.
+        UnsupportedReferenceError: If a step joins the one before it at
+            neither end, or joins it backwards but is not a Helmert.
     """
-    for before, after in pairwise(steps):
+    for index in range(1, len(steps)):
+        before, after = steps[index - 1], steps[index]
         ending = CRS.from_json_dict(before["target_crs"])
         beginning = CRS.from_json_dict(after["source_crs"])
         if not ending.equals(beginning, ignore_axis_order=True):
-            raise UnsupportedReferenceError(
-                f"{_described(described)} chains a step from {beginning.name!r} "
-                f"after one ending at {ending.name!r}, but their CRS definitions "
-                "are not equivalent; an additional transformation or a reversed "
-                "step would be required, which this package does not infer"
-            )
+            if not ending.equals(
+                CRS.from_json_dict(after["target_crs"]), ignore_axis_order=True
+            ):
+                raise UnsupportedReferenceError(
+                    f"{_described(described)} chains a step from "
+                    f"{beginning.name!r} after one ending at {ending.name!r}, "
+                    "but their CRS definitions are not equivalent at either "
+                    "end; an additional transformation would be required, "
+                    "which this package does not infer"
+                )
+            if (reversed_step := _reversed(after)) is None:
+                raise UnsupportedReferenceError(
+                    f"{_described(described)} chains {after['name']!r} in "
+                    f"reverse, and {after['method']['name']} is not a Helmert "
+                    "this package restates backwards"
+                )
+            after = steps[index] = reversed_step
+            beginning = CRS.from_json_dict(after["source_crs"])
         if not ending.equals(beginning):
             after["source_crs"] = {
                 **after["source_crs"],
@@ -879,6 +897,50 @@ def _concatenation(steps: list[JsonObject], described: str) -> JsonObject:
         "source_crs": steps[0]["source_crs"],
         "target_crs": steps[-1]["target_crs"],
         "steps": steps,
+    }
+
+
+def _reversed(step: JsonObject) -> JsonObject | None:
+    """State a Helmert step backwards, as the forward Helmert of its inverse.
+
+    PROJJSON has no flag for applying a step backwards, so the inverse is
+    written out; PROJ's own export of one does not (OSGeo/PROJ#4866). ESRI's
+    engine inverts ``X' = T + (1 + s) R X`` as
+    ``X = R^T (X' - T) / (1 + s)``, as PROJ's ``+inv`` does, which is again a
+    Helmert: rotations ``-r``, scale ``1 / (1 + s)`` and translations
+    ``-R^T T / (1 + s)``. EPSG's reverse, which negates every parameter, is
+    an approximation of this.
+    """
+    sign = _REVERSIBLE_HELMERT.get(step["method"]["id"]["code"])
+    if sign is None:
+        return None
+    si = {
+        p["id"]["code"]: p["value"] * methods.factor(p["unit"])
+        for p in step["parameters"]
+    }
+    tx, ty, tz = si[8605], si[8606], si[8607]
+    a, b, c = (sign * si.get(code, 0.0) for code in (8608, 8609, 8610))
+    scale = 1.0 + si.get(8611, 0.0)
+    inverse = {
+        8605: -(tx + c * ty - b * tz) / scale,
+        8606: -(-c * tx + ty + a * tz) / scale,
+        8607: -(b * tx - a * ty + tz) / scale,
+        8611: 1.0 / scale - 1.0,
+    }
+    return {
+        **step,
+        "name": f"Inverse of {step['name']}",
+        "source_crs": step["target_crs"],
+        "target_crs": step["source_crs"],
+        "parameters": [
+            {
+                **p,
+                "value": inverse[p["id"]["code"]] / methods.factor(p["unit"])
+                if p["id"]["code"] in inverse
+                else -p["value"],
+            }
+            for p in step["parameters"]
+        ],
     }
 
 

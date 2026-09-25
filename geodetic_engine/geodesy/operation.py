@@ -1065,7 +1065,7 @@ def has_inverted_step(definition: object) -> bool:
     define: neither format has a flag for "apply this operation backwards".
     Re-reading an export that contains one yields the *forward* operation
     instead, silently reversing the sign of a datum shift, so such an export
-    must not be handed out.
+    must not be handed out. Reported as https://github.com/OSGeo/PROJ/issues/4866.
 
     Only datum-changing steps count. An inverted *conversion* -- a map
     projection or an axis-order reversal -- is analytically invertible from

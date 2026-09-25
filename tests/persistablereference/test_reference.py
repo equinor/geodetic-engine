@@ -341,7 +341,6 @@ def test_axis_order_is_reported_not_reinterpreted(payload: Any) -> None:
     [
         ("refused_reversible_polynomial", UnsupportedMethodError),
         ("refused_time_specific", UnsupportedMethodError),
-        ("refused_reversed_step", UnsupportedReferenceError),
     ],
 )
 def test_what_cannot_be_translated_exactly_is_refused(
@@ -353,10 +352,41 @@ def test_what_cannot_be_translated_exactly_is_refused(
         reference.to_operation()
 
 
-def test_a_reversed_step_is_refused_rather_than_swapped(payload: Any) -> None:
-    """Swapping a step's ends leaves PROJ applying it forwards, off by the shift."""
-    with pytest.raises(UnsupportedReferenceError, match="reverse"):
-        parse_persistable_reference(payload("refused_reversed_step")).to_operation()
+def test_a_reversed_helmert_step_is_applied_as_esri_inverts_it(payload: Any) -> None:
+    """EPSG:4837 applies ED_1950_To_WGS_1984_18 from WGS 84 to ED50.
+
+    The expected values are ESRI's Geometry Service applying that GEOGTRAN
+    with transformForward=false. The step is read back from PROJJSON, which
+    has no flag for an inverted step, so this also checks it states one.
+    """
+    operation = parse_persistable_reference(
+        payload("ct_reversed_helmert_step")
+    ).to_operation()
+    step = Transformer.from_pipeline(operation.operations[1].to_json(), always_xy=True)
+    for point, esri in (
+        ((5.4, 52.2), (5.401285939573649, 52.200778831259356)),
+        ((3.0, 51.0), (3.001310972081192, 51.000841811644065)),
+        ((7.0, 53.5), (7.001281918736436, 53.50071976771124)),
+    ):
+        assert step.transform(*point) == pytest.approx(esri, abs=1e-10)
+    chain = Transformer.from_pipeline(operation.to_json(), always_xy=True)
+    epsg = Transformer.from_pipeline(
+        "urn:ogc:def:coordinateOperation:EPSG::4837", always_xy=True
+    )
+    assert chain.transform(5.4, 52.2) == pytest.approx(
+        epsg.transform(5.4, 52.2), abs=1e-10
+    )
+
+
+def test_a_reversed_step_that_is_not_a_helmert_is_refused(payload: Any) -> None:
+    """Only a Helmert's inverse is restated; a pivot or a grid is not."""
+    steps = [
+        json.loads(payload("st_position_vector")),
+        json.loads(MOLODENSKY_BADEKAS),
+    ]
+    reference = parse_persistable_reference(json.dumps({"type": "CT", "cts": steps}))
+    with pytest.raises(UnsupportedReferenceError, match="in reverse"):
+        reference.to_operation()
 
 
 def test_a_bound_crs_base_carries_the_prime_meridian_step_of_its_chain(
