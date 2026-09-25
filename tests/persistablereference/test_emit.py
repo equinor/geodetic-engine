@@ -24,6 +24,8 @@ from geodetic_engine.persistablereference.emit import geogtran
 from tests.persistablereference.conftest import MOLODENSKY_BADEKAS, cases
 
 READABLE = [case for case in cases() if not case.startswith("refused_")]
+# Read into a PROJ-based step, which has no EPSG method and so no ESRI name.
+WRITABLE = [case for case in READABLE if case != "st_reversible_polynomial"]
 
 # Somewhere inside the domain of every fixture CRS is not a thing that exists,
 # so round trips are compared where the projections are well behaved rather
@@ -31,7 +33,7 @@ READABLE = [case for case in cases() if not case.startswith("refused_")]
 PROBES = ((500000.0, 6600000.0), (400000.0, 5000000.0))
 
 
-@pytest.mark.parametrize("case", READABLE)
+@pytest.mark.parametrize("case", WRITABLE)
 def test_everything_that_reads_writes_again(case: str, payload: Any) -> None:
     """A definition this package accepts is one it can state."""
     original = parse_persistable_reference(payload(case))
@@ -42,6 +44,14 @@ def test_everything_that_reads_writes_again(case: str, payload: Any) -> None:
     )
     again = parse_persistable_reference(to_persistable_reference(built))
     assert again.kind is original.kind
+
+
+def test_a_polynomial_is_refused_on_writing(payload: Any) -> None:
+    operation = parse_persistable_reference(
+        payload("st_reversible_polynomial")
+    ).to_operation()
+    with pytest.raises(UnsupportedMethodError, match="no EPSG code"):
+        to_persistable_reference(operation)
 
 
 @pytest.mark.parametrize(

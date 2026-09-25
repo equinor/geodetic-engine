@@ -705,6 +705,8 @@ def _transformation(node: Node) -> JsonObject:
     }
     if methods.is_grid_method(stated.name):
         definition |= _grid_method(node, stated.name, described)
+    elif stated.name.casefold() == methods.POLYNOMIAL_METHOD.casefold():
+        definition |= _polynomial_method(node, definition, described)
     else:
         definition |= _parameter_method(node, stated.name, described)
     if accuracies := node.nodes("OPERATIONACCURACY"):
@@ -733,22 +735,7 @@ def _transformation(node: Node) -> JsonObject:
 def _parameter_method(node: Node, name: str, described: str) -> JsonObject:
     """State a parameter-based method and its parameters."""
     found = methods.method(name)
-    stated: dict[str, float] = {}
-    for parameter in node.nodes("PARAMETER"):
-        if parameter.name.casefold() in stated:
-            raise MalformedReferenceError(
-                f"{_described(described)} states duplicate parameter {parameter.name!r}"
-            )
-        if (
-            not parameter.name
-            or len(parameter.children) != 2
-            or not isinstance(parameter.children[1], int | float)
-        ):
-            raise MalformedReferenceError(
-                f"{_described(described)} states parameter {parameter.name!r} "
-                "without exactly a quoted name and one numeric value"
-            )
-        stated[parameter.name.casefold()] = float(parameter.children[1])
+    stated = _stated_parameters(node, described)
 
     expected = {esri.casefold() for esri in found.parameters}
     if found.code in _OFFSET_METHODS:
@@ -805,6 +792,117 @@ def _meridian(crs: CRS, described: str) -> float:
             f"{_described(described)} states a frame with no prime meridian"
         )
     return meridian.longitude * float(meridian.unit_conversion_factor)
+
+
+def _stated_parameters(node: Node, described: str) -> dict[str, float]:
+    """Every numeric ``PARAMETER`` a ``GEOGTRAN`` states, by casefolded name."""
+    stated: dict[str, float] = {}
+    for parameter in node.nodes("PARAMETER"):
+        if parameter.name.casefold() in stated:
+            raise MalformedReferenceError(
+                f"{_described(described)} states duplicate parameter {parameter.name!r}"
+            )
+        if (
+            not parameter.name
+            or len(parameter.children) != 2
+            or not isinstance(parameter.children[1], int | float)
+        ):
+            raise MalformedReferenceError(
+                f"{_described(described)} states parameter {parameter.name!r} "
+                "without exactly a quoted name and one numeric value"
+            )
+        stated[parameter.name.casefold()] = float(parameter.children[1])
+    return stated
+
+
+def _polynomial_method(
+    node: Node, definition: JsonObject, described: str
+) -> JsonObject:
+    """State ESRI's reversible polynomial as the PROJ horner series it amounts to.
+
+    EPSG method 9651: ``U = m(lat - lat0)``, ``V = m(lon - lon0)``, and
+    ``m.dlat = sum(A_ij U^i V^j)`` added to the latitude, likewise ``B`` for
+    the longitude; the reverse negates every coefficient. ESRI states the
+    evaluation point in arc-seconds and the offsets in degrees, which is what
+    reproduces EPSG's worked example for ED50 to ED87 (1). PROJ implements no
+    EPSG polynomial (OSGeo/PROJ#4867), so the series is handed to its horner
+    operation, which sees coordinates in the frames' own axis order.
+    """
+    degree = methods.POLYNOMIAL_DEGREE
+    terms = [(i, n - i) for n in range(degree + 1) for i in range(n + 1)]
+    names = {
+        (series, term): methods.polynomial_coefficient(series, *term)
+        for series in "AB"
+        for term in terms
+    }
+    expected = [*methods.POLYNOMIAL_POINT, methods.POLYNOMIAL_SCALE, *names.values()]
+    stated = _stated_parameters(node, described)
+    if set(stated) != {name.casefold() for name in expected}:
+        raise MalformedReferenceError(
+            f"{_described(described)} states {methods.POLYNOMIAL_METHOD} with "
+            f"parameters {sorted(stated)}, but it takes {sorted(expected)}"
+        )
+    scale = stated[methods.POLYNOMIAL_SCALE.casefold()]
+    if scale == 0:
+        raise MalformedReferenceError(
+            f"{_described(described)} states a zero {methods.POLYNOMIAL_SCALE}"
+        )
+
+    orders = []
+    for end in ("source_crs", "target_crs"):
+        axes = CRS.from_json_dict(definition[end]).axis_info
+        orders.append(tuple(axis.direction.lower() for axis in axes))
+        if len(axes) != 2 or not all(
+            isclose(axis.unit_conversion_factor, methods.factor("degree"))
+            for axis in axes
+        ):
+            raise UnsupportedReferenceError(
+                f"{_described(described)} states {methods.POLYNOMIAL_METHOD} "
+                "between frames that are not two-dimensional and in degrees"
+            )
+    if orders[0] != orders[1] or set(orders[0]) != {"north", "east"}:
+        raise UnsupportedReferenceError(
+            f"{_described(described)} states {methods.POLYNOMIAL_METHOD} between "
+            "frames whose axes are not latitude and longitude in one order"
+        )
+    latitude_first = orders[0][0] == "north"
+    # (series, evaluation point in degrees), latitude then longitude.
+    ordinates = [
+        (series, stated[name.casefold()] / 3600)
+        for series, name in zip("AB", methods.POLYNOMIAL_POINT, strict=True)
+    ]
+    if not latitude_first:
+        ordinates.reverse()
+
+    def series(ordinate: int, sign: float) -> str:
+        # Horner orders fwd_u by ascending power of v, fwd_v by that of u.
+        name, origin = ordinates[ordinate]
+        slots = (
+            [(i, j) for j in range(degree + 1) for i in range(degree + 1 - j)]
+            if ordinate == 0
+            else [(i, j) for i in range(degree + 1) for j in range(degree + 1 - i)]
+        )
+        powers = {
+            ((u, v) if latitude_first else (v, u)): sign
+            * stated[names[name, (u, v)].casefold()]
+            * scale ** (u + v - 1)
+            for u, v in terms
+        }
+        values = [powers.get(slot, 0.0) for slot in slots]
+        values[0] += origin
+        values[slots.index((1, 0) if ordinate == 0 else (0, 1))] += 1.0
+        return ",".join(repr(value) for value in values)
+
+    origin = f"{ordinates[0][1]!r},{ordinates[1][1]!r}"
+    pipeline = (
+        f"+proj=horner +deg={degree} +fwd_origin={origin} +inv_origin={origin} "
+        f"+fwd_u={series(0, 1.0)} +fwd_v={series(1, 1.0)} "
+        f"+inv_u={series(0, -1.0)} +inv_v={series(1, -1.0)}"
+    )
+    return {
+        "method": {"name": f"PROJ-based operation method: {pipeline}"},
+        "parameters": [],
+    }
 
 
 def _grid_method(node: Node, name: str, described: str) -> JsonObject:
@@ -888,8 +986,7 @@ def _concatenation(steps: list[JsonObject], described: str) -> JsonObject:
             if (reversed_step := _reversed(after)) is None:
                 raise UnsupportedReferenceError(
                     f"{_described(described)} chains {after['name']!r} in "
-                    f"reverse, and {after['method']['name']} is not a Helmert "
-                    "this package restates backwards"
+                    "reverse, and only a Helmert step is restated backwards"
                 )
             after = steps[index] = reversed_step
             beginning = CRS.from_json_dict(after["source_crs"])
@@ -918,7 +1015,8 @@ def _reversed(step: JsonObject) -> JsonObject | None:
     ``-R^T T / (1 + s)``. EPSG's reverse, which negates every parameter, is
     an approximation of this.
     """
-    sign = _REVERSIBLE_HELMERT.get(step["method"]["id"]["code"])
+    code = (step["method"].get("id") or {}).get("code")
+    sign = _REVERSIBLE_HELMERT.get(code) if isinstance(code, int) else None
     if sign is None:
         return None
     si = {

@@ -151,6 +151,23 @@ METHODS: dict[str, Method] = {
 # parameter codes and the real file names come from.
 GRID_METHODS = frozenset({"nadcon", "ntv2", "harn"})
 
+# EPSG method 9651, which PROJ does not implement; reference.py evaluates it with
+# PROJ's horner operation instead. ESRI names the coefficient of U^i.V^j Auivj,
+# and the evaluation point after the Molodensky-Badekas rotation origin.
+POLYNOMIAL_METHOD = "Reversible_polynomial_of_degree_4"
+POLYNOMIAL_DEGREE = 4
+POLYNOMIAL_POINT = (
+    "X_Coordinate_of_Rotation_Origin",
+    "Y_Coordinate_of_Rotation_Origin",
+)
+POLYNOMIAL_SCALE = "Scaling_factor_for_coord_Differences"
+
+
+def polynomial_coefficient(series: str, u: int, v: int) -> str:
+    """ESRI's name for the coefficient of U^u.V^v in series ``A`` or ``B``."""
+    return f"{series}0" if u == v == 0 else f"{series}u{u}v{v}"
+
+
 # Why each unsupported method is refused. Stated per method, because "this is
 # not supported" without the reason invites working around it by picking the
 # nearest method that is.
@@ -176,11 +193,6 @@ REFUSED: dict[str, str] = {
     "Time-specific_Position_Vector_transform_geocen": (
         "it is defined only at its own transformation epoch, which a "
         "persistableReference does not carry"
-    ),
-    "Reversible_polynomial_of_degree_4": (
-        "EPSG's reversible polynomial takes evaluation-point and scaling "
-        "terms that ESRI states under different names, and a mistranslated "
-        "coefficient is not detectable from the result"
     ),
     "GEOCON": "it reads a grid format PROJ does not ship a reader for",
     "NADCON5": (

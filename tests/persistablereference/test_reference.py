@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import pytest
@@ -339,7 +340,6 @@ def test_axis_order_is_reported_not_reinterpreted(payload: Any) -> None:
 @pytest.mark.parametrize(
     ("case", "expected"),
     [
-        ("refused_reversible_polynomial", UnsupportedMethodError),
         ("refused_time_specific", UnsupportedMethodError),
     ],
 )
@@ -350,6 +350,90 @@ def test_what_cannot_be_translated_exactly_is_refused(
     reference = parse_persistable_reference(payload(case))
     with pytest.raises(expected):
         reference.to_operation()
+
+
+# EPSG method 9651's worked example, ED50 to ED87 (1): (lat, lon) in, dX, dY out.
+EPSG_POLYNOMIAL_FORWARD = ((52.508333333, 2.0), (-3.12958e-06, 9.80126e-06))
+EPSG_POLYNOMIAL_REVERSE = ((52.5083301944, 2.0000098055), (3.12957e-06, -9.80124e-06))
+
+
+@pytest.mark.parametrize("identified", [True, False])
+def test_a_reversible_polynomial_reproduces_epsgs_worked_example(
+    identified: bool, payload: Any
+) -> None:
+    """OSDU states the very transformation EPSG works through for method 9651.
+
+    Frames PROJ identifies reach the polynomial latitude first and others
+    longitude first, and both must give EPSG's figures.
+    """
+    stated = payload("st_reversible_polynomial")
+    if not identified:
+        stated = stated.replace("European_1950", "Custom_A").replace(
+            "European_1987", "Custom_B"
+        )
+    operation = parse_persistable_reference(stated).to_operation()
+    first = operation.to_json_dict()["source_crs"]["coordinate_system"]["axis"][0]
+    assert first["direction"] == ("north" if identified else "east")
+    transformer = Transformer.from_pipeline(operation.to_json(), always_xy=True)
+    for ((lat, lon), (d_lat, d_lon)), direction in (
+        (EPSG_POLYNOMIAL_FORWARD, "FORWARD"),
+        (EPSG_POLYNOMIAL_REVERSE, "INVERSE"),
+    ):
+        assert transformer.transform(lon, lat, direction=direction) == pytest.approx(
+            (lon + d_lon, lat + d_lat), abs=1e-11
+        )
+
+
+def test_a_reversible_polynomial_runs_through_transform(payload: Any) -> None:
+    from geodetic_engine.geodesy import transform
+
+    (lat, lon), (d_lat, d_lon) = EPSG_POLYNOMIAL_FORWARD
+    result = transform(
+        "EPSG:4230",
+        "EPSG:4231",
+        (lon, lat),
+        operation=payload("st_reversible_polynomial"),
+    )
+    assert result.coordinates[0] == pytest.approx((lon + d_lon, lat + d_lat), abs=1e-11)
+
+
+def test_a_polynomial_scaling_factor_divides_the_series(payload: Any) -> None:
+    """EPSG states m.dX = A0 + A1.U + ... with U = m(X - X0), so dX ~ m^(i+j-1)."""
+    stated = json.loads(payload("st_reversible_polynomial"))
+    scale = 'PARAMETER["Scaling_factor_for_coord_Differences",1]'
+    assert scale in stated["wkt"]
+    rescaled = re.sub(
+        r'PARAMETER\["(?P<name>[AB](?:0|u(?P<u>\d)v(?P<v>\d)))",(?P<value>[^\]]+)\]',
+        lambda found: (
+            f'PARAMETER["{found["name"]}",'
+            f"{float(found['value']) / 2 ** (int(found['u'] or 0) + int(found['v'] or 0) - 1)!r}]"
+        ),
+        stated["wkt"],
+    ).replace(scale, scale.replace(",1]", ",2]"))
+    before, after = (
+        Transformer.from_pipeline(
+            parse_persistable_reference(json.dumps(stated | {"wkt": wkt}))
+            .to_operation()
+            .to_json(),
+            always_xy=True,
+        )
+        for wkt in (stated["wkt"], rescaled)
+    )
+    for point in ((2.0, 52.508333333), (4.5, 58.0)):
+        assert after.transform(*point) == pytest.approx(
+            before.transform(*point), abs=1e-12
+        )
+
+
+def test_a_polynomial_missing_a_coefficient_is_refused(payload: Any) -> None:
+    stated = json.loads(payload("st_reversible_polynomial"))
+    coefficient = 'PARAMETER["Bu0v4",7.62236E-09],'
+    assert coefficient in stated["wkt"]
+    stated["wkt"] = stated["wkt"].replace(coefficient, "")
+    with pytest.raises(
+        MalformedReferenceError, match="Reversible_polynomial_of_degree_4"
+    ):
+        parse_persistable_reference(json.dumps(stated)).to_operation()
 
 
 def test_a_reversed_helmert_step_is_applied_as_esri_inverts_it(payload: Any) -> None:
