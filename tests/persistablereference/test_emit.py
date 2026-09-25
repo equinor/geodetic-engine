@@ -54,6 +54,12 @@ def test_a_polynomial_is_refused_on_writing(payload: Any) -> None:
         to_persistable_reference(operation)
 
 
+def test_a_chain_with_an_inverted_step_is_refused() -> None:
+    """EPSG:4837 applies ED50 to WGS 84 (18) inverted; written out, it reads forwards."""
+    with pytest.raises(UnsupportedReferenceError, match="inverted"):
+        to_persistable_reference(CoordinateOperation.from_epsg(4837))
+
+
 @pytest.mark.parametrize(
     "case",
     [

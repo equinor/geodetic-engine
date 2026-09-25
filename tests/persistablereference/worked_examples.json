@@ -88,7 +88,7 @@
     {
       "name": "the EPSG:8047 case run backwards: WGS 84 into ED50",
       "kind": "bound",
-      "comment": "The same early bound concatenated payload is now the target, so EPSG:8047 is applied in reverse. The points are the first case's WGS 84 results read in the opposite direction.",
+      "comment": "The same early bound concatenated payload is now the target, so EPSG:8047 is applied in reverse. The points are the preceding EPSG:8047 case's WGS 84 results read in the opposite direction.",
       "source_crs": {
         "reference": "{\"authCode\":{\"auth\":\"EPSG\",\"code\":\"4326\"},\"name\":\"GCS_WGS_1984\",\"type\":\"LBC\",\"ver\":\"PE_10_9_1\",\"wkt\":\"GEOGCS[\\\"GCS_WGS_1984\\\",DATUM[\\\"D_WGS_1984\\\",SPHEROID[\\\"WGS_1984\\\",6378137.0,298.257223563]],PRIMEM[\\\"Greenwich\\\",0.0],UNIT[\\\"Degree\\\",0.0174532925199433],AUTHORITY[\\\"EPSG\\\",4326]]\"}",
         "osdu_record": "Geographic2D:EPSG::4326"

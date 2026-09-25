@@ -189,7 +189,9 @@ def _rendered(child: Child) -> str:
     if isinstance(child, Word):
         return str(child)
     if isinstance(child, str):
-        escaped = child.replace("\\", "\\\\").replace('"', '\\"')
+        # WKT, PROJ and ESRI write a quote inside a string twice; none treats a
+        # backslash as an escape.
+        escaped = child.replace('"', '""')
         return f'"{escaped}"'
     return repr(child)
 
@@ -252,13 +254,13 @@ class _Scanner:
         while self._at < len(self._text):
             character = self._text[self._at]
             self._at += 1
-            if character == "\\" and self._at < len(self._text):
-                characters.append(self._text[self._at])
-                self._at += 1
-            elif character == '"':
-                return "".join(characters)
-            else:
+            if character != '"':
                 characters.append(character)
+            elif self._text.startswith('"', self._at):
+                characters.append(character)
+                self._at += 1
+            else:
+                return "".join(characters)
         self._fail("string is never closed")
 
     def _number(self) -> int | float:

@@ -64,10 +64,17 @@ def test_a_direction_beginning_with_e_is_not_a_number() -> None:
 
 
 def test_quotes_and_brackets_inside_a_name_survive() -> None:
-    """A quoted name is read as text, however much like WKT its contents look."""
-    node = read('GEOGCS["a \\"b\\" [c]",SPHEROID["s",1.0,2.0]]')
+    """A quote inside a name is written twice, which is how PROJ and ESRI read it."""
+    node = read('GEOGCS["a ""b"" [c]",SPHEROID["s",1.0,2.0]]')
     assert node.name == 'a "b" [c]'
-    assert write(node) == 'GEOGCS["a \\"b\\" [c]",SPHEROID["s",1.0,2.0]]'
+    assert write(node) == 'GEOGCS["a ""b"" [c]",SPHEROID["s",1.0,2.0]]'
+
+
+def test_a_backslash_is_an_ordinary_character() -> None:
+    """ESRI may file a grid dataset under a regional folder written with one."""
+    node = read('PARAMETER["Dataset_australia\\A66_National_13_09_01",0.0]')
+    assert node.name == "Dataset_australia\\A66_National_13_09_01"
+    assert write(node) == 'PARAMETER["Dataset_australia\\A66_National_13_09_01",0.0]'
 
 
 def test_descendants_reach_every_depth() -> None:
@@ -83,6 +90,7 @@ def test_descendants_reach_every_depth() -> None:
         "GEOGCS[",
         'GEOGCS["unterminated',
         'GEOGCS["a"] trailing',
+        'GEOGCS["a\\"b"]',
         "[1,2]",
     ],
 )

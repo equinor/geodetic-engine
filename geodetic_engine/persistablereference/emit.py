@@ -33,6 +33,7 @@ from pyproj.crs import CoordinateOperation
 from pyproj.enums import WktVersion
 from pyproj.exceptions import CRSError
 
+from geodetic_engine.geodesy.operation import has_inverted_step
 from geodetic_engine.persistablereference import esriwkt, methods
 from geodetic_engine.persistablereference.envelope import (
     AuthorityCode,
@@ -179,6 +180,13 @@ def _late_bound(crs: CRS, name: str) -> JsonObject:
 def _operation_payload(operation: CoordinateOperation, name: str) -> JsonObject:
     """State a transformation as an ``ST``, or a chain as a ``CT``."""
     definition = operation.to_json_dict()
+    if has_inverted_step(definition):
+        # PROJJSON keeps the forward parameters (OSGeo/PROJ#4866).
+        raise UnsupportedReferenceError(
+            f"{_described(operation.name)} applies a datum transformation "
+            "inverted, which PROJJSON states with its forward parameters, so "
+            "writing it would state the transformation the wrong way round"
+        )
     if definition.get("type") != "ConcatenatedOperation":
         return {
             "type": Kind.TRANSFORMATION.value,

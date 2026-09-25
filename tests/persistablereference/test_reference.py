@@ -243,6 +243,18 @@ def test_a_grid_transformation_resolves_to_the_files_proj_reads(payload: Any) ->
     ]
 
 
+def test_a_dataset_filed_under_a_backslash_folder_resolves(payload: Any) -> None:
+    """The regional folder is dropped whichever separator ESRI filed it with."""
+    stated = payload("st_ntv2_grid")
+    backslashed = stated.replace("Dataset_australia/", "Dataset_australia\\\\")
+    assert backslashed != stated
+    forward, backward = (
+        parse_persistable_reference(text).to_operation()
+        for text in (stated, backslashed)
+    )
+    assert [p.value for p in backward.params] == [p.value for p in forward.params]
+
+
 def test_a_chain_is_read_as_a_concatenated_operation(payload: Any) -> None:
     """A compound CT states its steps, and they stay steps."""
     reference = parse_persistable_reference(payload("ct_concatenated"))
