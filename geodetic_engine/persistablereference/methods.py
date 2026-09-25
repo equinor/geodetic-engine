@@ -191,7 +191,8 @@ REFUSED: dict[str, str] = {
         "persistableReference does not carry"
     ),
     "Time-specific_Position_Vector_transform_geocen": (
-        "it is defined only at its own transformation epoch, which a "
+        "it is valid only for coordinates at its transformation reference "
+        "epoch, and moving coordinates there needs velocities, which a "
         "persistableReference does not carry"
     ),
     "GEOCON": "it reads a grid format PROJ does not ship a reader for",
