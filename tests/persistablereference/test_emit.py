@@ -225,6 +225,15 @@ def test_an_offset_across_a_prime_meridian_change_is_refused() -> None:
         geogtran(CoordinateOperation.from_epsg(1764))
 
 
+@pytest.mark.parametrize("accuracy", ["unknown", "", "5 m", "nan", "inf", "-1"])
+def test_an_accuracy_that_cannot_be_read_back_is_refused(accuracy: str) -> None:
+    """PROJJSON takes any string; the reader takes one non-negative number."""
+    definition = CoordinateOperation.from_epsg(1149).to_json_dict()
+    definition["accuracy"] = accuracy
+    with pytest.raises(UnsupportedReferenceError, match="accuracy"):
+        geogtran(CoordinateOperation.from_json_dict(definition))
+
+
 @pytest.mark.parametrize("code", [7912, 7789])
 def test_dynamic_datums_are_not_exported_as_static_datums(code: int) -> None:
     with pytest.raises(UnsupportedReferenceError, match="dynamic datum"):

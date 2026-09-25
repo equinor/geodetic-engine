@@ -26,7 +26,7 @@ payload that looks right.
 from __future__ import annotations
 
 import json
-from math import isclose
+from math import isclose, isfinite, nan
 
 from pyproj import CRS
 from pyproj.crs import CoordinateOperation
@@ -111,8 +111,9 @@ def geogtran(operation: CoordinateOperation, name: str = "") -> Node:
         UnsupportedMethodError: If ESRI has no equivalent for the method or one
             of its parameters.
         UnsupportedReferenceError: If the operation is not a single step
-            between two geographic CRSs, or states offsets across a prime
-            meridian change that ESRI cannot state unambiguously.
+            between two geographic CRSs, states offsets across a prime
+            meridian change that ESRI cannot state unambiguously, or states an
+            accuracy that is not one non-negative number of metres.
         MalformedReferenceError: If PROJ will not write either CRS as ESRI WKT.
     """
     definition = operation.to_json_dict()
@@ -133,7 +134,16 @@ def geogtran(operation: CoordinateOperation, name: str = "") -> Node:
     ]
     children.extend(_offsets(definition, method, operation.name))
     if isinstance(accuracy := definition.get("accuracy"), str | int | float):
-        children.append(Node("OPERATIONACCURACY", (float(accuracy),)))
+        try:
+            metres = float(accuracy)
+        except ValueError:
+            metres = nan
+        if not isfinite(metres) or metres < 0:
+            raise UnsupportedReferenceError(
+                f"{_described(operation.name)} states accuracy {accuracy!r}, and "
+                "OPERATIONACCURACY is one non-negative number of metres"
+            )
+        children.append(Node("OPERATIONACCURACY", (metres,)))
     if (stamped := _identifier(definition)) is not None:
         children.append(stamped)
     return Node(_TRANSFORMATION_KEYWORD, tuple(children))
