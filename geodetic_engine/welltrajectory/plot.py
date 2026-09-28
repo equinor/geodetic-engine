@@ -1,20 +1,31 @@
-"""A 3D view of one or more well trajectories.
+"""Well trajectories in an interactive 3D view, in a notebook or a browser.
 
-Needs matplotlib, from the ``plot`` extra: ``pip install geodetic-engine[plot]``.
+Needs plotly, from the ``plot`` extra: ``pip install geodetic-engine[plot]``.
 It is imported only when a plot is drawn, so nothing else in the package
-depends on it.
+depends on it. Paths are drawn along their arcs, every axis at one scale, with
+shadows on the floor and walls. Drag to rotate, scroll to zoom, right-drag to
+pan, and hover a point for its MD, angles, TVD and dogleg severity.
 
-Labels are written in LaTeX that matplotlib's own mathtext renders too, so a
-figure reads the same with or without a TeX installation. TeX is used when it
-is installed and a trial render succeeds, and mathtext otherwise.
+:func:`open_in_browser` serves a figure from this process on ``127.0.0.1`` and
+opens it in the default browser. In a dev container that is the host's
+browser, through VS Code's port forwarding. Still images come from
+``figure.write_image(path)``, through kaleido and Chromium.
 """
 
 from __future__ import annotations
 
+import html
+import itertools
 import math
-import shutil
+import re
+import sys
+import tempfile
+import threading
+import webbrowser
 from collections.abc import Sequence
-from functools import cache
+from functools import cache, partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
@@ -22,189 +33,358 @@ import numpy as np
 from geodetic_engine.welltrajectory.survey import length_factor
 
 if TYPE_CHECKING:
-    from matplotlib.figure import Figure
-    from mpl_toolkits.mplot3d import Axes3D
-
-    from geodetic_engine.geodesy import AxisSpec
     from geodetic_engine.welltrajectory.trajectory import WellTrajectory
 
 type ColorBy = Literal["dls", "md"] | None
 
 # Paths are drawn through this many points along their arcs, not as chords.
 _SMOOTHNESS = 400
+# No axis is shown shorter than this share of the longest, at the same scale.
+_SHORTEST_AXIS = 0.3
 
-# How a length or angle unit is written in math mode, by metres or radians
-# per unit; anything else is written out by name.
+# How a unit is written, by metres or radians per unit.
 _UNITS = (
-    (1.0, r"\mathrm{m}"),
-    (0.3048, r"\mathrm{ft}"),
-    (1200 / 3937, r"\mathrm{ft_{US}}"),
-    (math.pi / 180, r"{}^{\circ}"),
+    (1.0, "m"),
+    (0.3048, "ft"),
+    (1200 / 3937, "ftUS"),
+    (math.pi / 180, "°"),
 )
-_TEX_SPECIALS = str.maketrans({character: "\\" + character for character in "#$%&_{}"})
+_FONT = "Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+_INK, _MUTED, _GRID, _PANE = "#1f2937", "#6b7280", "#e5e7eb", "#f8fafc"
+_PALETTE = ("#2563eb", "#ea580c", "#059669", "#dc2626", "#7c3aed", "#0891b2")
+_SHADOW = {"color": "rgba(100, 116, 139, 0.35)", "width": 2}
+# The camera looks from the south-east, above, from a distance fitting the box.
+_VIEW = np.array([1.25, -2.0, 0.95]) / np.linalg.norm([1.25, -2.0, 0.95])
+_CAMERA_DISTANCE = 1.7
+_FIGURES = itertools.count(1)
+# A notebook shows the figure at this size; a browser tab gets the whole window.
+_NOTEBOOK_SIZE = {"width": 960, "height": 640}
+# Horizontal extent counts less toward the camera distance: the figure is wide.
+_WIDTH_ALLOWANCE = np.array([2 / 3, 2 / 3, 1.0])
+_CONFIG = {"responsive": True, "displaylogo": False, "scrollZoom": True}
+_PAGE = """<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<style>html, body {{ margin: 0; height: 100%; overflow: hidden; }}</style>
+<script src="plotly.min.js"></script>
+</head>
+<body>{body}</body>
+</html>
+"""
 
 
 def plot_trajectory(
     *trajectories: WellTrajectory,
     color_by: ColorBy = "dls",
     labels: Sequence[str] | None = None,
-    ax: Axes3D | None = None,
     projections: bool = True,
-    usetex: bool | None = None,
     title: str | None = None,
-) -> tuple[Figure, Axes3D]:
-    """Draw trajectories in 3D, in their CRS's own coordinates.
+) -> Any:
+    """Draw trajectories as an interactive plotly figure.
+
+    Shown in place by a notebook, or in the browser by :func:`open_in_browser`.
 
     Args:
         trajectories: One or more trajectories, all in the same CRS.
         color_by: Colour each path by dogleg severity or by measured depth;
             with None each well gets a colour of its own.
-        labels: A name per trajectory, written beside its deepest point.
-        ax: 3D axes to draw into; new ones on a new figure when omitted.
-        projections: Also draw each path's faint shadow on the floor and two
-            walls, which is what makes depth readable in a 3D view.
-        usetex: Render text with TeX. None uses it only if it works here.
+        labels: A name per trajectory, for the legend and the hover box.
+        projections: Also draw each path's shadow on the floor and two walls.
         title: Figure title; the CRS's name when omitted.
 
     Returns:
-        The figure and the axes, for further styling or saving.
+        A ``plotly.graph_objects.Figure``.
 
     Raises:
-        ImportError: If matplotlib is not installed.
+        ImportError: If plotly is not installed.
         ValueError: If no trajectory is given, they are in different CRSs, or
             the labels do not match them one for one.
     """
+    _validate(trajectories, labels)
+    go = _plotly()
+    smooth = [_smoothed(trajectory) for trajectory in trajectories]
+    first = smooth[0]
+    paths = [np.column_stack([t.x, t.y, t.z]) for t in smooth]
+    points = np.vstack(paths)
+    lower, upper, aspect = _box_at_one_scale(
+        first, points.min(axis=0), points.max(axis=0)
+    )
+    names = list(labels or [f"Well {index + 1}" for index in range(len(smooth))])
+    values = [t.dls() if color_by == "dls" else t.md for t in smooth]
+    joined = np.concatenate(values)
+
+    figure = go.Figure()
+    for index, (trajectory, path) in enumerate(zip(smooth, paths, strict=True)):
+        line: dict[str, Any] = {"width": 7}
+        if color_by is None:
+            line["color"] = _PALETTE[index % len(_PALETTE)]
+        else:
+            line |= {
+                "color": values[index],
+                "colorscale": "Plasma" if color_by == "dls" else "Viridis",
+                "cmin": float(joined.min()),
+                "cmax": float(max(joined.max(), joined.min() + 1e-9)),
+                "showscale": index == 0,
+                "colorbar": {
+                    "title": {
+                        "text": _colour_title(first, color_by),
+                        "side": "right",
+                        "font": {"size": 14},
+                    },
+                    "thickness": 14,
+                    "len": 0.6,
+                    "outlinewidth": 0,
+                    "tickformat": ",.0f" if color_by == "md" else ".1f",
+                    "tickfont": {"color": _MUTED, "size": 13},
+                },
+            }
+        figure.add_trace(
+            go.Scatter3d(
+                x=path[:, 0],
+                y=path[:, 1],
+                z=path[:, 2],
+                mode="lines",
+                name=names[index],
+                legendrank=index,
+                line=line,
+                customdata=np.column_stack(
+                    [
+                        trajectory.md,
+                        trajectory.inclination,
+                        trajectory.azimuth_true,
+                        trajectory.tvd,
+                        trajectory.dls(),
+                    ]
+                ),
+                hovertemplate=_hover(trajectory),
+            )
+        )
+        if projections:
+            for x, y, z in (
+                (path[:, 0], path[:, 1], np.full(len(path), lower[2])),
+                (np.full(len(path), lower[0]), path[:, 1], path[:, 2]),
+                (path[:, 0], np.full(len(path), upper[1]), path[:, 2]),
+            ):
+                figure.add_trace(
+                    go.Scatter3d(
+                        x=x,
+                        y=y,
+                        z=z,
+                        mode="lines",
+                        line=_SHADOW,
+                        hoverinfo="skip",
+                        showlegend=False,
+                    )
+                )
+        for position, symbol, marker in (
+            (0, "diamond", "Wellhead"),
+            (-1, "circle", "TD"),
+        ):
+            figure.add_trace(
+                go.Scatter3d(
+                    x=[path[position, 0]],
+                    y=[path[position, 1]],
+                    z=[path[position, 2]],
+                    mode="markers",
+                    marker={
+                        "symbol": symbol,
+                        "size": 6 if marker == "Wellhead" else 5,
+                        "color": _INK,
+                        "line": {"color": "white", "width": 1},
+                    },
+                    name=marker,
+                    legendgroup=marker,
+                    showlegend=index == 0,
+                    hovertemplate=f"{marker} of {names[index]}<extra></extra>",
+                )
+            )
+
+    # Drawn over the scene rather than in it, so no wall or path hides them.
+    annotations = [
+        {
+            "x": float(path[-1, 0]),
+            "y": float(path[-1, 1]),
+            "z": float(path[-1, 2]),
+            "text": name,
+            "ax": 0,
+            "ay": -30,
+            "arrowhead": 0,
+            "arrowwidth": 1,
+            "arrowcolor": _MUTED,
+            "bgcolor": "rgba(255, 255, 255, 0.9)",
+            "bordercolor": _PALETTE[index % len(_PALETTE)]
+            if color_by is None
+            else _GRID,
+            "borderpad": 3,
+            "font": {"size": 11, "color": _INK},
+        }
+        for index, (name, path) in enumerate(zip(names, paths, strict=True))
+        if labels is not None
+    ]
+
+    eye = _VIEW * _CAMERA_DISTANCE * float(np.linalg.norm(aspect * _WIDTH_ALLOWANCE))
+    figure.update_layout(
+        template="plotly_white",
+        **_NOTEBOOK_SIZE,
+        font={"family": _FONT, "size": 12, "color": _INK},
+        title={
+            "text": title or first.crs.name,
+            "font": {"size": 17, "weight": "bold"},
+            "x": 0.02,
+            "xanchor": "left",
+            "subtitle": {
+                "text": _subtitle(smooth, title),
+                "font": {"color": _MUTED, "size": 12},
+            },
+        },
+        scene={
+            **_axes(first, lower, upper),
+            "aspectmode": "manual",
+            "aspectratio": dict(zip("xyz", map(float, aspect), strict=True)),
+            "camera": {"eye": dict(zip("xyz", map(float, eye), strict=True))},
+            "annotations": annotations,
+        },
+        legend={
+            "x": 0.01,
+            "y": 0.97,
+            "bgcolor": "rgba(255, 255, 255, 0.85)",
+            "bordercolor": _GRID,
+            "borderwidth": 1,
+            "font": {"size": 13},
+        },
+        hoverlabel={
+            "bgcolor": "white",
+            "bordercolor": _GRID,
+            "font": {"family": _FONT, "size": 12, "color": _INK},
+        },
+        margin={"l": 0, "r": 0, "t": 72, "b": 0},
+    )
+    return figure
+
+
+def open_in_browser(figure: Any, name: str | None = None) -> str:
+    """Open a plotly figure in the default browser, and return its address.
+
+    The page fills the browser window and follows it when resized. It is
+    served from a local web server in this process, for as long as it runs: a
+    notebook's kernel keeps it up, a script's exit takes it down. To keep a
+    figure, write it to a file instead, with ``figure.write_html(path)``.
+
+    Args:
+        figure: A figure from :func:`plot_trajectory`, or any plotly figure.
+        name: Stem of the page's file name; the figure's title when omitted.
+
+    Returns:
+        The page's address, for opening by hand if no browser could be started.
+    """
+    from plotly.offline import get_plotlyjs
+
+    directory, port = _server()
+    title = name or figure.layout.title.text or "trajectory"
+    page = f"{re.sub(r'[^A-Za-z0-9_-]+', '-', title).strip('-')}-{next(_FIGURES)}.html"
+    script = directory / "plotly.min.js"
+    if not script.exists():
+        script.write_text(get_plotlyjs(), encoding="utf-8")
+    fitted = _plotly().Figure(figure).update_layout(width=None, height=None)
+    body = fitted.to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        default_width="100%",
+        default_height="100vh",
+        config=_CONFIG,
+    )
+    (directory / page).write_text(
+        _PAGE.format(title=html.escape(title), body=body), encoding="utf-8"
+    )
+    address = f"http://127.0.0.1:{port}/{page}"
+    webbrowser.open(address)
+    return address
+
+
+def _axes(
+    trajectory: WellTrajectory, lower: np.ndarray, upper: np.ndarray
+) -> dict[str, Any]:
+    horizontal = trajectory.frame.horizontal_crs
+    axes = [horizontal.axes[index] for index in horizontal.value_axis_order[:2]]
+    tick = ".5f" if horizontal.crs.is_geographic else ".0f"
+    z_unit = _unit(length_factor(trajectory.z_unit), trajectory.z_unit)
+    titles = [
+        *(f"{a.abbrev} [{_unit(a.unit_conversion_factor, a.unit_name)}]" for a in axes),
+        f"z\u2080 \u2212 TVD [{z_unit}]",
+    ]
+    return {
+        f"{key}axis": {
+            "title": {"text": text, "font": {"color": _MUTED, "size": 12}},
+            "range": [float(lower[index]), float(upper[index])],
+            "tickformat": tick if key != "z" else ".0f",
+            "tickfont": {"color": _MUTED, "size": 12},
+            "nticks": 6,
+            "backgroundcolor": _PANE,
+            "gridcolor": _GRID,
+            "zerolinecolor": _GRID,
+            "showbackground": True,
+            "showspikes": False,
+        }
+        for index, (key, text) in enumerate(zip("xyz", titles, strict=True))
+    }
+
+
+def _subtitle(trajectories: Sequence[WellTrajectory], title: str | None) -> str:
+    """The CRS if the title is not it, how the wells were placed, and their TD."""
+    first = trajectories[0]
+    methods = " / ".join(
+        sorted({re.sub(r"(?<=[a-z])(?=[A-Z])", " ", t.method) for t in trajectories})
+    )
+    parts = [first.crs.name] if title else []
+    parts.append(f"{methods} placement")
+    if len(trajectories) == 1:
+        parts.append(
+            f"TD {first.md[-1]:,.0f} {first.md_unit} MD, "
+            f"{first.tvd[-1]:,.0f} {first.z_unit} TVD"
+        )
+    else:
+        parts.append(f"{len(trajectories)} wells")
+    return "  ·  ".join(parts)
+
+
+def _hover(trajectory: WellTrajectory) -> str:
+    md, z = trajectory.md_unit, trajectory.z_unit
+    xy = ".7f" if trajectory.frame.horizontal_crs.crs.is_geographic else ".2f"
+    return (
+        f"MD %{{customdata[0]:.2f}} {md}<br>"
+        "Inclination %{customdata[1]:.2f}°<br>"
+        "Azimuth %{customdata[2]:.2f}° true<br>"
+        f"TVD %{{customdata[3]:.2f}} {z}<br>"
+        f"DLS %{{customdata[4]:.2f}}°/{trajectory.dls_length:g} {md}<br>"
+        f"x %{{x:{xy}}}, y %{{y:{xy}}}, z %{{z:.2f}}"
+    )
+
+
+def _colour_title(trajectory: WellTrajectory, color_by: ColorBy) -> str:
+    unit = _unit(length_factor(trajectory.md_unit), trajectory.md_unit)
+    if color_by == "md":
+        return f"MD [{unit}]"
+    return f"DLS [°/{trajectory.dls_length:g} {unit}]"
+
+
+def _unit(factor: float, name: str) -> str:
+    for known, written in _UNITS:
+        if math.isclose(factor, known, rel_tol=1e-9):
+            return written
+    return name
+
+
+def _validate(
+    trajectories: Sequence[WellTrajectory], labels: Sequence[str] | None
+) -> None:
     if not trajectories:
         raise ValueError("give at least one trajectory to plot")
     if any(item.crs != trajectories[0].crs for item in trajectories):
         raise ValueError("every trajectory must be in the same CRS to share axes")
     if labels is not None and len(labels) != len(trajectories):
         raise ValueError("give one label per trajectory")
-
-    plt = _pyplot()
-    tex = _tex_available() if usetex is None else usetex
-    smooth = [_smoothed(trajectory) for trajectory in trajectories]
-    with plt.rc_context(_style(tex)):
-        if ax is None:
-            ax = plt.figure(figsize=(8.0, 7.0), layout="constrained").add_subplot(
-                projection="3d"
-            )
-        _draw(ax, smooth, color_by, labels, projections, tex)
-        _label_axes(ax, smooth[0], title, tex)
-    return ax.get_figure(root=True), ax
-
-
-def _draw(
-    ax: Axes3D,
-    trajectories: Sequence[WellTrajectory],
-    color_by: ColorBy,
-    labels: Sequence[str] | None,
-    projections: bool,
-    tex: bool,
-) -> None:
-    from matplotlib import colormaps
-    from matplotlib.colors import Normalize
-    from matplotlib.lines import Line2D
-    from mpl_toolkits.mplot3d.art3d import Line3DCollection
-
-    paths = [np.column_stack([t.x, t.y, t.z]) for t in trajectories]
-    points = np.vstack(paths)
-    low, high = points.min(axis=0), points.max(axis=0)
-    floor = low[2] - 0.05 * ((high[2] - low[2]) or 1.0)
-
-    values = [_colour_values(t, color_by) for t in trajectories]
-    colormap = colormaps["plasma" if color_by == "dls" else "viridis"]
-    joined = np.concatenate(values)
-    norm = Normalize(float(joined.min()), float(max(joined.max(), joined.min() + 1e-9)))
-    shadow = {"color": "0.6", "linewidth": 0.8, "alpha": 0.6}
-
-    collection = None
-    for index, path in enumerate(paths):
-        segments = np.stack([path[:-1], path[1:]], axis=1)
-        if color_by is None:
-            collection = Line3DCollection(
-                segments, colors=[colormaps["tab10"](index % 10)], linewidths=2.4
-            )
-        else:
-            collection = Line3DCollection(
-                segments, cmap=colormap, norm=norm, linewidths=2.4
-            )
-            collection.set_array(values[index])
-        ax.add_collection3d(collection)
-        if projections:
-            flat = np.full(len(path), floor)
-            ax.plot(path[:, 0], path[:, 1], flat, **shadow)
-            ax.plot(np.full(len(path), low[0]), path[:, 1], path[:, 2], **shadow)
-            ax.plot(path[:, 0], np.full(len(path), high[1]), path[:, 2], **shadow)
-        ax.scatter(*path[0], marker="^", s=70, color="black", depthshade=False)
-        ax.scatter(*path[-1], marker="o", s=36, color="black", depthshade=False)
-        if labels is not None:
-            ax.text(*path[-1], "  " + _escape(labels[index], tex), fontsize=9)
-
-    if color_by is not None and collection is not None:
-        colorbar = ax.get_figure(root=True).colorbar(
-            collection, ax=ax, shrink=0.6, pad=0.1
-        )
-        colorbar.set_label(_colour_label(trajectories[0], color_by))
-    ax.legend(
-        handles=[
-            Line2D([], [], marker="^", color="k", linestyle="none", label="Wellhead"),
-            Line2D([], [], marker="o", color="k", linestyle="none", label="TD"),
-        ],
-        loc="upper left",
-        frameon=False,
-    )
-    ax.set_xlim(low[0], max(high[0], low[0] + 1.0))
-    ax.set_ylim(low[1], max(high[1], low[1] + 1.0))
-    ax.set_zlim(floor, high[2])
-    _equal_aspect(ax, trajectories[0], low, high, floor)
-
-
-def _label_axes(
-    ax: Axes3D,
-    trajectory: WellTrajectory,
-    title: str | None,
-    tex: bool,
-) -> None:
-    from matplotlib.ticker import MaxNLocator
-
-    horizontal = trajectory.frame.horizontal_crs
-    axes = [horizontal.axes[index] for index in horizontal.value_axis_order[:2]]
-    ax.set_xlabel(_label(axes[0], tex))
-    ax.set_ylabel(_label(axes[1], tex))
-    z_unit = _unit(length_factor(trajectory.z_unit), trajectory.z_unit, tex)
-    ax.set_zlabel(rf"$z_0 - \mathrm{{TVD}}\ [{z_unit}]$")
-    ax.set_title(_escape(title or trajectory.crs.name, tex))
-    ax.ticklabel_format(style="plain", useOffset=False)
-    ax.view_init(elev=22, azim=-58)
-    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
-        axis.set_pane_color((0.97, 0.97, 0.97, 1.0))
-        axis.set_major_locator(MaxNLocator(nbins=4))
-        axis.labelpad = 10
-    ax.zaxis.labelpad = 16
-
-
-def _equal_aspect(
-    ax: Axes3D,
-    trajectory: WellTrajectory,
-    low: np.ndarray,
-    high: np.ndarray,
-    floor: float,
-) -> None:
-    """Scale the box to the data in metres, so a vertical well looks vertical."""
-    if trajectory.frame.horizontal_crs.crs.is_geographic:
-        return
-    horizontal = trajectory.frame.horizontal_unit
-    extent = np.array(
-        [
-            (high[0] - low[0]) * horizontal,
-            (high[1] - low[1]) * horizontal,
-            (high[2] - floor) * length_factor(trajectory.z_unit),
-        ]
-    )
-    # A near vertical well would otherwise collapse into an unreadable sliver.
-    extent = np.maximum(extent, 0.3 * extent.max())
-    ax.set_box_aspect(tuple(extent / extent.max()))
 
 
 def _smoothed(trajectory: WellTrajectory) -> WellTrajectory:
@@ -215,77 +395,67 @@ def _smoothed(trajectory: WellTrajectory) -> WellTrajectory:
     return trajectory.resample(span / _SMOOTHNESS)
 
 
-def _colour_values(trajectory: WellTrajectory, color_by: ColorBy) -> np.ndarray:
-    """One value per segment: the dogleg severity of its arc, or its mid-depth."""
-    if color_by == "dls":
-        return trajectory.dls()[1:]
-    return 0.5 * (trajectory.md[:-1] + trajectory.md[1:])
+def _box_at_one_scale(
+    trajectory: WellTrajectory, low: np.ndarray, high: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Limits around ``low`` to ``high``, and the aspect showing them at one scale.
+
+    An axis the wells barely span is widened around them rather than
+    stretched, so a vertical well looks vertical and a straight one straight.
+    """
+    # Room around the paths, so no point sits on a wall with its shadow, and
+    # beneath the deepest point, so the floor shadow does not overlap it.
+    span = high - low
+    low = low - np.array([0.03, 0.03, 0.05]) * span
+    high = high + np.array([0.03, 0.03, 0.0]) * span
+    metres = _metres_per_unit(trajectory, 0.5 * (low[1] + high[1]))
+    extent = (high - low) * metres
+    target = np.maximum(extent, _SHORTEST_AXIS * max(float(extent.max()), 1.0))
+    pad = (target - extent) / 2 / metres
+    return low - pad, high + pad, target / target.max()
 
 
-def _colour_label(trajectory: WellTrajectory, color_by: ColorBy) -> str:
-    unit = _unit(length_factor(trajectory.md_unit), trajectory.md_unit, tex=False)
-    if color_by == "md":
-        return rf"$\mathrm{{MD}}\ [{unit}]$"
-    return rf"$\mathrm{{DLS}}\ [{{}}^{{\circ}}/{trajectory.dls_length:g}\,{unit}]$"
+def _metres_per_unit(trajectory: WellTrajectory, latitude: float) -> np.ndarray:
+    """Metres per unit of x, y and z, near enough to draw at one scale."""
+    frame = trajectory.frame
+    vertical = length_factor(trajectory.z_unit)
+    horizontal = frame.horizontal_unit
+    if not frame.horizontal_crs.crs.is_geographic:
+        return np.array([horizontal, horizontal, vertical])
+    # An angular unit: radians per unit, turned into arc length on the ellipsoid.
+    radius = frame.semi_axes[0] * horizontal
+    return np.array([radius * np.cos(latitude * horizontal), radius, vertical])
 
 
-def _label(axis: AxisSpec, tex: bool) -> str:
-    unit = _unit(axis.unit_conversion_factor, axis.unit_name, tex)
-    return rf"$\mathrm{{{_escape(axis.abbrev, tex)}}}\ [{unit}]$"
+class _QuietHandler(SimpleHTTPRequestHandler):
+    def log_message(self, format: str, *args: Any) -> None:
+        """Keep requests out of the notebook's output."""
 
 
-def _unit(factor: float, name: str, tex: bool) -> str:
-    """A unit in math mode, by its conversion factor, else by its name."""
-    for known, written in _UNITS:
-        if math.isclose(factor, known, rel_tol=1e-9):
-            return written
-    return r"\mathrm{" + _escape(name, tex).replace(" ", r"\ ") + "}"
+class _QuietServer(ThreadingHTTPServer):
+    daemon_threads = True
 
-
-def _escape(text: str, tex: bool) -> str:
-    """Make free text safe for TeX, or for mathtext outside math mode."""
-    return text.translate(_TEX_SPECIALS) if tex else text.replace("$", r"\$")
-
-
-def _style(tex: bool) -> dict[str, Any]:
-    style: dict[str, Any] = {
-        "text.usetex": tex,
-        "font.family": "serif",
-        "font.size": 10,
-        "axes.titlesize": 11,
-        "legend.fontsize": 9,
-        "grid.color": "0.85",
-        "grid.linewidth": 0.5,
-    }
-    if not tex:
-        style["mathtext.fontset"] = "cm"
-    return style
-
-
-def _pyplot() -> Any:
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError as error:
-        raise ImportError(
-            "plotting needs matplotlib: pip install 'geodetic-engine[plot]'"
-        ) from error
-    return plt
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """A browser dropping a connection is routine; anything else is not."""
+        if not isinstance(sys.exception(), ConnectionError):
+            super().handle_error(request, client_address)
 
 
 @cache
-def _tex_available() -> bool:
-    """Whether TeX is installed and matplotlib can actually render with it."""
-    if not all(shutil.which(tool) for tool in ("latex", "dvipng")):
-        return False
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
+def _server() -> tuple[Path, int]:
+    """A directory, and the port of a local server serving it, for this process."""
+    directory = Path(tempfile.mkdtemp(prefix="welltrajectory-"))
+    handler = partial(_QuietHandler, directory=str(directory))
+    server = _QuietServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return directory, int(server.server_address[1])
 
+
+def _plotly() -> Any:
     try:
-        with _pyplot().rc_context({"text.usetex": True}):
-            trial = Figure()
-            FigureCanvasAgg(trial)
-            trial.text(0.5, 0.5, r"$\mathrm{DLS}\ [{}^{\circ}/30\,\mathrm{m}]$")
-            trial.canvas.draw()
-    except Exception:
-        return False
-    return True
+        import plotly.graph_objects as go
+    except ImportError as error:
+        raise ImportError(
+            "interactive plots need plotly: pip install 'geodetic-engine[plot]'"
+        ) from error
+    return go

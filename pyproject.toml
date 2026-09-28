@@ -33,10 +33,14 @@ dev = [
     "mypy>=1.11",
     "ipykernel>=6.29",
     "pandas-stubs>=2.0",
-    "matplotlib>=3.8",
+    "plotly>=6.1",
+    "nbformat>=5.10",
+    "kaleido>=1.0",
 ]
 plot = [
-    "matplotlib>=3.8",
+    "kaleido>=1.0",
+    "nbformat>=5.10",
+    "plotly>=6.1",
 ]
 
 [project.scripts]
@@ -80,7 +84,7 @@ strict = true
 module = ["pyproj.*"]
 implicit_reexport = true
 
-# matplotlib is typed, but its mplot3d toolkit ships no py.typed marker.
+# plotly ships no py.typed marker.
 [[tool.mypy.overrides]]
-module = ["mpl_toolkits.*"]
+module = ["plotly.*"]
 ignore_missing_imports = true

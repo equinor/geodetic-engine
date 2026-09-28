@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -42,10 +42,6 @@ from geodetic_engine.welltrajectory.survey import (
     Wellhead,
     length_factor,
 )
-
-if TYPE_CHECKING:
-    from matplotlib.figure import Figure
-    from mpl_toolkits.mplot3d import Axes3D
 
 type FloatArray = NDArray[np.float64]
 
@@ -192,8 +188,8 @@ class WellTrajectory:
             }
         )
 
-    def plot(self, **options: Any) -> tuple[Figure, Axes3D]:
-        """Draw in 3D; see :func:`~geodetic_engine.welltrajectory.plot_trajectory`."""
+    def plot(self, **options: Any) -> Any:
+        """A 3D plotly figure; see :func:`~.plot.plot_trajectory`."""
         from geodetic_engine.welltrajectory.plot import plot_trajectory
 
         return plot_trajectory(self, **options)

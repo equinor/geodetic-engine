@@ -1,32 +1,27 @@
-"""The 3D plot builds, with and without TeX, and refuses what it cannot draw."""
+"""The 3D view: one scale on every axis, a page a browser can load, an image."""
 
 from __future__ import annotations
 
-import io
-from collections.abc import Iterator
+import importlib.util
+import shutil
+import urllib.request
+from pathlib import Path
 
+import numpy as np
 import pytest
 
-matplotlib = pytest.importorskip("matplotlib")
-matplotlib.use("Agg")
+pytest.importorskip("plotly")
 
-import matplotlib.pyplot as plt  # noqa: E402
-
-from geodetic_engine.welltrajectory import (  # noqa: E402
+from geodetic_engine.welltrajectory import (
     Survey,
     WellTrajectory,
     compute_trajectory,
+    length_factor,
+    open_in_browser,
     plot_trajectory,
 )
-from geodetic_engine.welltrajectory import plot as plot_module  # noqa: E402
 
-SURVEY = Survey([0, 500, 1500, 2500], [0, 20, 60, 70], [10, 30, 45, 50])
-
-
-@pytest.fixture(autouse=True)
-def _close_figures() -> Iterator[None]:
-    yield
-    plt.close("all")
+SURVEY = Survey([0, 500, 1500, 2500], [0, 30, 60, 60], [0, 2, 358, 2])
 
 
 @pytest.fixture
@@ -34,49 +29,81 @@ def trajectory() -> WellTrajectory:
     return compute_trajectory(SURVEY, (500000.0, 6600000.0, 30.0), "EPSG:32631")
 
 
-@pytest.mark.parametrize("color_by", ["dls", "md", None])
-def test_a_figure_is_drawn_and_rendered(
-    trajectory: WellTrajectory, color_by: plot_module.ColorBy
-) -> None:
-    figure, ax = plot_trajectory(trajectory, color_by=color_by, usetex=False)
+@pytest.mark.parametrize("z_unit", ["m", "ft"])
+def test_every_axis_is_drawn_at_the_same_scale(z_unit: str) -> None:
+    """A well that barely wanders east must not have that wander magnified."""
+    wandering = compute_trajectory(
+        SURVEY, (500000.0, 6600000.0), "EPSG:32631", north="TN", z_unit=z_unit
+    )
 
-    figure.savefig(io.BytesIO(), format="png")
-    assert ax.get_xlabel() == r"$\mathrm{E}\ [\mathrm{m}]$"
-    assert ax.get_title() == "WGS 84 / UTM zone 31N"
-    assert len(figure.axes) == (1 if color_by is None else 2)
+    scene = plot_trajectory(wandering).layout.scene
 
-
-def test_several_wells_share_the_axes(trajectory: WellTrajectory) -> None:
-    other = compute_trajectory(SURVEY, (500400.0, 6600300.0, 30.0), "EPSG:32631")
-
-    figure, ax = plot_trajectory(trajectory, other, labels=["A", "B"], usetex=False)
-    trajectory.plot(ax=ax, usetex=False, projections=False)
-
-    figure.savefig(io.BytesIO(), format="png")
-    assert {text.get_text().strip() for text in ax.texts} >= {"A", "B"}
-
-
-def test_without_tex_it_falls_back_to_mathtext(
-    trajectory: WellTrajectory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("shutil.which", lambda _: None)
-    plot_module._tex_available.cache_clear()
-
-    try:
-        figure, ax = plot_trajectory(trajectory)
-    finally:
-        plot_module._tex_available.cache_clear()
-
-    figure.savefig(io.BytesIO(), format="png")
-    assert not ax.xaxis.label.get_usetex()
+    metres = np.array([1.0, 1.0, length_factor(z_unit)])
+    spans = [np.ptp(getattr(scene, f"{key}axis").range) for key in "xyz"]
+    ratios = [getattr(scene.aspectratio, key) for key in "xyz"]
+    per_unit = np.array(spans) * metres / np.array(ratios)
+    assert per_unit == pytest.approx(np.full(3, per_unit[0]), rel=1e-9)
 
 
 def test_a_geographic_trajectory_is_drawn_in_degrees() -> None:
-    trajectory = compute_trajectory(SURVEY, (4.0, 58.0), "EPSG:4326", north="TN")
+    geographic = compute_trajectory(SURVEY, (4.0, 58.0), "EPSG:4326", north="TN")
 
-    _, ax = plot_trajectory(trajectory, usetex=False)
+    scene = geographic.plot().layout.scene
 
-    assert ax.get_xlabel() == r"$\mathrm{Lon}\ [{}^{\circ}]$"
+    assert scene.xaxis.title.text == "Lon [°]"
+    assert scene.yaxis.title.text == "Lat [°]"
+
+
+def test_each_well_has_its_path_markers_and_hover(trajectory: WellTrajectory) -> None:
+    other = compute_trajectory(SURVEY, (500400.0, 6600300.0, 30.0), "EPSG:32631")
+
+    figure = plot_trajectory(trajectory, other, labels=["A", "B"], color_by=None)
+
+    paths = [trace for trace in figure.data if trace.name in ("A", "B")]
+    assert [trace.name for trace in paths] == ["A", "B"]
+    assert "MD" in paths[0].hovertemplate
+    assert paths[0].customdata.shape == (len(paths[0].x), 5)
+    markers = [trace.name for trace in figure.data if trace.mode == "markers"]
+    assert markers == ["Wellhead", "TD", "Wellhead", "TD"]
+    assert [note.text for note in figure.layout.scene.annotations] == ["A", "B"]
+
+
+def test_projections_can_be_left_out(trajectory: WellTrajectory) -> None:
+    assert len(plot_trajectory(trajectory).data) == 6
+    assert len(plot_trajectory(trajectory, projections=False).data) == 3
+
+
+def test_the_browser_is_given_a_page_it_can_load(
+    trajectory: WellTrajectory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened: list[str] = []
+    monkeypatch.setattr("webbrowser.open", opened.append)
+
+    address = open_in_browser(trajectory.plot(), name="well A/1")
+
+    assert opened == [address]
+    assert address.startswith("http://127.0.0.1:")
+    with urllib.request.urlopen(address, timeout=10) as page:
+        assert page.status == 200
+        assert b"plotly.min.js" in page.read()
+    script = address.rsplit("/", 1)[0] + "/plotly.min.js"
+    with urllib.request.urlopen(script, timeout=10) as response:
+        assert response.status == 200
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("kaleido") is None
+    or not any(shutil.which(name) for name in ("chromium", "google-chrome")),
+    reason="still images need kaleido and Chromium or Chrome",
+)
+def test_a_figure_is_written_as_a_still_image(
+    trajectory: WellTrajectory, tmp_path: Path
+) -> None:
+    path = tmp_path / "trajectory.png"
+
+    trajectory.plot().write_image(path, width=480, height=320)
+
+    assert path.read_bytes().startswith(b"\x89PNG")
 
 
 def test_what_cannot_be_drawn_is_refused(trajectory: WellTrajectory) -> None:

@@ -7,7 +7,8 @@ Public entry points:
 * :class:`MinimumCurvature` -- the minimum curvature method on its own, free of
   any CRS, for offsets, dogleg severity and interpolation along the arcs.
 * :class:`Method` -- how offsets are placed in the CRS.
-* :func:`plot_trajectory` -- a 3D view; needs the ``plot`` extra.
+* :func:`plot_trajectory` and :func:`open_in_browser` -- a 3D view to rotate,
+  pan and zoom, in a notebook or a browser; needs the ``plot`` extra.
 
 :mod:`~geodetic_engine.welltrajectory.utils` holds adapters onto these, such as
 :func:`~geodetic_engine.welltrajectory.utils.from_payload` for a trajectory
@@ -32,7 +33,7 @@ from geodetic_engine.welltrajectory.errors import (
 )
 from geodetic_engine.welltrajectory.methods import LocalFrame, Method, Placement
 from geodetic_engine.welltrajectory.minimum_curvature import MinimumCurvature, Stations
-from geodetic_engine.welltrajectory.plot import plot_trajectory
+from geodetic_engine.welltrajectory.plot import open_in_browser, plot_trajectory
 from geodetic_engine.welltrajectory.survey import (
     NorthReference,
     Survey,
@@ -62,5 +63,6 @@ __all__ = [
     "angle_factor",
     "compute_trajectory",
     "length_factor",
+    "open_in_browser",
     "plot_trajectory",
 ]

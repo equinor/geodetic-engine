@@ -19,7 +19,7 @@ shift is ever applied silently.
 ## Quickstart
 
 ```python
-from geodetic_engine.welltrajectory import Survey, compute_trajectory
+from geodetic_engine.welltrajectory import Survey, compute_trajectory, open_in_browser
 
 survey = Survey(
     md=[0, 500, 1500, 2500],
@@ -40,7 +40,8 @@ trajectory = compute_trajectory(
 trajectory.to_dataframe()  # md, angles, offsets, x, y, z, dls
 trajectory.interpolate([1234.5, 2000])  # on the arcs, not linearly
 trajectory.to_geographic(operation="EPSG:1133")  # a datum change must be named
-trajectory.plot(color_by="dls")  # needs the plot extra
+trajectory.plot(color_by="dls")  # a plotly figure, needs the plot extra
+open_in_browser(trajectory.plot())  # the same, full screen in a browser tab
 ```
 
 `MinimumCurvature` works on its own, without a CRS, for offsets, dogleg
@@ -50,10 +51,16 @@ request body (`trajectoryCRS`, `azimuthReference`, `referencePoint`,
 `inputStations`, `method`, `MD_i`, ...), and returns the trajectory, the points
 `MD_i` asks for, and the local CRS as a persistableReference.
 
-Plotting needs matplotlib: `pip install 'geodetic-engine[plot]'`. Labels are
-written in LaTeX that matplotlib's own math renderer also reads, so a figure
-looks the same with or without TeX installed; TeX is used only when it is
-present and a trial render succeeds.
+Plotting needs the `plot` extra: `pip install 'geodetic-engine[plot]'`, which
+brings plotly and kaleido. `plot_trajectory()`, or `WellTrajectory.plot()`,
+builds a 3D figure with every axis at one scale, to rotate, pan, zoom and hover
+for MD, angles, TVD and dogleg severity. A notebook shows it in place, at a
+fixed size; `open_in_browser()` serves it from a local web server on
+`127.0.0.1` and opens it in a browser tab, which in a dev container is the
+host's browser through VS Code's port forwarding. `figure.write_html(path)`
+keeps it as a self-contained file, and `figure.write_image(path)` as a still
+PNG, SVG or PDF; kaleido renders those with Chromium or Chrome, which the dev
+container installs.
 
 ## Conventions
 
