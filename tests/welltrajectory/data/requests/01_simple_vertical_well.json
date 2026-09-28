@@ -1,0 +1,34 @@
+{
+  "summary": "Simple Vertical Well",
+  "description": "Basic vertical well trajectory with minimal survey data - straight down from surface",
+  "value": {
+    "trajectoryCRS": "EPSG:32631",
+    "azimuthReference": "GN",
+    "unitZ": "m",
+    "referencePoint": {
+      "x": 500000,
+      "y": 6600000,
+      "z": 100
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 0
+      },
+      {
+        "md": 1000,
+        "inclination": 0,
+        "azimuth": 0
+      },
+      {
+        "md": 2000,
+        "inclination": 0,
+        "azimuth": 0
+      }
+    ],
+    "method": "AzimuthalEquidistant",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": false
+  }
+}

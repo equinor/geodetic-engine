@@ -1,0 +1,44 @@
+{
+  "summary": "Geographic CRS with LMP Method",
+  "description": "Using Lee's Modified Proposal for geographic CRS - better for long wellbores where Earth curvature matters",
+  "value": {
+    "trajectoryCRS": "EPSG:4326",
+    "azimuthReference": "TN",
+    "unitZ": "m",
+    "referencePoint": {
+      "x": 4.0,
+      "y": 58.0,
+      "z": 0
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 45
+      },
+      {
+        "md": 1000,
+        "inclination": 30,
+        "azimuth": 45
+      },
+      {
+        "md": 2000,
+        "inclination": 60,
+        "azimuth": 45
+      },
+      {
+        "md": 3000,
+        "inclination": 75,
+        "azimuth": 45
+      },
+      {
+        "md": 5000,
+        "inclination": 75,
+        "azimuth": 45
+      }
+    ],
+    "method": "LMP",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": false
+  }
+}

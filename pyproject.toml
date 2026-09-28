@@ -33,6 +33,10 @@ dev = [
     "mypy>=1.11",
     "ipykernel>=6.29",
     "pandas-stubs>=2.0",
+    "matplotlib>=3.8",
+]
+plot = [
+    "matplotlib>=3.8",
 ]
 
 [project.scripts]
@@ -75,3 +79,8 @@ strict = true
 [[tool.mypy.overrides]]
 module = ["pyproj.*"]
 implicit_reexport = true
+
+# matplotlib is typed, but its mplot3d toolkit ships no py.typed marker.
+[[tool.mypy.overrides]]
+module = ["mpl_toolkits.*"]
+ignore_missing_imports = true

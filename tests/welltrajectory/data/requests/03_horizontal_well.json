@@ -1,0 +1,54 @@
+{
+  "summary": "Horizontal Well",
+  "description": "Horizontal well with build to 90° inclination, commonly used for shale gas/oil production",
+  "value": {
+    "trajectoryCRS": "EPSG:32615",
+    "azimuthReference": "GN",
+    "unitZ": "m",
+    "referencePoint": {
+      "x": 400000,
+      "y": 6500000,
+      "z": 0
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 90
+      },
+      {
+        "md": 1000,
+        "inclination": 0,
+        "azimuth": 90
+      },
+      {
+        "md": 1500,
+        "inclination": 30,
+        "azimuth": 90
+      },
+      {
+        "md": 2000,
+        "inclination": 60,
+        "azimuth": 90
+      },
+      {
+        "md": 2500,
+        "inclination": 90,
+        "azimuth": 90
+      },
+      {
+        "md": 4000,
+        "inclination": 90,
+        "azimuth": 90
+      },
+      {
+        "md": 6000,
+        "inclination": 90,
+        "azimuth": 90
+      }
+    ],
+    "method": "AzimuthalEquidistant",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": false
+  }
+}

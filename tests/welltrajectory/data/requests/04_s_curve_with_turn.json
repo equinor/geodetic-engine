@@ -1,0 +1,70 @@
+{
+  "summary": "S-Curve Well with Turn",
+  "description": "Complex S-curve trajectory with azimuth change, demonstrating full 3D path",
+  "value": {
+    "trajectoryCRS": "EPSG:32631",
+    "azimuthReference": "TN",
+    "unitZ": "m",
+    "unitXY": "m",
+    "referencePoint": {
+      "x": 450000,
+      "y": 6550000,
+      "z": 25
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 0
+      },
+      {
+        "md": 300,
+        "inclination": 0,
+        "azimuth": 0
+      },
+      {
+        "md": 600,
+        "inclination": 15,
+        "azimuth": 90
+      },
+      {
+        "md": 900,
+        "inclination": 30,
+        "azimuth": 90
+      },
+      {
+        "md": 1200,
+        "inclination": 45,
+        "azimuth": 120
+      },
+      {
+        "md": 1500,
+        "inclination": 60,
+        "azimuth": 150
+      },
+      {
+        "md": 1800,
+        "inclination": 75,
+        "azimuth": 180
+      },
+      {
+        "md": 2100,
+        "inclination": 75,
+        "azimuth": 180
+      },
+      {
+        "md": 2500,
+        "inclination": 60,
+        "azimuth": 200
+      },
+      {
+        "md": 3000,
+        "inclination": 45,
+        "azimuth": 220
+      }
+    ],
+    "method": "AzimuthalEquidistant",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": true
+  }
+}

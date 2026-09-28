@@ -57,6 +57,7 @@ Features:
 - [Combining both sources in one database](#combining-both-sources-in-one-database)
   - [Patching grid filename mappings](#patching-grid-filename-mappings)
   - [Overwriting rather than colliding](#overwriting-rather-than-colliding)
+- [Projection factors](#projection-factors)
 - [Talking to a Georepository instance directly](#talking-to-a-georepository-instance-directly)
 
 
@@ -116,10 +117,11 @@ database definitions.
 
 | Package | Responsibility |
 | --- | --- |
-| `geodesy` | Public transformation API, CRS handling, operation checks, and result provenance. |
+| `geodesy` | Public transformation API, CRS handling, operation checks, result provenance, and projection factors (grid convergence, scale factor). |
 | `georepository` | Authentication, HTTP requests, pagination, and source-object caching. |
 | `projdb` | Georepository import orchestration and shared database writing, schema validation, and build reporting. |
 | `osdudb` | OSDU catalogue parsing and definition recovery, using the shared database infrastructure. |
+| `welltrajectory` | Well trajectories from directional surveys: minimum curvature, placement in a CRS, 3D plots. See [its README](geodetic_engine/welltrajectory/README.md). |
 
 ## Development environment
 
@@ -834,6 +836,47 @@ Objects present in the configured base database cannot be replaced, even when
 their authority is configured for import. The authority guard also prevents
 updates to other authorities' objects. Use a fresh official base when updating
 objects from an earlier enriched output.
+
+## Projection factors
+
+`projection_factors()` evaluates PROJ's projection factors at one or many
+points: grid convergence, point scale factor, meridional and areal scale, and
+angular distortion.
+
+```python
+from geodetic_engine.geodesy import projection_factors
+
+factors = projection_factors("EPSG:32631", [(500000.0, 6600000.0), (6.0e5, 6.7e6)])
+factors.grid_convergence, factors.scale_factor
+factors.to_true_azimuth(45.0)  # grid azimuth onto true north
+factors.to_json_dict()  # one entry per point, with the sign convention stated
+```
+
+The grid convergence $\gamma$ is the angle from true north to grid north,
+clockwise positive, so $\alpha_{grid} = \alpha_{true} - \gamma$. The scale factor
+$k$ is the parallel scale, so a grid distance is $k$ times the ellipsoidal one.
+
+Both come from the partial derivatives of the projection $(x, y) = f(\varphi, \lambda)$,
+with $M$ and $N$ the meridian and prime vertical radii of curvature:
+
+$$\tan\gamma = -\frac{\partial x / \partial\varphi}{\partial y / \partial\varphi}, \qquad
+k = \frac{\sqrt{(\partial x / \partial\lambda)^2 + (\partial y / \partial\lambda)^2}}{N\cos\varphi}, \qquad
+h = \frac{\sqrt{(\partial x / \partial\varphi)^2 + (\partial y / \partial\varphi)^2}}{M}.$$
+
+The meridian's grid direction is $(\partial x / \partial\varphi, \partial y / \partial\varphi)$,
+so $\gamma$ is minus its grid bearing. $h$ is the meridional scale, equal to $k$
+for a conformal projection; the areal scale is the Jacobian
+$\partial(x, y) / \partial(\lambda, \varphi)$ over $MN\cos\varphi$, and the angular
+distortion follows from the axes of Tissot's indicatrix. PROJ evaluates the
+derivatives numerically, so the factors are good to about $10^{-10}$.
+
+Points are given in the CRS, or as longitude and latitude with
+`geographic=True`, and are unprojected onto the CRS's own base CRS, so no datum
+shift is involved. PROJ reads their longitude from the CRS's own prime
+meridian, which for NTF (Paris) is not Greenwich. A bound CRS is read through
+its base and a compound CRS through its horizontal part. A geographic CRS has
+no grid: convergence 0, scale 1. Geocentric, engineering and vertical CRSs
+raise `UnsupportedCRSError`.
 
 ## Talking to a Georepository instance directly
 

@@ -1,0 +1,37 @@
+{
+  "summary": "MD Interval Interpolation",
+  "description": "Using md_interval to automatically generate interpolated stations at a fixed interval (e.g., every 1 meter). This generates stations_i with interpolated points from first to last MD.",
+  "value": {
+    "trajectoryCRS": "EPSG:32631",
+    "azimuthReference": "GN",
+    "unitZ": "m",
+    "referencePoint": {
+      "x": 400000,
+      "y": 6500000,
+      "z": 0
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 340
+      },
+      {
+        "md": 100,
+        "inclination": 10,
+        "azimuth": 320
+      },
+      {
+        "md": 200,
+        "inclination": 40,
+        "azimuth": 280
+      }
+    ],
+    "method": "AzimuthalEquidistant",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": true,
+    "MD_i": {
+      "md_interval": 1
+    }
+  }
+}
