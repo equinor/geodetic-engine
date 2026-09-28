@@ -22,6 +22,14 @@ class UnresolvableCRSError(GeodesyError):
     """A CRS could not be constructed from the given input."""
 
 
+class UnsupportedCRSError(GeodesyError):
+    """A CRS was resolved, but the requested computation does not apply to it.
+
+    For example projection factors asked for in a geocentric, engineering or
+    vertical CRS, which have no map projection to take them from.
+    """
+
+
 class BallparkTransformationError(GeodesyError):
     """The only path between the two CRSs is a ballpark approximation.
 

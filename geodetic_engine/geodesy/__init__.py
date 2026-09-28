@@ -10,6 +10,8 @@ Public entry points:
   and units the EPSG dataset declares for it.
 * :class:`TransformationResult` -- coordinates with the provenance that
   produced them.
+* :func:`projection_factors` -- grid convergence and point scale factor of a
+  map projection at given points.
 
 Coordinate **values** are always ordered ``xy``: longitude before latitude,
 easting before northing, then height. A CRS's EPSG-declared axis order is
@@ -47,7 +49,9 @@ from geodetic_engine.geodesy.errors import (
     TransformationFailedError,
     UnembeddableOperationError,
     UnresolvableCRSError,
+    UnsupportedCRSError,
 )
+from geodetic_engine.geodesy.factors import ProjectionFactors, projection_factors
 from geodetic_engine.geodesy.operation import (
     AppliedOperation,
     AreaOfUse,
@@ -84,12 +88,15 @@ __all__ = [
     "OperationRequest",
     "OperationRoute",
     "OperationStep",
+    "ProjectionFactors",
     "StatedOperation",
     "Transformation",
     "TransformationFailedError",
     "TransformationResult",
     "UnembeddableOperationError",
     "UnresolvableCRSError",
+    "UnsupportedCRSError",
     "available_operations",
+    "projection_factors",
     "transform",
 ]
