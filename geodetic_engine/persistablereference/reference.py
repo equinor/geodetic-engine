@@ -355,9 +355,19 @@ def parse_persistable_reference(raw: str) -> AnyReference:
             model.
 
     Example:
-        >>> payload = '{"type":"LBC","wkt":"GEOGCS[...]"}'
-        >>> parse_persistable_reference(payload).to_crs().name  # doctest: +SKIP
-        'WGS 84'
+        >>> import json
+        >>> payload = json.dumps({
+        ...     "type": "LBC",
+        ...     "authCode": {"auth": "EPSG", "code": "4326"},
+        ...     "wkt": 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
+        ...     'SPHEROID["WGS_1984",6378137.0,298.257223563]],'
+        ...     'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]',
+        ... })
+        >>> reference = parse_persistable_reference(payload)
+        >>> reference.kind, str(reference.authority_code)
+        (<Kind.LATE_BOUND_CRS: 'LBC'>, 'EPSG:4326')
+        >>> reference.to_crs().ellipsoid.semi_major_metre
+        6378137.0
     """
     envelope = decode(raw)
     match envelope.kind:
@@ -1071,6 +1081,29 @@ def operation_from_geogtran(wkt: str) -> CoordinateOperation:
             package will not translate.
         UnresolvableGridError: If a grid-based step names a dataset that
             resolves to no single grid in PROJ's database.
+
+    Example:
+        >>> ed50 = (
+        ...     'GEOGCS["GCS_European_1950",DATUM["D_European_1950",'
+        ...     'SPHEROID["International_1924",6378388.0,297.0]],'
+        ...     'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
+        ... )
+        >>> wgs84 = (
+        ...     'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
+        ...     'SPHEROID["WGS_1984",6378137.0,298.257223563]],'
+        ...     'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
+        ... )
+        >>> operation = operation_from_geogtran(
+        ...     f'GEOGTRAN["ED_1950_To_WGS_1984_1",{ed50},{wgs84},'
+        ...     'METHOD["Geocentric_Translation"],'
+        ...     'PARAMETER["X_Axis_Translation",-87.0],'
+        ...     'PARAMETER["Y_Axis_Translation",-98.0],'
+        ...     'PARAMETER["Z_Axis_Translation",-121.0]]'
+        ... )
+        >>> operation.method_name
+        'Geocentric translations (geog2D domain)'
+        >>> [p.value for p in operation.params]
+        [-87.0, -98.0, -121.0]
     """
     node = _transformation_node(wkt, _TRANSFORMATION_KEYWORD)
     return _operation_from(_transformation(node), node.name or _TRANSFORMATION_KEYWORD)

@@ -30,9 +30,13 @@ class Coordinates(tuple[tuple[float, ...], ...]):
     correctly -- in particular, to name a pandas DataFrame's columns.
 
     Example:
+        >>> from geodetic_engine.geodesy import transform
+        >>> coordinates = transform(
+        ...     "EPSG:4230", "EPSG:4326", (2.5, 63.5), operation="EPSG:1612"
+        ... ).coordinates
         >>> coordinates[0]
-        (10.7522, 59.9139)
-        >>> coordinates == ((10.7522, 59.9139),)
+        (2.49818..., 63.49961...)
+        >>> coordinates == (coordinates[0],)
         True
     """
 
@@ -64,8 +68,11 @@ class Coordinates(tuple[tuple[float, ...], ...]):
             count as the wrapped tuples.
 
         Example:
-            >>> coordinates.to_list()
-            [[10.7522, 59.9139]]
+            >>> from geodetic_engine.geodesy import transform
+            >>> transform(
+            ...     "EPSG:4230", "EPSG:4326", (2.5, 63.5), operation="EPSG:1612"
+            ... ).coordinates.to_list()
+            [[2.49818..., 63.49961...]]
         """
         return [list(row) for row in self]
 
@@ -76,8 +83,11 @@ class Coordinates(tuple[tuple[float, ...], ...]):
             A ``float64`` array of shape ``(n_points, n_axes)``.
 
         Example:
-            >>> coordinates.to_numpy()  # doctest: +SKIP
-            array([[10.7522, 59.9139]])
+            >>> from geodetic_engine.geodesy import transform
+            >>> transform(
+            ...     "EPSG:4230", "EPSG:4326", (2.5, 63.5), operation="EPSG:1612"
+            ... ).coordinates.to_numpy()
+            array([[ 2.49818..., 63.49961...]])
         """
         width = len(self[0]) if self else self._target_crs.dimension
         return np.asarray(self, dtype=np.float64).reshape(len(self), width)
@@ -98,9 +108,12 @@ class Coordinates(tuple[tuple[float, ...], ...]):
             A DataFrame with one row per point and one column per value.
 
         Example:
-            >>> coordinates.to_dataframe()  # doctest: +SKIP
-                   Lon      Lat
-            0  10.7522  59.9139
+            >>> from geodetic_engine.geodesy import transform
+            >>> transform(
+            ...     "EPSG:4230", "EPSG:4326", (2.5, 63.5), operation="EPSG:1612"
+            ... ).coordinates.to_dataframe()
+                    Lon        Lat
+            0  2.49818...  63.49961...
         """
         axes = self._target_crs.value_axis_abbreviations
         width = len(self[0]) if self else len(axes)
@@ -148,12 +161,16 @@ class TransformationResult:
             when the transformation was resolved, retained across later calls.
 
     Example:
+        >>> from geodetic_engine.geodesy import transform
+        >>> result = transform(
+        ...     "EPSG:4230", "EPSG:4326", (2.5, 63.5), operation="EPSG:1612"
+        ... )
         >>> result.target_axes
         ('Lat', 'Lon')
         >>> result.coordinate_order
         'xy'
         >>> result.coordinates[0]
-        (10.7522, 59.9139)
+        (2.49818..., 63.49961...)
 
         The axes are declared latitude first, the values are longitude first.
     """
@@ -209,8 +226,11 @@ class TransformationResult:
             A dict carrying the coordinates and every provenance field.
 
         Example:
-            >>> result.to_json_dict()["coordinates"]  # doctest: +SKIP
-            [[10.7522, 59.9139]]
+            >>> from geodetic_engine.geodesy import transform
+            >>> transform(
+            ...     "EPSG:4230", "EPSG:4326", (2.5, 63.5), operation="EPSG:1612"
+            ... ).to_json_dict()["coordinates"]
+            [[2.49818..., 63.49961...]]
         """
         return {
             "coordinates": [list(row) for row in self.coordinates],

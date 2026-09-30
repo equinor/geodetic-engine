@@ -1,0 +1,187 @@
+/* geodetic-engine documentation: adjustments on top of the Furo theme. */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* Furo fixes the article at 46em. Coordinate tables, pipelines and executed
+   output are wide, so allow more on large screens. */
+:root {
+  --content-width: 62em;
+}
+
+.content {
+  width: 100%;
+  max-width: var(--content-width);
+}
+
+/* Furo shows the right-hand "On this page" drawer from 82em. Leave room for
+   it (15em) and the left sidebar (15em) so the article never pushes it off
+   screen; the cap above takes over once the viewport is wide enough. */
+@media (min-width: 82em) {
+  .content {
+    max-width: min(var(--content-width), calc(100vw - 38em));
+  }
+}
+
+@media (min-width: 110em) {
+  :root {
+    --content-width: 68em;
+  }
+}
+
+/* Logo in the sidebar: give it room and keep it crisp. */
+.sidebar-logo {
+  max-width: 100%;
+  padding: 0.5rem 0 0.25rem;
+}
+
+.sidebar-brand {
+  padding-bottom: 0.25rem;
+}
+
+.sidebar-brand-text {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--color-foreground-muted);
+}
+
+/* Section captions in the sidebar, like pyproj's "CONTENTS". */
+.sidebar-tree .caption {
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  margin-top: 1.4rem;
+}
+
+.sidebar-tree .reference {
+  line-height: 1.4;
+}
+
+/* Landing page. */
+p.lead {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--color-brand-primary);
+  margin-top: -0.5rem;
+  margin-bottom: 1rem;
+}
+
+.hero {
+  margin: 1.5rem 0 1rem;
+}
+
+.hero .highlight pre {
+  font-size: 0.85rem;
+}
+
+/* Cards (sphinx-design): equal height, subtle lift, brand colour on hover. */
+.sd-card {
+  height: 100%;
+  border: 1px solid var(--color-background-border);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.sd-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-brand-primary);
+  box-shadow: 0 0.4rem 1.1rem rgba(0, 0, 0, 0.12);
+}
+
+.sd-card .sd-card-title {
+  font-size: 1.05rem;
+  color: var(--color-brand-primary);
+}
+
+.sd-card .sd-card-title svg {
+  vertical-align: -0.15em;
+  margin-right: 0.35rem;
+}
+
+/* Executed cells: distinguish input from output and wrap long output lines. */
+div.cell div.cell_input {
+  border-left: 3px solid var(--color-brand-primary);
+  border-radius: 0.2rem;
+}
+
+div.cell div.cell_output {
+  border-left: 3px solid var(--color-background-border);
+  padding-left: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+div.cell_output pre,
+div.output pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+  background: transparent;
+}
+
+div.cell_output .output.traceback pre {
+  color: var(--color-problematic);
+}
+
+/* Tables: denser and top aligned. */
+table.docutils {
+  font-size: 0.92rem;
+}
+
+table.docutils td,
+table.docutils th {
+  vertical-align: top;
+}
+
+/* Definition lists on the workarounds page read as labelled fields. */
+article dl.simple > dt,
+article dl:not(.field-list):not(.py):not(.option-list) > dt {
+  font-weight: 600;
+  color: var(--color-brand-primary);
+}
+
+/* API pages: signatures on one readable block; members indented. */
+dl.py > dt {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  padding: 0.35rem 0.6rem;
+  background: var(--color-background-secondary);
+  border-left: 3px solid var(--color-brand-primary);
+  border-radius: 0.2rem;
+}
+
+dl.py .sig-param {
+  white-space: nowrap;
+}
+
+/* Announcement banner: compact. */
+.announcement {
+  font-size: 0.85rem;
+}
+
+.announcement code {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Mermaid diagrams: sized by their own aspect ratio, centred, capped width. */
+.mermaid {
+  display: block;
+  max-width: 56rem;
+  margin: 1.25rem auto;
+}
+
+.mermaid svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Edge labels: no grey box behind the text. */
+.mermaid .labelBkg,
+.mermaid .edgeLabel,
+.mermaid .edgeLabel p,
+.mermaid .edgeLabel span {
+  background: transparent !important;
+  color: var(--color-foreground-secondary) !important;
+}
+
+.mermaid .edgeLabel rect {
+  fill: transparent !important;
+}

@@ -111,11 +111,23 @@ class BuildReport:
         return {**problems, **data}
 
     def to_json(self, indent: int = 2) -> str:
-        """Serialise the report as JSON, problems first."""
+        """Serialise the report as JSON, problems first.
+
+        Args:
+            indent: Spaces per indentation level.
+
+        Returns:
+            The report from :meth:`as_dict`, as JSON text.
+        """
         return json.dumps(self.as_dict(), indent=indent, sort_keys=False)
 
     def write(self, path: Path) -> None:
-        """Atomically export the report next to the database it describes."""
+        """Atomically export the report next to the database it describes.
+
+        Args:
+            path: File to write. It is replaced only once the whole report has
+                been written and synced, so a reader never sees half of one.
+        """
         descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         staging = Path(name)
         try:

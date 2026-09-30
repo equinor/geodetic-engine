@@ -1,0 +1,115 @@
+name: Documentation
+
+# Built inside the devcontainer image for the same reason the tests are: every
+# executed example prints coordinates, and those depend on the pinned PROJ and
+# EPSG dataset. See lint-typecheck-test.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_RUN: >-
+    docker run --rm --user root --env LC_ALL=C.UTF-8
+    --volume ${{ github.workspace }}:/workspace --workdir /workspace
+    geodetic-engine-devcontainer:ci
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Same context and cache as the test workflow, so this is a cache hit
+      # whenever that workflow has already built the image.
+      - name: Build the devcontainer image
+        uses: docker/build-push-action@v6
+        with:
+          context: .devcontainer
+          load: true
+          tags: geodetic-engine-devcontainer:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install dependencies and check the environment
+        run: |
+          $DOCKER_RUN bash -euo pipefail -c '
+            uv sync --locked --extra dev --extra docs
+            uv run --no-sync pytest tests/test_environment.py -q
+          '
+
+      - name: Run the docstring examples
+        run: |
+          $DOCKER_RUN uv run --no-sync pytest --doctest-modules geodetic_engine -o addopts="" -q
+
+      # -W: a broken cross-reference or a failing example fails the build.
+      - name: Build the HTML
+        run: |
+          $DOCKER_RUN uv run --no-sync sphinx-build -W --keep-going -b html docs docs/_build/html
+
+      # External sites come and go; a dead link is reported, not a build failure.
+      - name: Check links
+        continue-on-error: true
+        run: |
+          $DOCKER_RUN uv run --no-sync sphinx-build -b linkcheck docs docs/_build/linkcheck
+
+      # The site is laid out versioned from the start, so adding stable/ and
+      # release builds later moves no page.
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -r docs/_build/html site/dev
+          cp docs/_static/switcher.json site/switcher.json
+          cat > site/index.html <<'EOF'
+          <!DOCTYPE html>
+          <meta charset="utf-8">
+          <title>geodetic-engine documentation</title>
+          <meta http-equiv="refresh" content="0; url=dev/">
+          <link rel="canonical" href="dev/">
+          <a href="dev/">geodetic-engine documentation</a>
+          EOF
+          touch site/.nojekyll
+
+      - name: Upload the site for review
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: site
+          retention-days: 14
+
+      - name: Upload the site for GitHub Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}dev/
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

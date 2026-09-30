@@ -304,7 +304,7 @@ class AppliedOperation:
             The WKT2 of the applied operation, or None where it cannot be
             exported faithfully: either PROJ built something that is not a
             coordinate operation in its own right, or a step is applied
-            inverted and WKT2 cannot say so (see :func:`has_inverted_step`).
+            inverted and WKT2 cannot say so.
             Also returns None when the raw definition was executed in reverse.
             Use :attr:`TransformationResult.pipeline` in the latter case,
             which keeps the inversion explicit.
@@ -393,7 +393,7 @@ class OperationStep:
 
     @property
     def reference(self) -> str:
-        """This step as an operation reference: its code, or else its name."""
+        """This step as an operation reference -- its code, or else its name."""
         return self.authority_code or _base_operation_name(self.name)
 
     def __str__(self) -> str:
@@ -528,7 +528,7 @@ class OperationCandidate:
         Returns:
             The PROJJSON as a dict, or None where PROJ gave the candidate none
             or the pipeline cannot be exported faithfully because a step is
-            applied inverted (see :func:`has_inverted_step`). The raw text is
+            applied inverted. The raw text is
             still on :attr:`projjson` for anyone who needs to inspect it
             knowing that caveat.
 
@@ -561,7 +561,7 @@ class OperationCandidate:
             The WKT2 of the candidate, or None where it cannot be exported
             faithfully: either PROJ built something that is not a coordinate
             operation in its own right, or a step is applied inverted and
-            WKT2 cannot say so (see :func:`has_inverted_step`). Transform a
+            WKT2 cannot say so. Transform a
             point and read
             :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`
             in the latter case, which keeps the inversion explicit.
@@ -707,6 +707,12 @@ class OperationRequest:
         the code would invite a lookup, and what has to be applied is this
         object, whose parameters need not agree with whatever a register
         publishes under the same code.
+
+        Args:
+            operation: The operation to apply exactly as given.
+
+        Returns:
+            A request carrying ``operation`` as its definition.
         """
         name = str(operation.name)
         return cls(
@@ -740,8 +746,9 @@ class OperationRequest:
         Raises:
             ValueError: If given an :class:`OperationCandidate` that no single
                 reference can name, because PROJ assembled it from operations
-                no authority publishes as one. Use :func:`parse_operations`,
-                which expands it. Or if a payload states no usable operation.
+                no authority publishes as one. Pass the candidate itself as
+                ``operation=``, which expands it. Or if a payload states no
+                usable operation.
 
         Example:
             >>> OperationRequest.parse("EPSG:15670").code

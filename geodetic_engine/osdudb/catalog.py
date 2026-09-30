@@ -129,7 +129,18 @@ class OsduCatalog:
     def from_document(
         cls, document: JsonObject, *, path: Path | None = None
     ) -> OsduCatalog:
-        """Index an already parsed manifest."""
+        """Index an already parsed manifest.
+
+        Args:
+            document: The decoded JSON of a ``CRS_CT.json`` manifest.
+            path: Where it was read from, used only in messages.
+
+        Returns:
+            The catalogue, indexed by authority and code.
+
+        Raises:
+            OsduCatalogError: If the document has no ``ReferenceData`` array.
+        """
         entries = document.get(REFERENCE_DATA) if isinstance(document, dict) else None
         if not isinstance(entries, list):
             raise OsduCatalogError(
@@ -161,11 +172,27 @@ class OsduCatalog:
                 yield record
 
     def crs(self, auth_name: str | None, code: str | None) -> Record | None:
-        """Return the CRS with an authority and code, if the catalogue has it."""
+        """Return the CRS with an authority and code, if the catalogue has it.
+
+        Args:
+            auth_name: Authority, for example ``"OSDU"``.
+            code: Code within that authority.
+
+        Returns:
+            The record, or None when it is absent or either key is missing.
+        """
         return self._lookup(self._crs, auth_name, code)
 
     def operation(self, auth_name: str | None, code: str | None) -> Record | None:
-        """Return the operation with an authority and code, if it is present."""
+        """Return the operation with an authority and code, if it is present.
+
+        Args:
+            auth_name: Authority, for example ``"EPSG"``.
+            code: Code within that authority.
+
+        Returns:
+            The record, or None when it is absent or either key is missing.
+        """
         return self._lookup(self._operations, auth_name, code)
 
     def __len__(self) -> int:

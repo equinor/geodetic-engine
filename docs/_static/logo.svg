@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160" role="img" aria-label="geodetic-engine">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b6b86"/>
+      <stop offset="1" stop-color="#5cc0dd"/>
+    </linearGradient>
+  </defs>
+  <!-- ellipsoid with graticule -->
+  <g transform="translate(80 80)">
+    <ellipse rx="66" ry="54" fill="none" stroke="url(#g)" stroke-width="7"/>
+    <ellipse rx="66" ry="20" fill="none" stroke="#0b6b86" stroke-width="2.5" opacity="0.55"/>
+    <ellipse rx="24" ry="54" fill="none" stroke="#0b6b86" stroke-width="2.5" opacity="0.55"/>
+    <line x1="-66" y1="0" x2="66" y2="0" stroke="#0b6b86" stroke-width="2.5" opacity="0.55"/>
+    <!-- a point and its shifted position -->
+    <circle cx="-18" cy="-16" r="6" fill="#0b6b86"/>
+    <line x1="-12" y1="-13" x2="22" y2="4" stroke="#0b6b86" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="28" cy="7" r="7" fill="#5cc0dd" stroke="#ffffff" stroke-width="2"/>
+  </g>
+  <text x="170" y="98" font-family="Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="58" font-weight="700" letter-spacing="-1.5">
+    <tspan fill="#0b6b86">geodetic</tspan><tspan fill="#5cc0dd">-engine</tspan>
+  </text>
+</svg>
