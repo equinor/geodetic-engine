@@ -80,11 +80,6 @@ fi
 
 $check_only && exit 0
 
-if [[ ${#grid_files[@]} -eq 0 && -f "$OVERLAY_DB" ]]; then
-    rm -f -- "$OVERLAY_DB"
-    echo "local/grids/ is empty, removed the patched copy of proj.db"
-fi
-
 $patched_copy || exit 0
 
 # The installed, stock database: the first entry of PROJ_DATA that holds one
@@ -93,7 +88,8 @@ installed_db=""
 IFS=':' read -r -a search_path <<<"${PROJ_DATA:-$INSTALLED_DIR}"
 for entry in "${search_path[@]}"; do
     candidate="${entry}/proj.db"
-    if [[ -f "$candidate" && "$candidate" != "$OVERLAY_DB" ]]; then
+    # -ef compares the file itself, however PROJ_DATA spells or links its path.
+    if [[ -f "$candidate" && ! "$candidate" -ef "$OVERLAY_DB" ]]; then
         installed_db="$candidate"
         break
     fi
@@ -103,11 +99,24 @@ if [[ -z "$installed_db" ]]; then
     exit 1
 fi
 
+if [[ -L "$OVERLAY" ]]; then
+    echo "error: $OVERLAY is a symlink; refusing to write the patched copy" \
+        "through it" >&2
+    exit 1
+fi
 mkdir -p "$OVERLAY"
-cp -- "$installed_db" "$OVERLAY_DB"
-chmod u+w "$OVERLAY_DB"
-echo "copied $installed_db to local/proj-data/"
-"${REPO_ROOT}/scripts/patch-grid-alternatives.sh" --db "$OVERLAY_DB"
+if [[ "$OVERLAY" -ef "$INSTALLED_DIR" ]]; then
+    echo "error: $OVERLAY resolves to PROJ's installed data directory;" \
+        "refusing to replace its proj.db" >&2
+    exit 1
+fi
+# Renamed into place, so a failure keeps the copy in use and a link is replaced.
+staged="$(mktemp "${OVERLAY}/proj.db.XXXXXX")"
+trap 'rm -f -- "$staged"' EXIT
+cp -- "$installed_db" "$staged"
+"${REPO_ROOT}/scripts/patch-grid-alternatives.sh" --db "$staged"
+mv -fT -- "$staged" "$OVERLAY_DB"
+echo "wrote a patched copy of $installed_db to local/proj-data/"
 echo "to use it: export PROJ_DATA=${OVERLAY}:$(dirname "$installed_db"):${LOCAL_GRIDS}"
 echo "(with two databases on the search path, a build needs its base named:" \
     "export GEODETIC_ENGINE_BASE_PROJ_DB=$installed_db)"

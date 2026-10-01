@@ -247,6 +247,12 @@ class AppliedOperation:
             single code and :attr:`authority_code` is None, but neither
             operation was chosen by PROJ. Empty on every other route. Not
             :attr:`requested`: the caller named neither.
+        axis_order_corrected: Whether the pipeline PROJ built from
+            :attr:`projjson` transposes coordinates at an engineering CRS or
+            an evaluation point, so that this package ran a corrected
+            pipeline instead. When True, :meth:`to_wkt` returns None and
+            :attr:`projjson` must not be replayed through PROJ; replay
+            :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`.
     """
 
     requested: str | None
@@ -271,10 +277,11 @@ class AppliedOperation:
     """PROJJSON of the operation applied.
 
     Raw, so it is present even when :meth:`to_wkt` returns None because a step
-    is applied inverted. Feeding it back to PROJ in that case silently applies
-    that step forwards; prefer
+    is applied inverted or :attr:`axis_order_corrected` is True. Feeding it
+    back to PROJ in those cases silently applies that step forwards, or
+    reproduces the transposition this package corrected; prefer
     :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`,
-    which keeps the inversion explicit.
+    which is what actually ran.
     """
 
     execution_direction: TransformDirection = TransformDirection.FORWARD
@@ -288,6 +295,9 @@ class AppliedOperation:
 
     bound_operations: tuple[str, ...] = ()
     """Operations declared by bound CRSs, source end first; see the class docstring."""
+
+    axis_order_corrected: bool = False
+    """Whether a corrected pipeline ran in place of PROJ's; see the class docstring."""
 
     @property
     def authority_code(self) -> str | None:
@@ -314,10 +324,12 @@ class AppliedOperation:
             The WKT2 of the applied operation, or None where it cannot be
             exported faithfully: either PROJ built something that is not a
             coordinate operation in its own right, or a step is applied
-            inverted and WKT2 cannot say so.
-            Also returns None when the raw definition was executed in reverse.
-            Use :attr:`TransformationResult.pipeline` in the latter case,
-            which keeps the inversion explicit.
+            inverted and WKT2 cannot say so (see :func:`has_inverted_step`).
+            Also returns None when the raw definition was executed in reverse,
+            or when :attr:`axis_order_corrected` is True, since PROJ would run
+            the exported operation with the axis order this package had to
+            correct. Use :attr:`TransformationResult.pipeline` in those cases,
+            which states what actually ran.
 
         Example:
             >>> from geodetic_engine.geodesy import Transformation
@@ -327,6 +339,7 @@ class AppliedOperation:
         """
         if (
             self.execution_direction is not TransformDirection.FORWARD
+            or self.axis_order_corrected
             or not self.projjson
             or has_inverted_step(json.loads(self.projjson))
         ):
@@ -403,7 +416,7 @@ class OperationStep:
 
     @property
     def reference(self) -> str:
-        """This step as an operation reference -- its code, or else its name."""
+        """This step as an operation reference: its code, or else its name."""
         return self.authority_code or _base_operation_name(self.name)
 
     def __str__(self) -> str:
@@ -538,7 +551,7 @@ class OperationCandidate:
         Returns:
             The PROJJSON as a dict, or None where PROJ gave the candidate none
             or the pipeline cannot be exported faithfully because a step is
-            applied inverted. The raw text is
+            applied inverted (see :func:`has_inverted_step`). The raw text is
             still on :attr:`projjson` for anyone who needs to inspect it
             knowing that caveat.
 
@@ -571,7 +584,7 @@ class OperationCandidate:
             The WKT2 of the candidate, or None where it cannot be exported
             faithfully: either PROJ built something that is not a coordinate
             operation in its own right, or a step is applied inverted and
-            WKT2 cannot say so. Transform a
+            WKT2 cannot say so (see :func:`has_inverted_step`). Transform a
             point and read
             :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`
             in the latter case, which keeps the inversion explicit.
@@ -622,6 +635,7 @@ class StatedOperation(Protocol):
 type AnyOperationReference = (
     str | int | OperationReference | StatedOperation | CoordinateOperation
 )
+_REFERENCE_TYPES = (str, int, OperationCandidate, StatedOperation, CoordinateOperation)
 
 
 def _stated_operation(payload: str) -> CoordinateOperation:
@@ -723,12 +737,6 @@ class OperationRequest:
         the code would invite a lookup, and what has to be applied is this
         object, whose parameters need not agree with whatever a register
         publishes under the same code.
-
-        Args:
-            operation: The operation to apply exactly as given.
-
-        Returns:
-            A request carrying ``operation`` as its definition.
         """
         name = str(operation.name)
         return cls(
@@ -762,9 +770,8 @@ class OperationRequest:
         Raises:
             ValueError: If given an :class:`OperationCandidate` that no single
                 reference can name, because PROJ assembled it from operations
-                no authority publishes as one. Pass the candidate itself as
-                ``operation=``, which expands it. Or if a payload states no
-                usable operation.
+                no authority publishes as one. Use :func:`parse_operations`,
+                which expands it. Or if a payload states no usable operation.
 
         Example:
             >>> OperationRequest.parse("EPSG:15670").code
@@ -943,20 +950,30 @@ def operation_references(
 
     Raises:
         TypeError: If ``reference`` is neither a single reference nor an
-            iterable of them.
+            iterable of them, or an iterable holding anything else.
     """
-    if isinstance(
-        reference, (str, int, OperationCandidate, StatedOperation, CoordinateOperation)
-    ):
+    if isinstance(reference, _REFERENCE_TYPES):
         return (reference,)
+    # Bytes iterate as integers, which would each read as an EPSG code.
+    if isinstance(reference, (bytes, bytearray)):
+        raise _not_a_reference(reference)
     try:
-        return tuple(reference)
+        references = tuple(reference)
     except TypeError:
-        raise TypeError(
-            "operation must be an authority code, a name, an OperationCandidate, "
-            "a stated operation or a pyproj CoordinateOperation, or a sequence "
-            f"of those; got {type(reference).__name__}"
-        ) from None
+        raise _not_a_reference(reference) from None
+    for item in references:
+        if not isinstance(item, _REFERENCE_TYPES):
+            raise _not_a_reference(item)
+    return references
+
+
+def _not_a_reference(value: object) -> TypeError:
+    """The error for something passed as an operation that names none."""
+    return TypeError(
+        "operation must be an authority code, a name, an OperationCandidate, "
+        "a stated operation or a pyproj CoordinateOperation, or a sequence "
+        f"of those; got {type(value).__name__}"
+    )
 
 
 def operation_names(definition: object) -> set[str]:

@@ -11,9 +11,11 @@ import pyproj
 def installed_proj_db() -> Path:
     """The ``proj.db`` PROJ reads: the first on its search path that exists.
 
-    ``PROJ_DATA`` may list several directories, as the devcontainer's does to
-    put a patched copy and local grids ahead of the installed data directory,
-    so the search path cannot be treated as one path.
+    ``PROJ_DATA`` may list several directories: the devcontainer's lists the
+    installed data directory and then ``local/grids``, and a developer may put
+    an opt-in patched copy (``link-local-grids.sh --patched-copy``) first by
+    hand. PROJ reads the first database it finds, so this returns that one,
+    not necessarily the stock installed file.
     """
     for directory in pyproj.datadir.get_data_dir().split(os.pathsep):
         candidate = Path(directory) / "proj.db"

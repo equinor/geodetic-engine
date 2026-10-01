@@ -105,7 +105,9 @@ class Coordinates(tuple[tuple[float, ...], ...]):
         target CRS declares -- a height passed through unchanged alongside a
         2D horizontal target -- gets one extra column, named ``"h"`` for a
         geographic target or ``"Z"`` for a Cartesian one (projected,
-        geocentric, engineering).
+        geocentric, engineering), or ``"Z (carried)"`` / ``"h (carried)"``
+        where an axis of the target already goes by that label, numbered
+        further (``"Z (carried 2)"``) if that is taken too.
 
         Returns:
             A DataFrame with one row per point and one column per value.
@@ -124,7 +126,14 @@ class Coordinates(tuple[tuple[float, ...], ...]):
         if width > len(columns):
             # _require_width allows at most one value beyond the declared
             # axes, so there is never more than one such column to name.
-            columns.append("h" if self._target_crs.crs.is_geographic else "Z")
+            extra = base = "h" if self._target_crs.crs.is_geographic else "Z"
+            suffix = 1
+            while extra in columns:
+                extra = (
+                    f"{base} (carried)" if suffix == 1 else f"{base} (carried {suffix})"
+                )
+                suffix += 1
+            columns.append(extra)
         return pd.DataFrame(self, columns=columns)
 
 
@@ -136,9 +145,16 @@ def _distinct_axis_labels(crs: CoordinateReferenceSystem) -> tuple[str, ...]:
     labels = tuple(crs.axes[index].name for index in crs.value_axis_order)
     if len(set(labels)) == len(labels):
         return labels
-    return tuple(
+    labels = tuple(
         f"{crs.axes[index].name} ({crs.axes[index].direction})"
         for index in crs.value_axis_order
+    )
+    if len(set(labels)) == len(labels):
+        return labels
+    # Nothing the CRS declares tells the axes apart; their declared position does.
+    return tuple(
+        f"{label} [{index + 1}]"
+        for label, index in zip(labels, crs.value_axis_order, strict=True)
     )
 
 
@@ -283,6 +299,7 @@ class TransformationResult:
                 "requires_epoch": self.operation.requires_epoch,
                 "execution_direction": self.operation.execution_direction.value,
                 "bound_operations": list(self.operation.bound_operations),
+                "axis_order_corrected": self.operation.axis_order_corrected,
                 "definition": json.loads(self.operation.projjson)
                 if self.operation.projjson
                 else None,

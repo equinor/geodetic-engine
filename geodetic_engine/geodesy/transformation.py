@@ -1519,12 +1519,11 @@ def _confirm_installed(
     absent = sorted(name for name in reads if not _installed_grid(name))
     if not absent:
         return tuple(replace(grid, available=True) for grid in grids)
+    # The pipeline is the complete list of what will be read: a registry name
+    # it does not read is satisfied, and only its own absent files are missing.
     named = {grid.name for grid in grids}
     return (
-        *(
-            replace(grid, available=False) if grid.name in absent else grid
-            for grid in grids
-        ),
+        *(replace(grid, available=grid.name not in absent) for grid in grids),
         *(
             GridUsage(
                 name=name,
@@ -1697,6 +1696,7 @@ def _describe(
         projjson=json.dumps(node),
         execution_direction=pipeline.core_direction,
         bound_operations=tuple(r.text for r in pipeline.identified_by),
+        axis_order_corrected=pipeline.corrected is not None,
     )
 
 

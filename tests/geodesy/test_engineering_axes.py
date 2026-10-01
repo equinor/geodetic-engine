@@ -436,6 +436,187 @@ def test_similarity_into_an_east_first_projected_crs_is_untouched() -> None:
         ),
         abs=1e-6,
     )
+    assert not result.operation.axis_order_corrected
+    assert result.operation.to_wkt() is not None
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "point", "operation"),
+    [
+        (ASTRA_MINAS, ARGENTINA_2, GRID_POINT, ASTRA_TO_ARGENTINA_2),
+        (SITE_GRID_NORTH_EAST, NGO_ZONE_II, SITE_POINTS_XY[1], "site"),
+    ],
+    ids=["EPSG:1035", "plant-grid-north-east"],
+)
+def test_a_corrected_operation_is_not_exported_for_replay(
+    source: str, target: str, point: tuple[float, float], operation: str
+) -> None:
+    """An export PROJ would replay transposed is withheld, not handed out.
+
+    The raw PROJJSON stays available as provenance, flagged; replaying it
+    through PROJ gives a different answer from the one returned, which is
+    exactly why ``to_wkt()`` refuses it. The reported pipeline is the export
+    that reproduces the result.
+    """
+    stated = _site_to_ngo_ii() if operation == "site" else operation
+    result = transform(source, target, point, operation=stated)
+    applied = result.operation
+
+    assert applied.axis_order_corrected
+    assert applied.to_wkt() is None
+    assert result.to_json_dict()["operation"]["axis_order_corrected"] is True
+    assert applied.projjson
+
+    replayed_raw = Transformer.from_pipeline(applied.projjson, always_xy=True)
+    assert replayed_raw.transform(*point) != pytest.approx(
+        result.coordinates[0], abs=1.0
+    )
+    assert result.pipeline is not None
+    assert Transformer.from_pipeline(result.pipeline).transform(
+        *point
+    ) == pytest.approx(result.coordinates[0], abs=1e-6)
+
+
+# The same physical plant grid stated as EPSG method 9624 in both conventions:
+# from a (N, E) grid with the A row giving the target's declared first axis,
+# the northing, and from an (E, N) grid with the A row giving the easting.
+# Its origin and 10 degree twist are those of the Similarity cases above.
+_COS = math.cos(math.radians(SITE_ROTATION_DEGREES))
+_SIN = math.sin(math.radians(SITE_ROTATION_DEGREES))
+SITE_GRID_EAST_NORTH = SITE_GRID_NORTH_EAST.replace(
+    '"Plant grid (N,E)"', '"Plant grid (E,N)"'
+).replace(
+    'AXIS["northing (N)",north,ORDER[1]],AXIS["easting (E)",east,ORDER[2]]',
+    'AXIS["easting (E)",east,ORDER[1]],AXIS["northing (N)",north,ORDER[2]]',
+)
+AFFINE_CONVENTIONS = {
+    "declared": (
+        SITE_GRID_NORTH_EAST,
+        (SITE_ORIGIN_NORTHING, _COS, _SIN),
+        (SITE_ORIGIN_EASTING, -_SIN, _COS),
+    ),
+    "east-first": (
+        SITE_GRID_EAST_NORTH,
+        (SITE_ORIGIN_EASTING, _COS, -_SIN),
+        (SITE_ORIGIN_NORTHING, _SIN, _COS),
+    ),
+}
+
+
+def _affine_parametric(
+    source: str,
+    target: str,
+    a: tuple[float, float, float],
+    b: tuple[float, float, float],
+) -> CoordinateOperation:
+    """EPSG method 9624 between two CRSs, stated outright as WKT."""
+    metre, coefficient = 'LENGTHUNIT["metre",1]', 'SCALEUNIT["coefficient",1]'
+    parameters = [
+        ("A0", 8623, a[0], metre),
+        ("A1", 8624, a[1], coefficient),
+        ("A2", 8625, a[2], coefficient),
+        ("B0", 8639, b[0], metre),
+        ("B1", 8640, b[1], coefficient),
+        ("B2", 8641, b[2], coefficient),
+    ]
+    return CoordinateOperation.from_string(
+        f'COORDINATEOPERATION["Plant grid to {target} (affine)",'
+        f"SOURCECRS[{CRS.from_user_input(source).to_wkt()}],"
+        f"TARGETCRS[{CRS.from_user_input(target).to_wkt()}],"
+        'METHOD["Affine parametric transformation",ID["EPSG",9624]],'
+        + ",".join(
+            f'PARAMETER["{name}",{value},{unit},ID["EPSG",{code}]]'
+            for name, code, value, unit in parameters
+        )
+        + ",OPERATIONACCURACY[0.01]]"
+    )
+
+
+def _affine_by_hand(
+    first: float,
+    second: float,
+    a: tuple[float, float, float],
+    b: tuple[float, float, float],
+) -> tuple[float, float]:
+    """EPSG Guidance Note 7-2's Affine parametric transformation, by hand.
+
+    ``XT = A0 + A1 XS + A2 YS`` and ``YT = B0 + B1 XS + B2 YS``, with the
+    source ordinates in declared order and the result in the order the A and
+    B rows are stated.
+    """
+    return (
+        a[0] + a[1] * first + a[2] * second,
+        b[0] + b[1] * first + b[2] * second,
+    )
+
+
+def _site_affine_expected_xy(point: tuple[float, float]) -> tuple[float, float]:
+    """Where an (easting, northing) grid point lands, worked in the E,N form."""
+    _, a, b = AFFINE_CONVENTIONS["east-first"]
+    return _affine_by_hand(point[0], point[1], a, b)
+
+
+@pytest.mark.parametrize("convention", sorted(AFFINE_CONVENTIONS))
+def test_affine_parametric_into_north_east_projected_is_east_first(
+    convention: str,
+) -> None:
+    """Both conventions of the same plant grid give the same xy answer.
+
+    The two operations describe one physical grid, so whichever way the A and
+    B rows are stated the point must land in the same place, and that place
+    is GN 7-2's formula worked by hand. PROJ on its own disagrees with both:
+    it transposes the declared form at the grid end and the east-first form
+    at the projected end.
+    """
+    grid, a, b = AFFINE_CONVENTIONS[convention]
+    operation = _affine_parametric(grid, NGO_ZONE_II, a, b)
+
+    result = transform(grid, NGO_ZONE_II, SITE_POINTS_XY, operation=operation)
+
+    expected = [_site_affine_expected_xy(point) for point in SITE_POINTS_XY]
+    assert result.coordinates.to_numpy() == pytest.approx(np.array(expected), abs=1e-6)
+    assert result.operation.axis_order_corrected
+    proj_alone = Transformer.from_pipeline(operation.to_json(), always_xy=True)
+    assert proj_alone.transform(*SITE_POINTS_XY[1]) != pytest.approx(
+        expected[1], abs=1.0
+    )
+
+
+@pytest.mark.parametrize("convention", sorted(AFFINE_CONVENTIONS))
+def test_affine_parametric_reverse_and_replay(convention: str) -> None:
+    """Run backwards, into the grid, and replayed from the reported pipeline."""
+    grid, a, b = AFFINE_CONVENTIONS[convention]
+    operation = _affine_parametric(grid, NGO_ZONE_II, a, b)
+    projected = [_site_affine_expected_xy(point) for point in SITE_POINTS_XY]
+
+    back = transform(NGO_ZONE_II, grid, projected, operation=operation)
+
+    assert back.coordinates.to_numpy() == pytest.approx(
+        np.array(SITE_POINTS_XY), abs=1e-6
+    )
+    for result, points in (
+        (
+            transform(grid, NGO_ZONE_II, SITE_POINTS_XY, operation=operation),
+            SITE_POINTS_XY,
+        ),
+        (back, projected),
+    ):
+        assert result.pipeline is not None
+        replayed = Transformer.from_pipeline(result.pipeline).transform(
+            [point[0] for point in points], [point[1] for point in points]
+        )
+        assert np.column_stack(replayed) == pytest.approx(
+            result.coordinates.to_numpy(), abs=1e-6
+        )
+
+
+def test_undecidable_affine_offsets_are_refused() -> None:
+    """The ordinate check reads A0 and B0 the way it reads an evaluation point."""
+    operation = _affine_parametric(
+        SITE_GRID_EAST_NORTH, NGO_ZONE_II, (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
+    )
+    with pytest.raises(OperationNotAvailableError, match="evaluation point"):
+        Transformation(SITE_GRID_EAST_NORTH, NGO_ZONE_II, operation=operation)
 
 
 @pytest.mark.parametrize(
