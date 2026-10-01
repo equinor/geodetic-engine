@@ -9,7 +9,12 @@ import pickle
 import numpy as np
 import pytest
 
-from geodetic_engine.geodesy import CoordinateReferenceSystem, Transformation, transform
+from geodetic_engine.geodesy import (
+    CoordinateReferenceSystem,
+    Coordinates,
+    Transformation,
+    transform,
+)
 from geodetic_engine.geodesy.transformation import _columns
 
 OSLO_XY = (10.7522, 59.9139)
@@ -270,6 +275,23 @@ def test_to_dataframe_columns_are_distinct_when_abbreviations_are_not() -> None:
     assert list(frame.columns) == ["Easting", "Northing"]
     assert frame["Easting"][0] == pytest.approx(result.coordinates[0][0])
     assert frame["Northing"][0] == pytest.approx(result.coordinates[0][1])
+
+
+def test_to_dataframe_columns_are_distinct_when_nothing_tells_axes_apart() -> None:
+    """Same abbreviation, name and direction: the declared position decides."""
+    indistinct = CoordinateReferenceSystem.from_user_input(
+        'ENGCRS["Indistinct grid",EDATUM["Site"],CS[Cartesian,2],'
+        'AXIS["grid (g)",unspecified,ORDER[1]],'
+        'AXIS["grid (g)",unspecified,ORDER[2]],LENGTHUNIT["metre",1]]'
+    )
+
+    frame = Coordinates(((1.0, 2.0),), target_crs=indistinct).to_dataframe()
+
+    assert list(frame.columns) == [
+        "Grid (unspecified) [1]",
+        "Grid (unspecified) [2]",
+    ]
+    assert frame.iloc[0].tolist() == [1.0, 2.0]
 
 
 def test_result_survives_a_pickle_round_trip() -> None:

@@ -1697,6 +1697,7 @@ def _describe(
         projjson=json.dumps(node),
         execution_direction=pipeline.core_direction,
         bound_operations=tuple(r.text for r in pipeline.identified_by),
+        axis_order_corrected=pipeline.corrected is not None,
     )
 
 

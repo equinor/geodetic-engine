@@ -247,6 +247,12 @@ class AppliedOperation:
             single code and :attr:`authority_code` is None, but neither
             operation was chosen by PROJ. Empty on every other route. Not
             :attr:`requested`: the caller named neither.
+        axis_order_corrected: Whether the pipeline PROJ built from
+            :attr:`projjson` transposes coordinates at an engineering CRS or
+            an evaluation point, so that this package ran a corrected
+            pipeline instead. When True, :meth:`to_wkt` returns None and
+            :attr:`projjson` must not be replayed through PROJ; replay
+            :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`.
     """
 
     requested: str | None
@@ -271,10 +277,11 @@ class AppliedOperation:
     """PROJJSON of the operation applied.
 
     Raw, so it is present even when :meth:`to_wkt` returns None because a step
-    is applied inverted. Feeding it back to PROJ in that case silently applies
-    that step forwards; prefer
+    is applied inverted or :attr:`axis_order_corrected` is True. Feeding it
+    back to PROJ in those cases silently applies that step forwards, or
+    reproduces the transposition this package corrected; prefer
     :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`,
-    which keeps the inversion explicit.
+    which is what actually ran.
     """
 
     execution_direction: TransformDirection = TransformDirection.FORWARD
@@ -288,6 +295,9 @@ class AppliedOperation:
 
     bound_operations: tuple[str, ...] = ()
     """Operations declared by bound CRSs, source end first; see the class docstring."""
+
+    axis_order_corrected: bool = False
+    """Whether a corrected pipeline ran in place of PROJ's; see the class docstring."""
 
     @property
     def authority_code(self) -> str | None:
@@ -315,9 +325,11 @@ class AppliedOperation:
             exported faithfully: either PROJ built something that is not a
             coordinate operation in its own right, or a step is applied
             inverted and WKT2 cannot say so (see :func:`has_inverted_step`).
-            Also returns None when the raw definition was executed in reverse.
-            Use :attr:`TransformationResult.pipeline` in the latter case,
-            which keeps the inversion explicit.
+            Also returns None when the raw definition was executed in reverse,
+            or when :attr:`axis_order_corrected` is True, since PROJ would run
+            the exported operation with the axis order this package had to
+            correct. Use :attr:`TransformationResult.pipeline` in those cases,
+            which states what actually ran.
 
         Example:
             >>> from geodetic_engine.geodesy import Transformation
@@ -327,6 +339,7 @@ class AppliedOperation:
         """
         if (
             self.execution_direction is not TransformDirection.FORWARD
+            or self.axis_order_corrected
             or not self.projjson
             or has_inverted_step(json.loads(self.projjson))
         ):

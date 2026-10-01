@@ -123,9 +123,16 @@ def _distinct_axis_labels(crs: CoordinateReferenceSystem) -> tuple[str, ...]:
     labels = tuple(crs.axes[index].name for index in crs.value_axis_order)
     if len(set(labels)) == len(labels):
         return labels
-    return tuple(
+    labels = tuple(
         f"{crs.axes[index].name} ({crs.axes[index].direction})"
         for index in crs.value_axis_order
+    )
+    if len(set(labels)) == len(labels):
+        return labels
+    # Nothing the CRS declares tells the axes apart; their declared position does.
+    return tuple(
+        f"{label} [{index + 1}]"
+        for label, index in zip(labels, crs.value_axis_order, strict=True)
     )
 
 
@@ -263,6 +270,7 @@ class TransformationResult:
                 "requires_epoch": self.operation.requires_epoch,
                 "execution_direction": self.operation.execution_direction.value,
                 "bound_operations": list(self.operation.bound_operations),
+                "axis_order_corrected": self.operation.axis_order_corrected,
                 "definition": json.loads(self.operation.projjson)
                 if self.operation.projjson
                 else None,
