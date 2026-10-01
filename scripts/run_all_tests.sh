@@ -107,21 +107,27 @@ run_suite() {
 # The failures pytest listed and its closing tally, from one suite's log.
 summarize() {
     local label="$1" log="$2" status="$3"
-    local plain failures count
+    local plain failures count tally
     plain="$(sed -E 's/\x1b\[[0-9;]*[[:alpha:]]//g' -- "${log}")"
     printf '\n%s (exit status %s)\n' "${label}" "${status}"
     failures="$(printf '%s\n' "${plain}" |
         sed -n '/^=* short test summary info =*$/,$p' |
         grep -E '^(FAILED|ERROR) ' || true)"
     if [[ -n "${failures}" ]]; then
-        printf '%s\n' "${failures}" | head -n 40
-        count="$(printf '%s\n' "${failures}" | wc -l)"
+        # Slice rather than pipe into head: under pipefail a head that stops
+        # reading kills its writer with SIGPIPE and aborts the whole summary.
+        count="$(grep -c '' <<<"${failures}")"
+        sed -n '1,40p' <<<"${failures}"
         if ((count > 40)); then
             printf '... and %d more, see %s\n' "$((count - 40))" "${log}"
         fi
     fi
-    printf '%s\n' "${plain}" | grep -E '^=+ .* in [0-9.]+s.* =+$' | tail -n 1 ||
+    tally="$(grep -E '^=+ .* in [0-9.]+s.* =+$' <<<"${plain}" || true)"
+    if [[ -n "${tally}" ]]; then
+        sed -n '$p' <<<"${tally}"
+    else
         printf '(pytest printed no tally; see %s)\n' "${log}"
+    fi
 }
 
 logs="$(mktemp -d -t geodetic-engine-tests.XXXXXX)"

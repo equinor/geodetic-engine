@@ -294,6 +294,20 @@ def test_to_dataframe_columns_are_distinct_when_nothing_tells_axes_apart() -> No
     assert frame.iloc[0].tolist() == [1.0, 2.0]
 
 
+def test_to_dataframe_extra_column_does_not_reuse_an_axis_label() -> None:
+    """A 2D grid whose own second axis is ``Z`` still gets a distinct extra column."""
+    grid_with_z = CoordinateReferenceSystem.from_user_input(
+        'ENGCRS["Section grid",EDATUM["Site"],CS[Cartesian,2],'
+        'AXIS["along (X)",east,ORDER[1]],AXIS["elevation (Z)",up,ORDER[2]],'
+        'LENGTHUNIT["metre",1]]'
+    )
+
+    frame = Coordinates(((1.0, 2.0, 3.0),), target_crs=grid_with_z).to_dataframe()
+
+    assert list(frame.columns) == ["X", "Z", "Z (carried)"]
+    assert frame["Z (carried)"][0] == 3.0
+
+
 def test_result_survives_a_pickle_round_trip() -> None:
     """External services cache results and cross process boundaries with them."""
     result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
