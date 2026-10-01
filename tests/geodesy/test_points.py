@@ -254,6 +254,24 @@ def test_to_dataframe_columns_are_in_value_order_not_declared_order() -> None:
     assert frame["Lat"][0] == pytest.approx(OSLO_XY[1], abs=1e-9)
 
 
+def test_to_dataframe_columns_are_distinct_when_abbreviations_are_not() -> None:
+    """EPSG:3388 abbreviates both axes ``none``; the axis names step in.
+
+    Two columns sharing a label would make ``frame["none"]`` return both, and
+    the easting and northing indistinguishable in the one export meant to
+    label them.
+    """
+    caspian = CoordinateReferenceSystem.from_user_input("EPSG:3388")
+    assert caspian.value_axis_abbreviations == ("none", "none")
+
+    result = transform("EPSG:4284", "EPSG:3388", [(51.0, 40.0)])
+    frame = result.coordinates.to_dataframe()
+
+    assert list(frame.columns) == ["Easting", "Northing"]
+    assert frame["Easting"][0] == pytest.approx(result.coordinates[0][0])
+    assert frame["Northing"][0] == pytest.approx(result.coordinates[0][1])
+
+
 def test_result_survives_a_pickle_round_trip() -> None:
     """External services cache results and cross process boundaries with them."""
     result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])

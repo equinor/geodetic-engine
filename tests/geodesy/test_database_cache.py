@@ -6,15 +6,15 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-from pyproj import datadir
 
 from geodetic_engine.geodesy import transform
 from geodetic_engine.geodesy.database import grid_dataset
 from geodetic_engine.projdb.validate import _proj_data
+from tests.support import installed_proj_db
 
 
 def test_pipeline_cache_is_scoped_to_database_generation(tmp_path: Path) -> None:
-    base = Path(datadir.get_data_dir()) / "proj.db"
+    base = installed_proj_db()
     database = tmp_path / "proj.db"
     shutil.copyfile(base, database)
     original = transform("EPSG:4326", "EPSG:32631", (3, 0))
@@ -37,7 +37,7 @@ def test_pipeline_cache_is_scoped_to_database_generation(tmp_path: Path) -> None
 
 def test_grid_alias_cache_is_scoped_to_database_generation(tmp_path: Path) -> None:
     database = tmp_path / "proj.db"
-    shutil.copyfile(Path(datadir.get_data_dir()) / "proj.db", database)
+    shutil.copyfile(installed_proj_db(), database)
     with _proj_data(database):
         original = grid_dataset("A66 National (13.09.01).gsb")
         assert original is not None
@@ -62,7 +62,7 @@ def test_grid_alias_cache_is_scoped_to_database_generation(tmp_path: Path) -> No
 
 def test_conflicting_grid_aliases_are_not_selected_arbitrarily(tmp_path: Path) -> None:
     database = tmp_path / "proj.db"
-    shutil.copyfile(Path(datadir.get_data_dir()) / "proj.db", database)
+    shutil.copyfile(installed_proj_db(), database)
     with closing(sqlite3.connect(database)) as connection:
         connection.execute(
             "UPDATE grid_alternatives SET proj_grid_name=?, url=? "

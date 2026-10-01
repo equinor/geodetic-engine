@@ -240,6 +240,13 @@ class AppliedOperation:
         steps: Names of the individual steps, for a concatenated operation.
         execution_direction: Direction the raw operation definition is executed
             in, separate from any inversions already embedded by PROJ.
+        bound_operations: References of the operations the CRSs themselves
+            declared, when the route is
+            :attr:`OperationRoute.BOUND`. One entry for a single bound CRS,
+            two when both CRSs were bound -- in which case the chain has no
+            single code and :attr:`authority_code` is None, but neither
+            operation was chosen by PROJ. Empty on every other route. Not
+            :attr:`requested`: the caller named neither.
     """
 
     requested: str | None
@@ -278,6 +285,9 @@ class AppliedOperation:
     this direction with them. A PROJ-built inverse already describes its own
     direction and is executed FORWARD.
     """
+
+    bound_operations: tuple[str, ...] = ()
+    """Operations declared by bound CRSs, source end first; see the class docstring."""
 
     @property
     def authority_code(self) -> str | None:
@@ -608,6 +618,12 @@ class StatedOperation(Protocol):
         ...
 
 
+# Everything that can name or state one operation to apply.
+type AnyOperationReference = (
+    str | int | OperationReference | StatedOperation | CoordinateOperation
+)
+
+
 def _stated_operation(payload: str) -> CoordinateOperation:
     """Build the operation an OSDU persistableReference payload states.
 
@@ -875,13 +891,7 @@ class OperationRequest:
 
 
 def parse_operations(
-    reference: (
-        str
-        | int
-        | OperationReference
-        | StatedOperation
-        | Iterable[str | int | OperationReference | StatedOperation]
-    ),
+    reference: AnyOperationReference | Iterable[AnyOperationReference],
 ) -> tuple[OperationRequest, ...]:
     """Parse one operation reference, or several, into requests.
 
@@ -901,29 +911,52 @@ def parse_operations(
             plain string is never iterated as one, even though it is
             technically iterable). A reference may be an
             :class:`OperationCandidate`, which expands to one request per
-            step it chains.
+            step it chains, or a :class:`pyproj.crs.CoordinateOperation`,
+            which is applied as stated rather than looked up.
 
     Returns:
         One parsed request per reference, in the order given, with a chained
         candidate expanded into one request per step.
 
+    Raises:
+        TypeError: If a reference is of a type that names no operation.
+
     Example:
         >>> [r.text for r in parse_operations(["EPSG:11028", "EPSG:9484"])]
         ['EPSG:11028', 'EPSG:9484']
     """
-    if isinstance(reference, (str, int, OperationCandidate, StatedOperation)):
-        references: Iterable[str | int | OperationReference | StatedOperation] = (
-            reference,
-        )
-    else:
-        references = reference
-    return tuple(
-        OperationRequest.parse(text)
-        for item in references
-        for text in (
-            item.references if isinstance(item, OperationCandidate) else (item,)
-        )
-    )
+    requests: list[OperationRequest] = []
+    for item in operation_references(reference):
+        if isinstance(item, CoordinateOperation):
+            requests.append(OperationRequest.stated(item))
+        elif isinstance(item, OperationCandidate):
+            requests.extend(OperationRequest.parse(text) for text in item.references)
+        else:
+            requests.append(OperationRequest.parse(item))
+    return tuple(requests)
+
+
+def operation_references(
+    reference: AnyOperationReference | Iterable[AnyOperationReference],
+) -> tuple[AnyOperationReference, ...]:
+    """One reference per operation named, whether one or several were given.
+
+    Raises:
+        TypeError: If ``reference`` is neither a single reference nor an
+            iterable of them.
+    """
+    if isinstance(
+        reference, (str, int, OperationCandidate, StatedOperation, CoordinateOperation)
+    ):
+        return (reference,)
+    try:
+        return tuple(reference)
+    except TypeError:
+        raise TypeError(
+            "operation must be an authority code, a name, an OperationCandidate, "
+            "a stated operation or a pyproj CoordinateOperation, or a sequence "
+            f"of those; got {type(reference).__name__}"
+        ) from None
 
 
 def operation_names(definition: object) -> set[str]:

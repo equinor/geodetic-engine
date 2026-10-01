@@ -8,6 +8,7 @@ from pathlib import Path
 from pyproj import CRS, datadir
 
 from geodetic_engine.projdb.validate import validate
+from tests.support import installed_proj_db
 
 
 def test_parallel_validation_does_not_change_caller_context(tmp_path: Path) -> None:
@@ -15,7 +16,7 @@ def test_parallel_validation_does_not_change_caller_context(tmp_path: Path) -> N
     environment = os.environ.get("PROJ_DATA")
     databases = [tmp_path / "first.db", tmp_path / "second.db"]
     for database in databases:
-        shutil.copyfile(Path(previous) / "proj.db", database)
+        shutil.copyfile(installed_proj_db(), database)
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(
             executor.map(

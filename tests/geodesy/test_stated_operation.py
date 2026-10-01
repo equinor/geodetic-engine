@@ -117,6 +117,32 @@ def test_a_parsed_reference_is_accepted_as_readily_as_its_payload() -> None:
     )
 
 
+def test_a_pyproj_operation_is_accepted_as_the_operation_itself() -> None:
+    """The natural way to state an operation is the pyproj object for it.
+
+    It is applied as stated, like a payload, so the same altered translation
+    moves the point the same way, and provenance names the object, not the
+    code it carries.
+    """
+    altered = CoordinateOperation.from_json(
+        parse_persistable_reference(payload(ALTERED_X)).to_operation().to_json()
+    )
+
+    result = transform(ED50, WGS84, POINT, operation=altered)
+
+    assert result.coordinates == (
+        transform(ED50, WGS84, POINT, operation=payload(ALTERED_X)).coordinates
+    )
+    assert result.operation.name == "ED_1950_To_WGS_1984_1"
+    assert result.operation.requested == "ED_1950_To_WGS_1984_1"
+
+
+def test_something_that_names_no_operation_is_refused_with_its_type_named() -> None:
+    """A bare object that is neither a reference nor iterable is a TypeError."""
+    with pytest.raises(TypeError, match=r"pyproj CoordinateOperation.*got float"):
+        transform(ED50, WGS84, POINT, operation=1.5)  # type: ignore[arg-type]
+
+
 def test_the_stated_parameters_are_applied_and_not_the_published_ones() -> None:
     """The whole point: what the payload says is what runs.
 
