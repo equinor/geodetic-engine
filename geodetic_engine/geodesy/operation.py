@@ -635,6 +635,7 @@ class StatedOperation(Protocol):
 type AnyOperationReference = (
     str | int | OperationReference | StatedOperation | CoordinateOperation
 )
+_REFERENCE_TYPES = (str, int, OperationCandidate, StatedOperation, CoordinateOperation)
 
 
 def _stated_operation(payload: str) -> CoordinateOperation:
@@ -949,20 +950,30 @@ def operation_references(
 
     Raises:
         TypeError: If ``reference`` is neither a single reference nor an
-            iterable of them.
+            iterable of them, or an iterable holding anything else.
     """
-    if isinstance(
-        reference, (str, int, OperationCandidate, StatedOperation, CoordinateOperation)
-    ):
+    if isinstance(reference, _REFERENCE_TYPES):
         return (reference,)
+    # Bytes iterate as integers, which would each read as an EPSG code.
+    if isinstance(reference, (bytes, bytearray)):
+        raise _not_a_reference(reference)
     try:
-        return tuple(reference)
+        references = tuple(reference)
     except TypeError:
-        raise TypeError(
-            "operation must be an authority code, a name, an OperationCandidate, "
-            "a stated operation or a pyproj CoordinateOperation, or a sequence "
-            f"of those; got {type(reference).__name__}"
-        ) from None
+        raise _not_a_reference(reference) from None
+    for item in references:
+        if not isinstance(item, _REFERENCE_TYPES):
+            raise _not_a_reference(item)
+    return references
+
+
+def _not_a_reference(value: object) -> TypeError:
+    """The error for something passed as an operation that names none."""
+    return TypeError(
+        "operation must be an authority code, a name, an OperationCandidate, "
+        "a stated operation or a pyproj CoordinateOperation, or a sequence "
+        f"of those; got {type(value).__name__}"
+    )
 
 
 def operation_names(definition: object) -> set[str]:
