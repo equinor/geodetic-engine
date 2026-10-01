@@ -80,11 +80,6 @@ fi
 
 $check_only && exit 0
 
-if [[ ${#grid_files[@]} -eq 0 && -f "$OVERLAY_DB" ]]; then
-    rm -f -- "$OVERLAY_DB"
-    echo "local/grids/ is empty, removed the patched copy of proj.db"
-fi
-
 $patched_copy || exit 0
 
 # The installed, stock database: the first entry of PROJ_DATA that holds one

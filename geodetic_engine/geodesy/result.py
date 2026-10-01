@@ -96,7 +96,8 @@ class Coordinates(tuple[tuple[float, ...], ...]):
         2D horizontal target -- gets one extra column, named ``"h"`` for a
         geographic target or ``"Z"`` for a Cartesian one (projected,
         geocentric, engineering), or ``"Z (carried)"`` / ``"h (carried)"``
-        where an axis of the target already goes by that label.
+        where an axis of the target already goes by that label, numbered
+        further (``"Z (carried 2)"``) if that is taken too.
 
         Returns:
             A DataFrame with one row per point and one column per value.
@@ -112,9 +113,13 @@ class Coordinates(tuple[tuple[float, ...], ...]):
         if width > len(columns):
             # _require_width allows at most one value beyond the declared
             # axes, so there is never more than one such column to name.
-            extra = "h" if self._target_crs.crs.is_geographic else "Z"
-            if extra in columns:
-                extra = f"{extra} (carried)"
+            extra = base = "h" if self._target_crs.crs.is_geographic else "Z"
+            suffix = 1
+            while extra in columns:
+                extra = (
+                    f"{base} (carried)" if suffix == 1 else f"{base} (carried {suffix})"
+                )
+                suffix += 1
             columns.append(extra)
         return pd.DataFrame(self, columns=columns)
 

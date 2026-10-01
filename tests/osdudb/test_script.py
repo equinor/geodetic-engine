@@ -13,6 +13,37 @@ from tests.osdudb.test_build import geographic
 from tests.support import installed_proj_db
 
 
+@pytest.mark.parametrize("grids", [False, True], ids=["no-local-grids", "local-grids"])
+def test_the_start_up_grid_check_never_deletes_a_patched_copy(
+    tmp_path: Path, grids: bool
+) -> None:
+    """Only ``--patched-copy`` may touch local/proj-data; the default run reports.
+
+    A developer who put the patched copy first on PROJ_DATA is reading it;
+    removing it at container start because local/grids/ happens to be empty
+    would silently switch them to another database.
+    """
+    repository = Path(__file__).resolve().parents[2]
+    script = tmp_path / "repository/.devcontainer/link-local-grids.sh"
+    script.parent.mkdir(parents=True)
+    shutil.copy2(repository / ".devcontainer/link-local-grids.sh", script)
+    copy = tmp_path / "repository/local/proj-data/proj.db"
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(b"a developer's patched copy")
+    if grids:
+        grid = tmp_path / "repository/local/grids/new-grid.tif"
+        grid.parent.mkdir(parents=True)
+        grid.write_bytes(b"grid")
+    environment = {**os.environ, "PROJ_DATA": str(tmp_path / "proj")}
+
+    result = subprocess.run(
+        ["bash", str(script)], env=environment, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert copy.read_bytes() == b"a developer's patched copy"
+
+
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX permission bits")
 @pytest.mark.parametrize("dry_run", [False, True])
 def test_shell_publication_preserves_permissions(tmp_path: Path, dry_run: bool) -> None:

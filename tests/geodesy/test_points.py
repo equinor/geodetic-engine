@@ -308,6 +308,38 @@ def test_to_dataframe_extra_column_does_not_reuse_an_axis_label() -> None:
     assert frame["Z (carried)"][0] == 3.0
 
 
+def test_to_dataframe_extra_column_is_numbered_past_every_axis_label() -> None:
+    """An axis already called ``Z (carried)`` pushes the extra column further."""
+    crs = {
+        "type": "EngineeringCRS",
+        "name": "Section grid",
+        "datum": {"name": "Site"},
+        "coordinate_system": {
+            "subtype": "Cartesian",
+            "axis": [
+                {
+                    "name": "Elevation",
+                    "abbreviation": "Z",
+                    "direction": "up",
+                    "unit": "metre",
+                },
+                {
+                    "name": "Carried elevation",
+                    "abbreviation": "Z (carried)",
+                    "direction": "up",
+                    "unit": "metre",
+                },
+            ],
+        },
+    }
+    target = CoordinateReferenceSystem.from_user_input(json.dumps(crs))
+
+    frame = Coordinates(((1.0, 2.0, 3.0),), target_crs=target).to_dataframe()
+
+    assert list(frame.columns) == ["Z", "Z (carried)", "Z (carried 2)"]
+    assert frame["Z (carried 2)"][0] == 3.0
+
+
 def test_result_survives_a_pickle_round_trip() -> None:
     """External services cache results and cross process boundaries with them."""
     result = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
