@@ -16,6 +16,7 @@ import pytest
 from pyproj import CRS, Transformer
 
 from geodetic_engine.geodesy import CoordinateReferenceSystem, Transformation
+from tests.geodesy.conftest import xy_permutation
 
 # CRSs whose axis order is not the obvious one. The polar pair matters most:
 # both of their axes carry the same direction, so direction alone cannot say
@@ -33,6 +34,7 @@ AWKWARD = [
     "EPSG:2049",  # Hartebeesthoek94 Lo29, west and south
     "EPSG:22277",  # Cape Lo27, west and south
     "EPSG:5513",  # S-JTSK Krovak, south then west; PROJ leaves it unswapped
+    "EPSG:2065",  # S-JTSK (Ferro) / Krovak, the same on the Ferro meridian
     "EPSG:4896",  # geocentric, X/Y/Z
 ]
 
@@ -78,6 +80,19 @@ def test_declared_order_is_epsg_not_value_order() -> None:
     assert crs.axis_units == ("degree", "degree")
     assert crs.value_axis_order == (1, 0)
     assert crs.value_axis_abbreviations == ("Lon", "Lat")
+
+
+@pytest.mark.parametrize("code", [*AWKWARD, "EPSG:5800", "EPSG:5817", "EPSG:3388"])
+def test_dataset_harness_agrees_with_the_package_on_value_order(code: str) -> None:
+    """The permutation the dataset tests use is worked out apart from the package.
+
+    ``conftest.xy_permutation`` reorders every dataset record without calling
+    ``value_axis_order``, so that the two cannot share a mistake. Here they
+    are required to agree, which is what makes a disagreement visible rather
+    than a silently self-consistent dataset run.
+    """
+    crs = CoordinateReferenceSystem.from_user_input(code)
+    assert xy_permutation(crs) == crs.value_axis_order
 
 
 def test_easting_first_crs_needs_no_reordering() -> None:
