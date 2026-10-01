@@ -8,24 +8,29 @@ so they are constructed deliberately.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import pyproj
 import pytest
 from pyproj import CRS
 from pyproj.crs import CoordinateOperation
 from pyproj.crs.crs import BoundCRS
+from pyproj.enums import TransformDirection
 from pyproj.transformer import TransformerGroup
 
 from geodetic_engine.geodesy import (
     AmbiguousOperationError,
+    BallparkTransformationError,
     CoordinateOutOfRangeError,
     CoordinateReferenceSystem,
-    GeodesyError,
     MissingCoordinateEpochError,
     MissingGridError,
     OperationNotAvailableError,
@@ -34,9 +39,17 @@ from geodetic_engine.geodesy import (
     TransformationFailedError,
     UnresolvableCRSError,
     available_operations,
+    transformation,
 )
 from geodetic_engine.geodesy.operation import is_ballpark
-from geodetic_engine.geodesy.transformation import _datum_names, _require_in_range
+from geodetic_engine.geodesy.transformation import (
+    _datum_names,
+    _Pipeline,
+    _require_in_range,
+)
+from tests.support import installed_proj_db
+
+_PAYLOADS = Path(__file__).parents[1] / "persistablereference" / "payloads.jsonl"
 
 # No datum shift is defined between the Puerto Rico datum and GDA94, so PROJ
 # can only offer a ballpark geographic offset between them.
@@ -47,12 +60,14 @@ BALLPARK_TARGET = "EPSG:4283"
 def test_ballpark_only_pair_never_returns_coordinates() -> None:
     """A pair PROJ can only bridge with a ballpark yields no coordinates at all.
 
-    Which refusal comes first is not the point. Naming the operation is
-    impossible here, since PROJ's ballpark offset has no EPSG code, so the
-    ambiguity rule fires before the ballpark rule. Either way no approximate
-    number reaches the caller.
+    Naming the operation is impossible here, since PROJ's ballpark offset has
+    no EPSG code, so the ambiguity rule fires before the ballpark rule ever
+    could: the refusal is the datum-change one. It is asserted by type so
+    that an unrelated failure -- an unresolvable CRS, say -- cannot pass for
+    it. ``BallparkTransformationError`` itself is a second line of defence
+    that no stock input reaches, see ``test_ballpark_rule_is_a_second_line``.
     """
-    with pytest.raises(GeodesyError):
+    with pytest.raises(AmbiguousOperationError, match="datum change"):
         Transformation(BALLPARK_SOURCE, BALLPARK_TARGET)
 
 
@@ -241,7 +256,7 @@ def test_two_operations_fused_into_one_step_round_trip_in_reverse() -> None:
     ).coordinates[0]
     assert lon == pytest.approx(11.12789451, abs=1e-6)
     assert lat == pytest.approx(63.58496782, abs=1e-6)
-    assert height == pytest.approx(100, abs=1)
+    assert height == pytest.approx(100, abs=1e-3)
 
 
 def test_a_candidate_from_available_operations_can_be_passed_directly() -> None:
@@ -284,12 +299,42 @@ def test_an_unidentified_candidate_can_be_pinned_down_by_object() -> None:
 
 
 def test_a_ballpark_candidate_is_still_refused_when_passed_by_object() -> None:
-    """Picking a candidate by object does not bypass the ballpark rule."""
+    """Picking a candidate by object does not bypass the rules.
+
+    A ballpark candidate has no code and no registered name, so passing it
+    by object is refused as an operation PROJ cannot apply here rather than
+    as a ballpark: it never gets far enough to be built.
+    """
     candidates = available_operations(BALLPARK_SOURCE, BALLPARK_TARGET)
     ballpark = next(c for c in candidates if c.ballpark)
 
-    with pytest.raises(GeodesyError):
+    with pytest.raises(OperationNotAvailableError):
         Transformation(BALLPARK_SOURCE, BALLPARK_TARGET, operation=ballpark)
+
+
+def test_ballpark_rule_is_a_second_line() -> None:
+    """The ballpark rule fires when a ballpark gets past the others.
+
+    No stock input reaches it, because a ballpark has no code to name and
+    the ambiguity rule refuses the pair first. It exists for the day PROJ
+    offers a ballpark under some name a caller could pass, so it is exercised
+    here by handing the constructor a ballpark pipeline directly.
+    """
+    group = TransformerGroup(
+        CRS(BALLPARK_SOURCE), CRS(BALLPARK_TARGET), allow_ballpark=True, always_xy=True
+    )
+    ballpark = group.transformers[0]
+    pipeline = _Pipeline(
+        steps=((ballpark, TransformDirection.FORWARD),),
+        core=ballpark,
+        route=OperationRoute.PROJ_DEFAULT,
+    )
+
+    with (
+        patch.object(transformation, "_resolve", return_value=pipeline),
+        pytest.raises(BallparkTransformationError, match="ballpark"),
+    ):
+        Transformation(BALLPARK_SOURCE, BALLPARK_TARGET)
 
 
 def test_unresolvable_crs_raises_our_own_error() -> None:
@@ -352,6 +397,34 @@ def test_a_projected_crs_is_not_subject_to_the_latitude_check() -> None:
     assert lat == pytest.approx(60.426250138, abs=1e-9)
 
 
+def test_an_out_of_range_longitude_is_refused() -> None:
+    """PROJ wraps a longitude of 400 degrees to 40 and says nothing.
+
+    A longitude beyond a full turn is a unit or order mistake as surely as a
+    latitude beyond the pole, so it is refused with the same message. A
+    dataset counted from 0 to 360 is a convention and stays accepted.
+    """
+    transformation = Transformation("EPSG:4326", "EPSG:32632")
+
+    with pytest.raises(CoordinateOutOfRangeError, match=r"longitude 400\.0 degree"):
+        transformation.transform(400.0, 60.0)
+
+    accepted = transformation.transform(351.0, 60.0).coordinates[0]
+    assert accepted == pytest.approx(
+        transformation.transform(-9.0, 60.0).coordinates[0]
+    )
+
+
+def test_the_longitude_limit_comes_from_the_axis_unit_too() -> None:
+    """In grads a full turn is 400, so 380 is a valid longitude there."""
+    ntf_paris = CoordinateReferenceSystem.from_user_input("EPSG:4807")
+
+    _require_in_range(ntf_paris, ((380.0,), (50.0,)))
+
+    with pytest.raises(CoordinateOutOfRangeError, match=r"\[-400, 400\]"):
+        _require_in_range(ntf_paris, ((405.0,), (50.0,)))
+
+
 def test_time_dependent_operation_requires_an_epoch() -> None:
     """An operation that reads the epoch refuses to run without one."""
     transformation = Transformation("EPSG:4896", "EPSG:4938", operation="EPSG:6277")
@@ -409,6 +482,134 @@ def test_grids_are_reported_when_present() -> None:
     transformation = Transformation("EPSG:4979", "EPSG:3855", operation="EPSG:3858")
     assert [grid.name for grid in transformation.grids] == ["us_nga_egm08_25.tif"]
     assert all(grid.available for grid in transformation.grids)
+
+
+@pytest.fixture(scope="module")
+def grid_payloads() -> dict[str, str]:
+    """The committed OSDU payloads that state grid-based operations."""
+    with _PAYLOADS.open(encoding="utf-8") as stream:
+        return {
+            entry["case"]: entry["payload"]
+            for entry in (json.loads(line) for line in stream if line.strip())
+        }
+
+
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
+def test_a_stated_ntv2_operation_names_its_missing_grid(tmp_path: Path) -> None:
+    """A stated operation is held to the missing-grid rule like a named one.
+
+    PROJ cannot even build the pipeline without the grid, and reports that as
+    a malformed step. Reporting *that* as "operation not available" would
+    send the caller looking for another operation instead of for the grid.
+
+    Run in a fresh interpreter: PROJ keeps a grid it has opened in memory, so
+    after any earlier test read this one the step would compile and take the
+    on-disk path below instead, which names PROJ's file rather than this one.
+    """
+    script = (
+        "import json, os, sys\n"
+        "from geodetic_engine.geodesy import MissingGridError, Transformation\n"
+        "payloads = {json.loads(line)['case']: json.loads(line)['payload']\n"
+        "            for line in open(sys.argv[1])}\n"
+        "try:\n"
+        "    Transformation('EPSG:4202', 'EPSG:4283',\n"
+        "                   operation=payloads['st_ntv2_grid'])\n"
+        "except MissingGridError as error:\n"
+        "    print(error)\n"
+        "    sys.exit(0)\n"
+        "sys.exit('not refused')\n"
+    )
+    empty = tmp_path / "proj-no-grids"
+    empty.mkdir()
+    shutil.copy(installed_proj_db(), empty / "proj.db")
+
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(_PAYLOADS)],
+        env={**os.environ, "PROJ_DATA": str(empty), "PROJ_NETWORK": "OFF"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "A66 National (13.09.01).gsb" in result.stdout
+
+
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
+def test_a_stated_ntv2_operation_compiled_from_cache_names_its_missing_grid(
+    tmp_path: Path, grid_payloads: dict[str, str]
+) -> None:
+    """With the grid already in PROJ's memory, the disk check names the file.
+
+    The step compiles because PROJ opened the grid earlier, so the refusal
+    comes from checking the pipeline's own file on disk, under PROJ's name.
+    """
+    payload = grid_payloads["st_ntv2_grid"]
+    Transformation("EPSG:4202", "EPSG:4283", operation=payload).transform(
+        [(147.0, -35.0)]
+    )
+
+    with (
+        _without_grids(tmp_path),
+        pytest.raises(
+            MissingGridError, match=r"au_icsm_A66_National_13_09_01\.tif"
+        ) as raised,
+    ):
+        Transformation("EPSG:4202", "EPSG:4283", operation=payload)
+    assert "needs 1 grid file(s)" in str(raised.value)
+
+
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
+def test_a_stated_nadcon_operation_names_its_missing_grid(
+    tmp_path: Path, grid_payloads: dict[str, str]
+) -> None:
+    """A grid PROJ has already opened once still has to be on disk.
+
+    PROJ keeps opened grids in memory, so after another test has read
+    ``us_noaa_conus.tif`` the pipeline compiles without the file and would
+    fail at the first coordinate. The rule is that the refusal comes at
+    construction and names the grid.
+    """
+    Transformation("EPSG:4267", "EPSG:4269", operation=grid_payloads["st_nadcon_grid"])
+
+    with (
+        _without_grids(tmp_path),
+        pytest.raises(MissingGridError, match="not installed") as raised,
+    ):
+        Transformation(
+            "EPSG:4267", "EPSG:4269", operation=grid_payloads["st_nadcon_grid"]
+        )
+    message = str(raised.value)
+    assert "conus.las" in message or "us_noaa_conus.tif" in message
+
+
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
+def test_a_bound_crs_grid_operation_names_its_missing_grid(tmp_path: Path) -> None:
+    """The renamed-grid case, without the grid: refused, not run into the ground.
+
+    The registry calls ``conus.las`` missing whether or not PROJ's
+    ``us_noaa_conus.tif`` is installed, so the pipeline's own file is what
+    has to be checked -- on disk, not merely compiled. And only that file is
+    reported: the legacy names the pipeline does not read are not needed, so
+    listing them would send the caller after files that would not help.
+    """
+    wgs84 = CRS.from_epsg(4326)
+    nad83 = BoundCRS(
+        CRS.from_epsg(4269), wgs84, CoordinateOperation.from_authority("EPSG", 1188)
+    )
+    nad27 = BoundCRS(
+        CRS.from_epsg(4267), wgs84, CoordinateOperation.from_authority("EPSG", 15851)
+    )
+    Transformation(nad83, nad27).transform([(-95.0, 30.0)])
+
+    with (
+        _without_grids(tmp_path),
+        pytest.raises(MissingGridError, match=r"us_noaa_conus\.tif") as raised,
+    ):
+        Transformation(nad83, nad27)
+    message = str(raised.value)
+    assert "needs 1 grid file(s)" in message
+    assert "conus.las" not in message
+    assert "conus.los" not in message
 
 
 @pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
@@ -480,8 +681,7 @@ def _without_grids(tmp_path: Path) -> Generator[None]:
     """
     empty = tmp_path / "proj-no-grids"
     empty.mkdir()
-    source = Path(pyproj.datadir.get_data_dir())
-    shutil.copy(source / "proj.db", empty / "proj.db")
+    shutil.copy(installed_proj_db(), empty / "proj.db")
 
     previous_env = os.environ.get("PROJ_DATA")
     previous_dir = pyproj.datadir.get_data_dir()

@@ -3,6 +3,13 @@
 Each record names the operation to apply, so these tests exercise the path that
 matters most: a caller asking for one specific EPSG operation and getting that
 operation, not whichever one PROJ would have picked.
+
+What a passing record proves depends on its tier. Gold and silver records were
+agreed by at least two engines, so they check the answer. Reference records
+(all of ``dynamic.jsonl``, nearly all of ``vertical.jsonl``) were produced by
+PROJ alone: they check that PROJ's answer has not changed, and carry the
+``regression`` marker so that ``-m "not regression"`` leaves only the
+independent evidence.
 """
 
 from __future__ import annotations

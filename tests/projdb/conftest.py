@@ -13,11 +13,11 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import pyproj
 import pytest
 
 from geodetic_engine.georepository.config import GeorepositoryConfig
 from geodetic_engine.projdb.config import ProjDbBuildConfig
+from tests.support import installed_proj_db
 
 API = "https://georepo.example.test"
 AUTHORITY = "Example"
@@ -44,8 +44,8 @@ def isolated_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def base_proj_db() -> Path:
-    """Path to the official proj.db of the linked PROJ."""
-    return Path(pyproj.datadir.get_data_dir()) / "proj.db"
+    """Path to the proj.db of the linked PROJ, the first on its search path."""
+    return installed_proj_db()
 
 
 @pytest.fixture

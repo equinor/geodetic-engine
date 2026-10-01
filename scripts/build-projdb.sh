@@ -256,8 +256,8 @@ fi
 append=$append_to_existing
 
 if ! $dry_run; then
-    echo "==> linking local grids into PROJ's data directory"
-    bash "${REPO_ROOT}/.devcontainer/link-local-grids.sh" --links-only
+    echo "==> checking that local grids are on PROJ's search path"
+    bash "${REPO_ROOT}/.devcontainer/link-local-grids.sh" --check
 fi
 
 for source in "${sources[@]}"; do

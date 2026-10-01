@@ -10,6 +10,16 @@
 		}
 	},
 	"remoteUser": "vscode",
+	// PROJ_DATA adds local/grids (gitignored, may be empty) after the installed
+	// data directory, which is never modified: a grid dropped there is found
+	// under its own filename. The installed directory stays first because
+	// pyproj reads proj.db from the first entry only, and stays the only
+	// database on the path, so it is the stock one and build-projdb.sh finds
+	// its base unambiguously. The Dockerfile's PROJ_DATA, the installed
+	// directory alone, is what CI runs with.
+	"remoteEnv": {
+		"PROJ_DATA": "/usr/local/share/proj:${containerWorkspaceFolder}/local/grids"
+	},
 	"postCreateCommand": "uv sync --extra dev && uv run pytest tests/test_environment.py -q",
 	"postStartCommand": "bash .devcontainer/link-local-grids.sh",
 	"customizations": {

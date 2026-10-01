@@ -240,6 +240,19 @@ class AppliedOperation:
         steps: Names of the individual steps, for a concatenated operation.
         execution_direction: Direction the raw operation definition is executed
             in, separate from any inversions already embedded by PROJ.
+        bound_operations: References of the operations the CRSs themselves
+            declared, when the route is
+            :attr:`OperationRoute.BOUND`. One entry for a single bound CRS,
+            two when both CRSs were bound -- in which case the chain has no
+            single code and :attr:`authority_code` is None, but neither
+            operation was chosen by PROJ. Empty on every other route. Not
+            :attr:`requested`: the caller named neither.
+        axis_order_corrected: Whether the pipeline PROJ built from
+            :attr:`projjson` transposes coordinates at an engineering CRS or
+            an evaluation point, so that this package ran a corrected
+            pipeline instead. When True, :meth:`to_wkt` returns None and
+            :attr:`projjson` must not be replayed through PROJ; replay
+            :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`.
     """
 
     requested: str | None
@@ -264,10 +277,11 @@ class AppliedOperation:
     """PROJJSON of the operation applied.
 
     Raw, so it is present even when :meth:`to_wkt` returns None because a step
-    is applied inverted. Feeding it back to PROJ in that case silently applies
-    that step forwards; prefer
+    is applied inverted or :attr:`axis_order_corrected` is True. Feeding it
+    back to PROJ in those cases silently applies that step forwards, or
+    reproduces the transposition this package corrected; prefer
     :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`,
-    which keeps the inversion explicit.
+    which is what actually ran.
     """
 
     execution_direction: TransformDirection = TransformDirection.FORWARD
@@ -278,6 +292,12 @@ class AppliedOperation:
     this direction with them. A PROJ-built inverse already describes its own
     direction and is executed FORWARD.
     """
+
+    bound_operations: tuple[str, ...] = ()
+    """Operations declared by bound CRSs, source end first; see the class docstring."""
+
+    axis_order_corrected: bool = False
+    """Whether a corrected pipeline ran in place of PROJ's; see the class docstring."""
 
     @property
     def authority_code(self) -> str | None:
@@ -305,9 +325,11 @@ class AppliedOperation:
             exported faithfully: either PROJ built something that is not a
             coordinate operation in its own right, or a step is applied
             inverted and WKT2 cannot say so (see :func:`has_inverted_step`).
-            Also returns None when the raw definition was executed in reverse.
-            Use :attr:`TransformationResult.pipeline` in the latter case,
-            which keeps the inversion explicit.
+            Also returns None when the raw definition was executed in reverse,
+            or when :attr:`axis_order_corrected` is True, since PROJ would run
+            the exported operation with the axis order this package had to
+            correct. Use :attr:`TransformationResult.pipeline` in those cases,
+            which states what actually ran.
 
         Example:
             >>> from geodetic_engine.geodesy import Transformation
@@ -317,6 +339,7 @@ class AppliedOperation:
         """
         if (
             self.execution_direction is not TransformDirection.FORWARD
+            or self.axis_order_corrected
             or not self.projjson
             or has_inverted_step(json.loads(self.projjson))
         ):
@@ -608,6 +631,13 @@ class StatedOperation(Protocol):
         ...
 
 
+# Everything that can name or state one operation to apply.
+type AnyOperationReference = (
+    str | int | OperationReference | StatedOperation | CoordinateOperation
+)
+_REFERENCE_TYPES = (str, int, OperationCandidate, StatedOperation, CoordinateOperation)
+
+
 def _stated_operation(payload: str) -> CoordinateOperation:
     """Build the operation an OSDU persistableReference payload states.
 
@@ -868,13 +898,7 @@ class OperationRequest:
 
 
 def parse_operations(
-    reference: (
-        str
-        | int
-        | OperationReference
-        | StatedOperation
-        | Iterable[str | int | OperationReference | StatedOperation]
-    ),
+    reference: AnyOperationReference | Iterable[AnyOperationReference],
 ) -> tuple[OperationRequest, ...]:
     """Parse one operation reference, or several, into requests.
 
@@ -894,28 +918,61 @@ def parse_operations(
             plain string is never iterated as one, even though it is
             technically iterable). A reference may be an
             :class:`OperationCandidate`, which expands to one request per
-            step it chains.
+            step it chains, or a :class:`pyproj.crs.CoordinateOperation`,
+            which is applied as stated rather than looked up.
 
     Returns:
         One parsed request per reference, in the order given, with a chained
         candidate expanded into one request per step.
 
+    Raises:
+        TypeError: If a reference is of a type that names no operation.
+
     Example:
         >>> [r.text for r in parse_operations(["EPSG:11028", "EPSG:9484"])]
         ['EPSG:11028', 'EPSG:9484']
     """
-    if isinstance(reference, (str, int, OperationCandidate, StatedOperation)):
-        references: Iterable[str | int | OperationReference | StatedOperation] = (
-            reference,
-        )
-    else:
-        references = reference
-    return tuple(
-        OperationRequest.parse(text)
-        for item in references
-        for text in (
-            item.references if isinstance(item, OperationCandidate) else (item,)
-        )
+    requests: list[OperationRequest] = []
+    for item in operation_references(reference):
+        if isinstance(item, CoordinateOperation):
+            requests.append(OperationRequest.stated(item))
+        elif isinstance(item, OperationCandidate):
+            requests.extend(OperationRequest.parse(text) for text in item.references)
+        else:
+            requests.append(OperationRequest.parse(item))
+    return tuple(requests)
+
+
+def operation_references(
+    reference: AnyOperationReference | Iterable[AnyOperationReference],
+) -> tuple[AnyOperationReference, ...]:
+    """One reference per operation named, whether one or several were given.
+
+    Raises:
+        TypeError: If ``reference`` is neither a single reference nor an
+            iterable of them, or an iterable holding anything else.
+    """
+    if isinstance(reference, _REFERENCE_TYPES):
+        return (reference,)
+    # Bytes iterate as integers, which would each read as an EPSG code.
+    if isinstance(reference, (bytes, bytearray)):
+        raise _not_a_reference(reference)
+    try:
+        references = tuple(reference)
+    except TypeError:
+        raise _not_a_reference(reference) from None
+    for item in references:
+        if not isinstance(item, _REFERENCE_TYPES):
+            raise _not_a_reference(item)
+    return references
+
+
+def _not_a_reference(value: object) -> TypeError:
+    """The error for something passed as an operation that names none."""
+    return TypeError(
+        "operation must be an authority code, a name, an OperationCandidate, "
+        "a stated operation or a pyproj CoordinateOperation, or a sequence "
+        f"of those; got {type(value).__name__}"
     )
 
 

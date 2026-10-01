@@ -3,13 +3,16 @@
 The dataset stores each point in the CRS's **EPSG-declared** axis order, while
 this package accepts and returns values in ``xy`` order. The two differ for
 most geographic CRSs, so every record is reordered on the way in and on the way
-out. That reordering is derived from the axis directions the wrapper itself
-reports, not from a hardcoded assumption about which CRSs are latitude first,
-and it is tested directly in ``test_axis_order.py`` because a bug in it would
-show up as a transformation failure somewhere else entirely.
+out. That reordering is worked out here from the axis directions pyproj reports
+for the CRS, following the rule PROJ's ``always_xy`` applies -- deliberately
+not by calling the package's own ``value_axis_order``, which is the code under
+test: a permutation shared with the package would agree with a bug in it. That
+the two agree is asserted separately, in ``test_axis_order.py``.
 
 Expected values are a consensus across independent engines, not a recording of
 PROJ, so they are compared with a tolerance in metres and never for equality.
+Records of tier ``reference`` are the exception: only PROJ produced them, so
+they are regression baselines of PROJ's own output and are marked as such.
 """
 
 from __future__ import annotations
@@ -86,6 +89,10 @@ def dataset_params(filename: str, sample: int = DEFAULT_SAMPLE) -> list[Any]:
     params = []
     for index, record in enumerate(records):
         marks = [] if index in chosen else [pytest.mark.dataset]
+        if record.get("tier") == "reference":
+            # Only PROJ produced the expected values: this checks that PROJ
+            # has not changed, not that it is right.
+            marks.append(pytest.mark.regression)
         if record.get("proj_expectation") == "xfail":
             # PROJ could not produce this record when the dataset was built.
             # Absence from "agreeing" is not the same thing: a longitude
@@ -113,10 +120,12 @@ def dataset_params(filename: str, sample: int = DEFAULT_SAMPLE) -> list[Any]:
 def xy_permutation(crs: CoordinateReferenceSystem) -> tuple[int, ...]:
     """Positions of the CRS's declared axes in ``xy`` value order.
 
-    Delegates to the wrapper's own
-    :attr:`~geodetic_engine.geodesy.crs.CoordinateReferenceSystem.value_axis_order`
-    rather than working it out again here. Reimplementing it would mean the
-    tests could agree with a bug in the library by making the same mistake.
+    Worked out from pyproj's axis metadata by the rule ``always_xy`` follows:
+    a CRS whose first two axes are a northing and an easting (by direction, or
+    by the ``N``/``E`` abbreviations where both axes share a direction, as at
+    the poles) has them exchanged; every other CRS keeps its declared order,
+    which is also what a southing/westing or geocentric CRS gets. Not the
+    package's own ``value_axis_order``, on purpose: see the module docstring.
 
     Args:
         crs: The CRS whose axes are being ordered.
@@ -128,7 +137,20 @@ def xy_permutation(crs: CoordinateReferenceSystem) -> tuple[int, ...]:
         >>> xy_permutation(CoordinateReferenceSystem.from_user_input("EPSG:4326"))
         (1, 0)
     """
-    return crs.value_axis_order
+    axes = crs.crs.axis_info
+    identity = tuple(range(len(axes)))
+    if len(axes) < 2:
+        return identity
+    first, second = axes[0], axes[1]
+    directions = (first.direction.lower(), second.direction.lower())
+    if directions == ("north", "east"):
+        return (1, 0, *identity[2:])
+    if directions[0] == directions[1] and (
+        first.abbrev.upper(),
+        second.abbrev.upper(),
+    ) == ("N", "E"):
+        return (1, 0, *identity[2:])
+    return identity
 
 
 def to_xy(crs: CoordinateReferenceSystem, values: Sequence[float]) -> tuple[float, ...]:

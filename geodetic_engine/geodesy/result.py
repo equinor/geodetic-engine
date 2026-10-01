@@ -88,11 +88,16 @@ class Coordinates(tuple[tuple[float, ...], ...]):
         Columns are named after the target CRS's axes in coordinate value
         order, not in EPSG-declared order, so that each column label names the
         axis whose value the column actually holds: ``["Lon", "Lat"]`` for
-        ``EPSG:4326``, whose declared order is ``("Lat", "Lon")``. A row
-        carrying one value more than the target CRS declares -- a height passed
-        through unchanged alongside a 2D horizontal target -- gets one extra
-        column, named ``"h"`` for a geographic target or ``"Z"`` for a
-        Cartesian one (projected, geocentric, engineering).
+        ``EPSG:4326``, whose declared order is ``("Lat", "Lon")``. Where the
+        abbreviations do not tell the axes apart -- ``EPSG:3388`` abbreviates
+        both of its axes ``none`` -- the axis names are used instead, so that
+        no two columns share a label. A row carrying one value more than the
+        target CRS declares -- a height passed through unchanged alongside a
+        2D horizontal target -- gets one extra column, named ``"h"`` for a
+        geographic target or ``"Z"`` for a Cartesian one (projected,
+        geocentric, engineering), or ``"Z (carried)"`` / ``"h (carried)"``
+        where an axis of the target already goes by that label, numbered
+        further (``"Z (carried 2)"``) if that is taken too.
 
         Returns:
             A DataFrame with one row per point and one column per value.
@@ -102,14 +107,42 @@ class Coordinates(tuple[tuple[float, ...], ...]):
                    Lon      Lat
             0  10.7522  59.9139
         """
-        axes = self._target_crs.value_axis_abbreviations
+        axes = _distinct_axis_labels(self._target_crs)
         width = len(self[0]) if self else len(axes)
         columns = list(axes[:width])
         if width > len(columns):
             # _require_width allows at most one value beyond the declared
             # axes, so there is never more than one such column to name.
-            columns.append("h" if self._target_crs.crs.is_geographic else "Z")
+            extra = base = "h" if self._target_crs.crs.is_geographic else "Z"
+            suffix = 1
+            while extra in columns:
+                extra = (
+                    f"{base} (carried)" if suffix == 1 else f"{base} (carried {suffix})"
+                )
+                suffix += 1
+            columns.append(extra)
         return pd.DataFrame(self, columns=columns)
+
+
+def _distinct_axis_labels(crs: CoordinateReferenceSystem) -> tuple[str, ...]:
+    """Axis labels in value order, each naming exactly one axis."""
+    labels = crs.value_axis_abbreviations
+    if len(set(labels)) == len(labels):
+        return labels
+    labels = tuple(crs.axes[index].name for index in crs.value_axis_order)
+    if len(set(labels)) == len(labels):
+        return labels
+    labels = tuple(
+        f"{crs.axes[index].name} ({crs.axes[index].direction})"
+        for index in crs.value_axis_order
+    )
+    if len(set(labels)) == len(labels):
+        return labels
+    # Nothing the CRS declares tells the axes apart; their declared position does.
+    return tuple(
+        f"{label} [{index + 1}]"
+        for label, index in zip(labels, crs.value_axis_order, strict=True)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,14 +169,24 @@ class TransformationResult:
         grids: Grid files the operation depended on.
         coordinate_epoch: Decimal year supplied with the input, if any.
         coordinate_order: Order the values in :attr:`coordinates` are in. Always
-            ``"xy"``; present so that a caller reading
-            :attr:`target_axes` as ``("Lat", "Lon")`` cannot mistake the
-            declared axis order for the value order.
+            ``"xy"``: easting or longitude first wherever the target CRS has
+            an easting and a northing to order, whatever order it declares
+            them in. A CRS with no such pair -- Krovak's southing and westing,
+            a geocentric X/Y/Z, a plant grid with a north and a west axis --
+            is left in its declared order, exactly as PROJ's ``always_xy``
+            leaves it; :attr:`~CoordinateReferenceSystem.value_axis_order` on
+            :attr:`target_crs` states the resulting order axis by axis.
+            Present so that a caller reading :attr:`target_axes` as
+            ``("Lat", "Lon")`` cannot mistake the declared axis order for the
+            value order.
         pipeline: The whole chain as one PROJ pipeline definition, ready to be
             rebuilt with :meth:`pyproj.Transformer.from_pipeline`, or None when
-            it cannot be written as a single pipeline. It reads and writes
-            PROJ's own components in PROJ's own order, which at a vertical end
-            is not this package's ``xy`` value order.
+            it cannot be written as a single pipeline. It reads the values the
+            caller gave, in this package's ``xy`` order, and writes the values
+            returned in :attr:`coordinates`, so replaying it reproduces the
+            result -- with one exception: at a vertical *target* it writes
+            PROJ's own three components, of which :attr:`coordinates` keeps
+            only the height.
         database_fingerprints: Paths and SHA-256 hashes of databases present
             when the transformation was resolved, retained across later calls.
 
@@ -235,6 +278,8 @@ class TransformationResult:
                 "ballpark": self.operation.ballpark,
                 "requires_epoch": self.operation.requires_epoch,
                 "execution_direction": self.operation.execution_direction.value,
+                "bound_operations": list(self.operation.bound_operations),
+                "axis_order_corrected": self.operation.axis_order_corrected,
                 "definition": json.loads(self.operation.projjson)
                 if self.operation.projjson
                 else None,
