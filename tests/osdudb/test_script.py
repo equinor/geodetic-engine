@@ -2,8 +2,10 @@
 
 import os
 import shutil
+import sqlite3
 import stat
 import subprocess
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -42,6 +44,119 @@ def test_the_start_up_grid_check_never_deletes_a_patched_copy(
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert copy.read_bytes() == b"a developer's patched copy"
+
+
+def _grid_script_repository(tmp_path: Path) -> tuple[Path, Path]:
+    """An isolated checkout holding the grid script, and a stock data directory."""
+    repository = Path(__file__).resolve().parents[2]
+    isolated = tmp_path / "repository"
+    for relative in (
+        ".devcontainer/link-local-grids.sh",
+        "scripts/patch-grid-alternatives.sh",
+    ):
+        destination = isolated / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(repository / relative, destination)
+    stock = tmp_path / "proj"
+    stock.mkdir()
+    shutil.copy2(installed_proj_db(), stock / "proj.db")
+    return isolated, stock
+
+
+def _patched_rows(database: Path) -> int:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+        (count,) = connection.execute(
+            "SELECT count(*) FROM grid_alternatives "
+            "WHERE original_grid_name = 'NNTrans2018B.gtx'"
+        ).fetchone()
+    return int(count)
+
+
+@pytest.mark.skipif(shutil.which("sqlite3") is None, reason="sqlite3 CLI is required")
+def test_a_patched_copy_is_refreshed_when_proj_data_names_it_relatively(
+    tmp_path: Path,
+) -> None:
+    """The copy on PROJ_DATA is recognised as itself, however its path is spelled.
+
+    The documented rerun puts ``local/proj-data`` first on PROJ_DATA. Spelled
+    relatively, a string comparison takes the copy for the installed database
+    and ``cp`` fails copying it onto itself; the copy must instead be
+    refreshed from the stock database behind it.
+    """
+    isolated, stock = _grid_script_repository(tmp_path)
+    copy = isolated / "local/proj-data/proj.db"
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(b"stale copy")
+    environment = {**os.environ, "PROJ_DATA": f"local/proj-data:{stock}"}
+
+    result = subprocess.run(
+        ["bash", ".devcontainer/link-local-grids.sh", "--patched-copy"],
+        cwd=isolated,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _patched_rows(copy) == 1
+    assert _patched_rows(stock / "proj.db") == 0
+
+
+@pytest.mark.skipif(shutil.which("sqlite3") is None, reason="sqlite3 CLI is required")
+def test_a_patched_copy_is_never_written_through_a_link(tmp_path: Path) -> None:
+    """A symlinked or hard-linked destination is replaced, not written through."""
+    isolated, stock = _grid_script_repository(tmp_path)
+    victim = tmp_path / "victim.db"
+    shutil.copy2(stock / "proj.db", victim)
+    before = victim.read_bytes()
+    copy = isolated / "local/proj-data/proj.db"
+    copy.parent.mkdir(parents=True)
+    environment = {**os.environ, "PROJ_DATA": str(stock)}
+
+    for link in (copy.symlink_to, copy.hardlink_to):
+        link(victim)
+        result = subprocess.run(
+            [
+                "bash",
+                str(isolated / ".devcontainer/link-local-grids.sh"),
+                "--patched-copy",
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert victim.read_bytes() == before
+        assert not copy.is_symlink()
+        assert _patched_rows(copy) == 1
+        copy.unlink()
+
+
+def test_a_symlinked_copy_directory_is_refused(tmp_path: Path) -> None:
+    """Unlinking proj.db through a linked directory could delete the stock one.
+
+    A second database is on PROJ_DATA so that a source is found and the
+    directory check itself is what refuses.
+    """
+    isolated, stock = _grid_script_repository(tmp_path)
+    (isolated / "local").mkdir()
+    (isolated / "local/proj-data").symlink_to(stock, target_is_directory=True)
+    second = tmp_path / "second"
+    second.mkdir()
+    shutil.copy2(stock / "proj.db", second / "proj.db")
+    before = (stock / "proj.db").read_bytes()
+
+    result = subprocess.run(
+        ["bash", str(isolated / ".devcontainer/link-local-grids.sh"), "--patched-copy"],
+        env={**os.environ, "PROJ_DATA": f"{stock}:{second}"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "symlink" in result.stderr
+    assert (stock / "proj.db").read_bytes() == before
 
 
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX permission bits")

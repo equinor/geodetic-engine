@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -493,22 +495,67 @@ def grid_payloads() -> dict[str, str]:
 
 
 @pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
-def test_a_stated_ntv2_operation_names_its_missing_grid(
-    tmp_path: Path, grid_payloads: dict[str, str]
-) -> None:
+def test_a_stated_ntv2_operation_names_its_missing_grid(tmp_path: Path) -> None:
     """A stated operation is held to the missing-grid rule like a named one.
 
     PROJ cannot even build the pipeline without the grid, and reports that as
     a malformed step. Reporting *that* as "operation not available" would
     send the caller looking for another operation instead of for the grid.
+
+    Run in a fresh interpreter: PROJ keeps a grid it has opened in memory, so
+    after any earlier test read this one the step would compile and take the
+    on-disk path below instead, which names PROJ's file rather than this one.
     """
+    script = (
+        "import json, os, sys\n"
+        "from geodetic_engine.geodesy import MissingGridError, Transformation\n"
+        "payloads = {json.loads(line)['case']: json.loads(line)['payload']\n"
+        "            for line in open(sys.argv[1])}\n"
+        "try:\n"
+        "    Transformation('EPSG:4202', 'EPSG:4283',\n"
+        "                   operation=payloads['st_ntv2_grid'])\n"
+        "except MissingGridError as error:\n"
+        "    print(error)\n"
+        "    sys.exit(0)\n"
+        "sys.exit('not refused')\n"
+    )
+    empty = tmp_path / "proj-no-grids"
+    empty.mkdir()
+    shutil.copy(installed_proj_db(), empty / "proj.db")
+
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(_PAYLOADS)],
+        env={**os.environ, "PROJ_DATA": str(empty), "PROJ_NETWORK": "OFF"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "A66 National (13.09.01).gsb" in result.stdout
+
+
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
+def test_a_stated_ntv2_operation_compiled_from_cache_names_its_missing_grid(
+    tmp_path: Path, grid_payloads: dict[str, str]
+) -> None:
+    """With the grid already in PROJ's memory, the disk check names the file.
+
+    The step compiles because PROJ opened the grid earlier, so the refusal
+    comes from checking the pipeline's own file on disk, under PROJ's name.
+    """
+    payload = grid_payloads["st_ntv2_grid"]
+    Transformation("EPSG:4202", "EPSG:4283", operation=payload).transform(
+        [(147.0, -35.0)]
+    )
+
     with (
         _without_grids(tmp_path),
-        pytest.raises(MissingGridError, match=r"A66 National \(13\.09\.01\)\.gsb"),
+        pytest.raises(
+            MissingGridError, match=r"au_icsm_A66_National_13_09_01\.tif"
+        ) as raised,
     ):
-        Transformation(
-            "EPSG:4202", "EPSG:4283", operation=grid_payloads["st_ntv2_grid"]
-        )
+        Transformation("EPSG:4202", "EPSG:4283", operation=payload)
+    assert "needs 1 grid file(s)" in str(raised.value)
 
 
 @pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
@@ -541,7 +588,9 @@ def test_a_bound_crs_grid_operation_names_its_missing_grid(tmp_path: Path) -> No
 
     The registry calls ``conus.las`` missing whether or not PROJ's
     ``us_noaa_conus.tif`` is installed, so the pipeline's own file is what
-    has to be checked -- on disk, not merely compiled.
+    has to be checked -- on disk, not merely compiled. And only that file is
+    reported: the legacy names the pipeline does not read are not needed, so
+    listing them would send the caller after files that would not help.
     """
     wgs84 = CRS.from_epsg(4326)
     nad83 = BoundCRS(
@@ -554,9 +603,13 @@ def test_a_bound_crs_grid_operation_names_its_missing_grid(tmp_path: Path) -> No
 
     with (
         _without_grids(tmp_path),
-        pytest.raises(MissingGridError, match=r"us_noaa_conus\.tif"),
+        pytest.raises(MissingGridError, match=r"us_noaa_conus\.tif") as raised,
     ):
         Transformation(nad83, nad27)
+    message = str(raised.value)
+    assert "needs 1 grid file(s)" in message
+    assert "conus.las" not in message
+    assert "conus.los" not in message
 
 
 @pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
