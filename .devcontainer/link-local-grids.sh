@@ -110,12 +110,13 @@ if [[ "$OVERLAY" -ef "$INSTALLED_DIR" ]]; then
         "refusing to replace its proj.db" >&2
     exit 1
 fi
-# Unlink first, so an existing symlink or hard link cannot redirect the write.
-rm -f -- "$OVERLAY_DB"
-cp -- "$installed_db" "$OVERLAY_DB"
-chmod u+w "$OVERLAY_DB"
-echo "copied $installed_db to local/proj-data/"
-"${REPO_ROOT}/scripts/patch-grid-alternatives.sh" --db "$OVERLAY_DB"
+# Renamed into place, so a failure keeps the copy in use and a link is replaced.
+staged="$(mktemp "${OVERLAY}/proj.db.XXXXXX")"
+trap 'rm -f -- "$staged"' EXIT
+cp -- "$installed_db" "$staged"
+"${REPO_ROOT}/scripts/patch-grid-alternatives.sh" --db "$staged"
+mv -fT -- "$staged" "$OVERLAY_DB"
+echo "wrote a patched copy of $installed_db to local/proj-data/"
 echo "to use it: export PROJ_DATA=${OVERLAY}:$(dirname "$installed_db"):${LOCAL_GRIDS}"
 echo "(with two databases on the search path, a build needs its base named:" \
     "export GEODETIC_ENGINE_BASE_PROJ_DB=$installed_db)"

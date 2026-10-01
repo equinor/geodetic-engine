@@ -133,6 +133,28 @@ def test_a_patched_copy_is_never_written_through_a_link(tmp_path: Path) -> None:
         copy.unlink()
 
 
+def test_a_failed_refresh_keeps_the_patched_copy_in_use(tmp_path: Path) -> None:
+    """A failed refresh keeps the copy in use and leaves no staged file behind."""
+    isolated, stock = _grid_script_repository(tmp_path)
+    (isolated / "scripts/patch-grid-alternatives.sh").write_text(
+        "#!/usr/bin/env bash\nexit 1\n"
+    )
+    copy = isolated / "local/proj-data/proj.db"
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(b"the patched copy in use")
+
+    result = subprocess.run(
+        ["bash", str(isolated / ".devcontainer/link-local-grids.sh"), "--patched-copy"],
+        env={**os.environ, "PROJ_DATA": str(stock)},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert copy.read_bytes() == b"the patched copy in use"
+    assert list(copy.parent.iterdir()) == [copy]
+
+
 def test_a_symlinked_copy_directory_is_refused(tmp_path: Path) -> None:
     """Unlinking proj.db through a linked directory could delete the stock one.
 
