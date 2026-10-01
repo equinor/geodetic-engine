@@ -93,5 +93,7 @@ Transformation
 
 Value order
   The order of the numbers you pass and receive. Always `xy` in this package:
-  longitude before latitude, easting before northing, then height.
+  longitude before latitude, easting before northing, then height, wherever
+  the CRS has such axes; a CRS without an east/north pair keeps its declared
+  order.
 ```

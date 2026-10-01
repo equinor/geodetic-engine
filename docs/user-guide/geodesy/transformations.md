@@ -246,6 +246,18 @@ back = transform("EPSG:3307", "EPSG:5817", result.coordinates[0], operation="EPS
 print(back.coordinates)
 ```
 
+A plant grid's axes need not be east and north. `EPSG:5800`, the Astra Minas
+grid, declares X north and Y west, so its values are given in that declared
+order -- there is no easting to put first -- while the projected result is
+`xy` as always. PROJ on its own gets this pair wrong (see {doc}`/workarounds`);
+the point below lands where it should, at Comodoro Rivadavia:
+
+```{code-cell} python
+result = transform("EPSG:5800", "EPSG:22192", (10000.0, 20000.0), operation="EPSG:1035")
+print(result.coordinates, result.source_axes, "->", result.target_crs.value_axis_abbreviations)
+print(transform("EPSG:5800", "EPSG:4221", (10000.0, 20000.0), operation="EPSG:1035").coordinates)
+```
+
 ### Bound CRS: the CRS names its own transformation
 
 A {term}`bound CRS` carries its transformation to a hub, so no operation needs

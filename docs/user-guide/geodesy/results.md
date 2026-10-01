@@ -29,11 +29,13 @@ print("epoch           :", result.coordinate_epoch)
 print("grids           :", result.grids, "missing:", result.missing_grids)
 ```
 
-`coordinate_order` is always `"xy"`, the order of the values. `source_axes`,
+`coordinate_order` is always `"xy"`, the order of the values: easting or
+longitude first wherever the target has one. `source_axes`,
 `target_axes` and the unit tuples are in EPSG's *declared* order, which for a
 geographic CRS is latitude first. They are reported side by side so the two
 cannot be confused. The value order of each axis is
-`result.target_crs.value_axis_abbreviations`.
+`result.target_crs.value_axis_abbreviations`, which is also what tells a
+south/west or north/west CRS apart: those keep their declared order.
 
 ## The applied operation
 
@@ -51,6 +53,7 @@ print("steps         :", op.steps)
 print("ballpark      :", op.ballpark)
 print("requires epoch:", op.requires_epoch)
 print("direction     :", op.execution_direction)
+print("bound         :", op.bound_operations)
 ```
 
 `route` records how the transformer was obtained
@@ -60,7 +63,7 @@ print("direction     :", op.execution_direction)
 |---|---|
 | `transformer_group` | Your named operation, found among the candidates PROJ offers for the pair |
 | `chained` | Your named or stated operation, wrapped in same-datum conversions to fit the pair |
-| `bound` | Taken from a bound CRS's own definition |
+| `bound` | Taken from a bound CRS's own definition; `bound_operations` names it, or both of them when both CRSs are bound and no single code fits |
 | `proj_default` | Nothing named, no datum change; PROJ's conversion, recorded |
 | `any_operation` | Legacy value in old serialised results; never produced now |
 

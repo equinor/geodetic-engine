@@ -8,8 +8,12 @@ northing. `EPSG:2044` is declared northing, easting.
 
 **Value order** is the order of the numbers you pass and get back. In this
 package it is always `xy`: longitude before latitude, easting before northing,
-then height. That is the order most data is stored in and most software
-expects.
+then height -- wherever the CRS has an easting and a northing to order. That
+is the order most data is stored in and most software expects. A CRS with no
+such pair (Krovak's southing and westing, a geocentric X/Y/Z, a plant grid
+declaring north and west) keeps its declared order, exactly as PROJ's
+`always_xy` keeps it; `value_axis_order` states the resulting order axis by
+axis.
 
 {class}`~geodetic_engine.geodesy.CoordinateReferenceSystem` reports both:
 `axis_abbreviations` is the declared order, and `value_axis_abbreviations` is
@@ -58,8 +62,14 @@ location and when it can be removed.
 
 ## Engineering CRSs
 
-An engineering CRS can have axes that are not east and north, such as
-`EPSG:5800`, Astra Minas Grid (north, west). PROJ cannot normalise those to
-`xy`, and this package does not yet correct for it. Coordinates to or from
-such a CRS can come back in declared order even though the result says
-`"xy"`. This is a known issue, not a workaround; see {doc}`/workarounds`.
+`always_xy` never normalises an engineering CRS, whatever its axes, and PROJ
+reads the origin a Similarity transformation states in a northing-first
+projected CRS in that CRS's declared order even where the authority stated it
+easting-first -- EPSG's own `EPSG:1035` does. Either leaves the values at an
+engineering end transposed with no error raised. This package corrects both:
+it adds the swap PROJ omits at a northing-first plant grid, and it settles the
+ordinate convention by placing the stated origin on the map under both
+readings, refusing the operation when neither or both land in the area of use.
+A grid with no east/north pair, such as `EPSG:5800` (north, west), keeps its
+declared order, as the section above says. See {doc}`/workarounds` for the
+details, the code location and when each part can be retired.

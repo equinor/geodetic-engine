@@ -19,7 +19,7 @@ someone later has to defend the result.
 | Best operation's grid not installed | Falls back to the next candidate, usually less accurate | {class}`~geodetic_engine.geodesy.MissingGridError` naming the file |
 | Time-dependent operation, no epoch | Runs, evaluating the operation as if at its reference epoch | {class}`~geodetic_engine.geodesy.MissingCoordinateEpochError` |
 | Projected metres given to a geographic CRS | "Invalid latitude", with no CRS, unit or order named | {class}`~geodetic_engine.geodesy.CoordinateOutOfRangeError` naming all three |
-| Axis order | Declared order unless `always_xy`, which has a gap for vertical ends | Always `xy`; the gap is worked around ({doc}`axis-order`) |
+| Axis order | Declared order unless `always_xy`, which has gaps at vertical and engineering ends | Always `xy`; the gaps are worked around ({doc}`axis-order`) |
 | What ran | You reconstruct it yourself | Recorded on every result ({doc}`provenance`) |
 
 ## Why "name the operation" and not "pick the most accurate"

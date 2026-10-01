@@ -111,7 +111,9 @@ an earlier enriched output.
 
 The enriched database replaces the official one. Point PROJ at the directory
 that contains it, and keep the installed PROJ directory on the search path so
-grids and `proj.ini` are still found:
+grids and `proj.ini` are still found. The directory holding `proj.db` must come
+first: pyproj reads the database from the first entry only. Grid-only
+directories, such as the devcontainer's `local/grids`, go after:
 
 ```bash
 export PROJ_DATA="/path/to/build:/usr/local/share/proj"
@@ -124,6 +126,11 @@ from pyproj import datadir
 
 datadir.set_data_dir(os.pathsep.join(["/path/to/build", datadir.get_data_dir()]))
 ```
+
+With two databases on the search path a further build can no longer tell which
+one is the official base, and refuses to guess; name it with
+`GEODETIC_ENGINE_BASE_PROJ_DB=/usr/local/share/proj/proj.db` or `base_proj_db`
+in the configuration file.
 
 Your authority's codes then resolve like EPSG's:
 

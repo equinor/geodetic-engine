@@ -79,13 +79,15 @@ falls back to an operation that does not use the grid; see
 {doc}`/user-guide/geodesy/errors`.
 
 To use grids that are not in `proj-data`, put them in `local/grids/`. The
-devcontainer links everything there into PROJ's data directory each time the
-container starts, and then runs `scripts/patch-grid-alternatives.sh` against
-the **installed** `proj.db` so those grids are found under the names EPSG
-operations use. The installed database in the devcontainer is therefore not
-byte-identical to a stock PROJ 9.8.1 build, and its fingerprint in results
-differs from other machines'. `local/` is gitignored, so these grids are not
-available in CI.
+devcontainer lists that directory after the installed one on `PROJ_DATA`, so a
+grid dropped there is found under its own filename; the installed data
+directory and its `proj.db` are never modified, and `tests/test_environment.py`
+fails if they are. A grid an EPSG operation names by a legacy filename PROJ has
+no `grid_alternatives` row for needs a patched database: `build/proj.db` from
+`scripts/build-projdb.sh` carries the patch, or run
+`.devcontainer/link-local-grids.sh --patched-copy` and put the copy it writes
+first on `PROJ_DATA` as it tells you to (see {doc}`/workarounds`). `local/` is
+gitignored, so these grids are not available in CI.
 
 ## Optional extras
 

@@ -19,7 +19,9 @@ build first. Results come back as
 exported to a list, a numpy array or a pandas DataFrame.
 
 **Values are always `xy` order**: longitude before latitude, easting before
-northing, then height. Units are the CRS's own axis units.
+northing, then height, wherever the CRS has such axes to order; a CRS without
+an east/north pair keeps its declared order ({doc}`/background/axis-order`).
+Units are the CRS's own axis units.
 
 ## Ways to pass points
 
