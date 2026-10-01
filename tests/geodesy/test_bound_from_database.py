@@ -27,6 +27,7 @@ from geodetic_engine.geodesy import (
     Transformation,
 )
 from geodetic_engine.geodesy.database import bound_definition
+from tests.support import installed_proj_db
 
 AUTHORITY = "Example"
 GEODETIC_CODE = "9100001"
@@ -57,7 +58,7 @@ def proj_data_with_bound_crs(tmp_path: Path) -> Iterator[Path]:
     directory = tmp_path / "proj"
     directory.mkdir()
     database = directory / "proj.db"
-    shutil.copyfile(Path(pyproj.datadir.get_data_dir()) / "proj.db", database)
+    shutil.copyfile(installed_proj_db(), database)
 
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(

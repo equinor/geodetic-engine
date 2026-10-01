@@ -24,6 +24,7 @@ from geodetic_engine.geodesy.utils import (
     helmert_parameters,
     is_collapsible,
 )
+from tests.support import installed_proj_db
 
 # ED50 to WGS 84 (15): two Position Vector Helmerts through ED87. Superseded,
 # which is why it is a stable example -- it will not be revised again.
@@ -222,12 +223,9 @@ def test_every_collapsible_chain_in_epsg_is_faithful() -> None:
 
 def _concatenated_codes() -> list[int]:
     """Every EPSG concatenated operation code in the installed database."""
-    import os
     import sqlite3
 
-    import pyproj
-
-    database = os.path.join(pyproj.datadir.get_data_dir(), "proj.db")
+    database = installed_proj_db()
     with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         return [
             int(row[0])
