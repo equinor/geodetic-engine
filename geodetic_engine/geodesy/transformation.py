@@ -23,20 +23,23 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import warnings
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, cast
 
-from pyproj import CRS, Transformer
+from pyproj import CRS, Transformer, datadir
 from pyproj.crs import CoordinateOperation
 from pyproj.enums import TransformDirection
 from pyproj.exceptions import CRSError, ProjError
+from pyproj.network import is_network_enabled
 from pyproj.transformer import TransformerGroup
 
-from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
+from geodetic_engine.geodesy.crs import AxisSpec, CoordinateReferenceSystem
 from geodetic_engine.geodesy.database import (
     DatabaseIdentity,
     database_fingerprints,
@@ -69,6 +72,7 @@ from geodetic_engine.geodesy.operation import (
     has_inverted_step,
     is_ballpark,
     operation_names,
+    operation_references,
     parse_operations,
     requires_epoch,
 )
@@ -76,8 +80,9 @@ from geodetic_engine.geodesy.result import Coordinates, TransformationResult
 
 _VERTICAL_DIRECTIONS = frozenset({"up", "down"})
 
-# Axis directions that carry latitude in a geographic CRS.
+# Axis directions that carry latitude and longitude in a geographic CRS.
 _NORTHINGS = frozenset({"north", "south"})
+_EASTINGS = frozenset({"east", "west"})
 
 # PROJ transforms at most x, y, z: a fourth spatial component has no meaning to
 # it, so one extra value beyond what a CRS declares is tolerated (a height
@@ -88,6 +93,10 @@ _MAX_COORDINATE_VALUES = 3
 # PROJ's flag for running a step backwards. A bare token, never a parameter
 # with a value, so it can be added or removed by name.
 _INVERSE_FLAG = "inv"
+
+# How PROJ words a grid it cannot open while building a pipeline step. The
+# message names the step, never the file.
+_MISSING_FILE_MARKER = "File not found or invalid"
 
 # Methods that restate axes rather than move coordinates. PROJ inserts these
 # when it normalises axis order, and they are not the method a caller means.
@@ -126,12 +135,12 @@ class _Pipeline:
     steps: tuple[tuple[Transformer, TransformDirection], ...]
     core: Transformer
     route: OperationRoute
-    identified_by: OperationRequest | None = None
-    """Operation that names this pipeline when the caller did not name one.
+    identified_by: tuple[OperationRequest, ...] = ()
+    """Operations that name this pipeline when the caller did not name one.
 
-    Set for a bound CRS, whose definition states the operation itself. Kept
-    apart from the caller's request so that a result reports what was applied
-    without claiming it was asked for.
+    Set for a bound CRS, whose definition states the operation itself: one
+    entry per bound end. Kept apart from the caller's request so that a result
+    reports what was applied without claiming it was asked for.
     """
 
     def run(
@@ -273,7 +282,10 @@ class Transformation:
             | int
             | OperationReference
             | StatedOperation
-            | Sequence[str | int | OperationReference | StatedOperation]
+            | CoordinateOperation
+            | Sequence[
+                str | int | OperationReference | StatedOperation | CoordinateOperation
+            ]
             | None
         ) = None,
         *,
@@ -299,8 +311,9 @@ class Transformation:
                 conversions or explicitly bound operations are permitted.
 
                 An operation may also be stated outright rather than named: an
-                OSDU persistableReference payload, an ESRI ``GEOGTRAN``, or a
-                parsed reference. What is stated is then applied exactly as
+                OSDU persistableReference payload, an ESRI ``GEOGTRAN``, a
+                :class:`pyproj.crs.CoordinateOperation`, or a parsed
+                reference. What is stated is then applied exactly as
                 given, parameters and all, instead of being resolved against
                 PROJ's database -- which is the point, since a payload's
                 parameters need not agree with whatever a register publishes
@@ -438,9 +451,10 @@ class Transformation:
                 unchanged).
             MissingCoordinateEpochError: If the operation reads a coordinate
                 epoch and none was given.
-            CoordinateOutOfRangeError: If a latitude is outside the range the
-                source CRS's own axis unit can represent, which most often
-                means projected coordinates were passed to a geographic CRS.
+            CoordinateOutOfRangeError: If a latitude or longitude is outside
+                the range the source CRS's own axis unit can represent, which
+                most often means projected coordinates were passed to a
+                geographic CRS.
             TransformationFailedError: If PROJ could not produce a finite
                 result, or cannot produce every axis the target CRS declares.
 
@@ -673,7 +687,10 @@ def transform(
         | int
         | OperationReference
         | StatedOperation
-        | Sequence[str | int | OperationReference | StatedOperation]
+        | CoordinateOperation
+        | Sequence[
+            str | int | OperationReference | StatedOperation | CoordinateOperation
+        ]
         | None
     ) = None,
     allow_any_operation: bool = False,
@@ -708,9 +725,10 @@ def transform(
             target CRS needs more than one pinned down -- order does not
             matter, see :class:`Transformation`. Or the operation itself,
             stated as an OSDU persistableReference payload, an ESRI
-            ``GEOGTRAN`` or a parsed reference, which is then applied as given
-            rather than looked up. Required whenever a datum change is
-            involved, except where a bound CRS already names it.
+            ``GEOGTRAN``, a :class:`pyproj.crs.CoordinateOperation` or a
+            parsed reference, which is then applied as given rather than
+            looked up. Required whenever a datum change is involved, except
+            where a bound CRS already names it.
         allow_any_operation: Compatibility keyword with no effect on strict
             datum-operation selection or ballpark refusal.
         coordinate_epoch: Decimal year the coordinates were observed at,
@@ -742,14 +760,11 @@ def transform(
         >>> result.coordinates
         ((597868.38..., 6642681.51...),)
     """
-    references = (
-        ()
-        if operation is None
-        else (operation,)
-        if isinstance(operation, (str, int, OperationCandidate, StatedOperation))
-        else tuple(operation)
-    )
-    if any(isinstance(reference, StatedOperation) for reference in references):
+    references = () if operation is None else operation_references(operation)
+    if any(
+        isinstance(reference, (StatedOperation, CoordinateOperation))
+        for reference in references
+    ):
         resolved = Transformation(
             source_crs, target_crs, references, allow_any_operation=allow_any_operation
         )
@@ -757,7 +772,7 @@ def transform(
         cacheable = tuple(
             reference
             for reference in references
-            if not isinstance(reference, StatedOperation)
+            if not isinstance(reference, (StatedOperation, CoordinateOperation))
         )
         resolved = _cached_transformation(
             _cache_key(source_crs),
@@ -810,8 +825,13 @@ def available_operations(
             :class:`Transformation` refuses it.
 
     Returns:
-        One candidate per operation PROJ offers, ordered as PROJ ranks them
-        (most accurate/likely first). Pass any entry's
+        One candidate per operation PROJ offers, in the order PROJ ranks them,
+        which weighs area of use and other criteria alongside accuracy: for
+        ED50 to WGS 84 the first candidate is EPSG:1133 (10 m) ahead of
+        EPSG:1612 (1 m). Filter on
+        :attr:`~geodetic_engine.geodesy.operation.OperationCandidate.accuracy`
+        or pass ``accuracy=`` rather than taking the first entry as the best.
+        Pass any entry's
         :attr:`~geodetic_engine.geodesy.operation.OperationCandidate.authority_code`
         as ``Transformation``'s ``operation=`` argument.
 
@@ -1105,7 +1125,6 @@ def _from_bound_crs(
     )
     if not requests:
         return None
-    request = requests[0]
     found = _from_transformer_group(source, target, requests)
     if found is None:
         found = _bound_transformer(source, target, requests)
@@ -1115,7 +1134,7 @@ def _from_bound_crs(
         steps=((found, TransformDirection.FORWARD),),
         core=found,
         route=OperationRoute.BOUND,
-        identified_by=request,
+        identified_by=requests,
     )
 
 
@@ -1247,7 +1266,7 @@ def _from_operation(
     outright and so was never a candidate to begin with.
     """
     if request.definition is not None:
-        core = _stated_transformer(request)
+        core = _stated_transformer(request, source, target)
     else:
         try:
             core = Transformer.from_pipeline(
@@ -1302,11 +1321,23 @@ def _from_operation(
     return _Pipeline(steps=tuple(steps), core=core, route=OperationRoute.CHAINED)
 
 
-def _stated_transformer(request: OperationRequest) -> Transformer:
+def _stated_transformer(
+    request: OperationRequest,
+    source: CoordinateReferenceSystem,
+    target: CoordinateReferenceSystem,
+) -> Transformer:
     """Run the operation a caller stated, rather than one PROJ looked up.
 
     The definition is handed over whole, so a chain stays a chain: nothing has
     to be collapsed into a single step the way a bound CRS would require.
+
+    Raises:
+        MissingGridError: If PROJ cannot build the operation because a grid it
+            reads is not installed. PROJ reports that as a malformed pipeline
+            step, which would otherwise send the caller looking for another
+            operation instead of for the grid.
+        OperationNotAvailableError: If PROJ cannot build it for any other
+            reason.
     """
     definition = request.definition
     if definition is None:
@@ -1321,6 +1352,8 @@ def _stated_transformer(request: OperationRequest) -> Transformer:
     try:
         return Transformer.from_pipeline(definition.to_json(), always_xy=True)
     except (ProjError, CRSError) as error:
+        if _MISSING_FILE_MARKER in str(error):
+            _require_grids(grid_usages((definition,)), source, target)
         raise OperationNotAvailableError(
             f"{request} states an operation PROJ cannot run: {error}"
         ) from error
@@ -1419,29 +1452,89 @@ def _confirm_installed(
     the same failure in the opposite direction to the one
     :func:`_require_grids` exists to prevent.
 
-    A grid the registry calls missing is therefore taken as satisfied only when
-    the compiled pipeline reads some *other* file in its place. A pipeline that
-    reads the very same name the registry calls missing says nothing new, and
-    is left reported missing: PROJ keeps opened grids in memory, so compiling
-    is not by itself proof that the file is still on disk.
+    The compiled pipeline is the complete statement of what will be read, so
+    it is the pipeline's files that are checked, and checked on disk: PROJ
+    keeps opened grids in memory, and a pipeline compiled while a file was
+    present still compiles once the file is gone, only to fail at the first
+    coordinate. A registry grid reported missing is taken as satisfied only
+    when every file the pipeline must read is installed; a file the pipeline
+    must read and that is not installed is reported missing under PROJ's own
+    name, whatever the registry said. With PROJ's network access enabled a
+    file can be fetched on demand, so its absence proves nothing and the
+    pipeline is trusted as compiled.
 
     Args:
         grids: What the registry says the applied operations depend on.
         pipeline: The pipeline that was compiled from them.
 
     Returns:
-        The same grids, with availability taken from the pipeline where the
-        pipeline substituted a different file.
+        The same grids, with availability corrected from the pipeline and the
+        disk, plus one entry per file the pipeline reads that the registry did
+        not name and that is not installed.
     """
-    substitutes = _mandatory_pipeline_grids(pipeline)
-    if not substitutes or all(grid.available for grid in grids):
+    reads = _mandatory_pipeline_grids(pipeline)
+    if not reads:
         return grids
-    return tuple(
-        grid
-        if grid.available or grid.name in substitutes
-        else replace(grid, available=True)
-        for grid in grids
+    if is_network_enabled():
+        # A grid PROJ substituted may be fetched on demand, so its absence
+        # proves nothing; a name the registry calls missing and the pipeline
+        # reads unchanged still says nothing new.
+        return tuple(
+            grid
+            if grid.available or grid.name in reads
+            else replace(grid, available=True)
+            for grid in grids
+        )
+    absent = sorted(name for name in reads if not _installed_grid(name))
+    if not absent:
+        return tuple(replace(grid, available=True) for grid in grids)
+    named = {grid.name for grid in grids}
+    return (
+        *(
+            replace(grid, available=False) if grid.name in absent else grid
+            for grid in grids
+        ),
+        *(
+            GridUsage(
+                name=name,
+                full_name="",
+                package_name="",
+                url="",
+                available=False,
+                open_license=False,
+                direct_download=False,
+            )
+            for name in absent
+            if name not in named
+        ),
     )
+
+
+def _installed_grid(name: str) -> bool:
+    """Whether PROJ will find a grid file on disk under the name it uses.
+
+    Searched where PROJ searches: the data directories on its search path, in
+    order, and the user-writable directory that ``projsync`` and PROJ's own
+    network cache write to.
+    """
+    path = Path(name)
+    if path.is_absolute():
+        return path.is_file()
+    return any((Path(directory) / name).is_file() for directory in _grid_directories())
+
+
+def _grid_directories() -> tuple[str, ...]:
+    """PROJ's grid search path, first match winning, without duplicates."""
+    found: list[str] = []
+    for entry in (
+        *datadir.get_data_dir().split(os.pathsep),
+        *os.environ.get("PROJ_DATA", "").split(os.pathsep),
+        *os.environ.get("PROJ_LIB", "").split(os.pathsep),
+        datadir.get_user_data_dir(),
+    ):
+        if entry and entry not in found:
+            found.append(entry)
+    return tuple(found)
 
 
 def _constituent_operations(
@@ -1512,10 +1605,13 @@ def _describe(
     the pipeline applies more than one datum transformation, and no authority
     publishes the whole of it. That is what a bound CRS on each side of the
     pair produces: each names its own shift to the hub, so the identification
-    one of them supplies would understate the result by the other. A
-    registered concatenated operation such as EPSG:8047 is unaffected, since
-    the identifier is then on the top-level node, and so is an operation the
-    caller named, which is reported as asked for.
+    one of them supplies would understate the result by the other. Both are
+    then reported as :attr:`AppliedOperation.bound_operations` instead, since
+    a chain of two identified operations has no single code but is not
+    unidentified either. A registered concatenated operation such as
+    EPSG:8047 is unaffected, since the identifier is then on the top-level
+    node, and so is an operation the caller named, which is reported as asked
+    for.
     """
     node = definition
     unnamed_chain = (
@@ -1523,7 +1619,13 @@ def _describe(
         and datum_operation_count(definition) > 1
         and _identifier(definition) is None
     )
-    identifier_of = requests[0] if len(requests) == 1 else pipeline.identified_by
+    identifier_of = (
+        requests[0]
+        if len(requests) == 1
+        else pipeline.identified_by[0]
+        if len(pipeline.identified_by) == 1
+        else None
+    )
     if not unnamed_chain:
         if identifier_of is not None:
             matched = identifier_of.find_in(definition)
@@ -1563,6 +1665,7 @@ def _describe(
         steps=tuple(sorted(steps)),
         projjson=json.dumps(node),
         execution_direction=pipeline.core_direction,
+        bound_operations=tuple(r.text for r in pipeline.identified_by),
     )
 
 
@@ -1873,25 +1976,36 @@ def _carry_unread_horizontal(
 def _require_in_range(
     source: CoordinateReferenceSystem, columns: tuple[tuple[float, ...], ...]
 ) -> None:
-    """Refuse a latitude a geographic CRS's own axis unit cannot represent.
+    """Refuse a latitude or longitude a geographic CRS's axis unit cannot represent.
 
-    PROJ rejects these too, but only as "Invalid latitude", naming neither the
-    CRS nor the units nor which value it read as latitude. Since the usual
-    cause is projected coordinates in metres handed to a geographic CRS, or
-    latitude passed first, the message has to name all three to be actionable.
+    PROJ rejects an impossible latitude too, but only as "Invalid latitude",
+    naming neither the CRS nor the units nor which value it read as latitude.
+    Since the usual cause is projected coordinates in metres handed to a
+    geographic CRS, or latitude passed first, the message has to name all
+    three to be actionable. An impossible longitude PROJ does not reject at
+    all: it wraps it, so a longitude of 400 degrees quietly becomes 40.
 
-    The limit is derived from the axis's own unit rather than assumed to be 90,
-    so a CRS declaring grads (``EPSG:4807``) is held to 100 rather than
-    wrongly refused.
+    The limits are derived from each axis's own unit rather than assumed to
+    be 90 and 180, so a CRS declaring grads (``EPSG:4807``) is held to 100
+    rather than wrongly refused. Longitude is allowed a full turn either way,
+    since a dataset counted from 0 to 360 is a convention, not a mistake.
     """
     if not source.is_geographic:
         return
     order = source.value_axis_order
+    checks: list[tuple[int, AxisSpec, float]] = []
     for value_index, declared_index in enumerate(order[: len(columns)]):
         axis = source.axes[declared_index]
-        if axis.direction.lower() not in _NORTHINGS:
-            continue
-        limit = (math.pi / 2) / axis.unit_conversion_factor
+        direction = axis.direction.lower()
+        if direction in _NORTHINGS:
+            limit = (math.pi / 2) / axis.unit_conversion_factor
+            checks.insert(0, (value_index, axis, limit))
+        elif direction in _EASTINGS:
+            limit = (2 * math.pi) / axis.unit_conversion_factor
+            checks.append((value_index, axis, limit))
+    # Latitude first: when both values are metres, the one read as latitude is
+    # the diagnostic the caller can act on.
+    for value_index, axis, limit in checks:
         for point, value in enumerate(columns[value_index]):
             if math.isfinite(value) and abs(value) > limit:
                 raise CoordinateOutOfRangeError(
@@ -1902,7 +2016,6 @@ def _require_in_range(
                     f"{source.axis_units} -- projected coordinates in metres "
                     "need a projected CRS"
                 )
-        return
 
 
 def _require_finite(

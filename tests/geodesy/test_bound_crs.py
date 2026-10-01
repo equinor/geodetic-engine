@@ -173,3 +173,49 @@ def test_projected_bound_crs_as_target_resolves_its_own_operation() -> None:
     # A Helmert's inverse is computed rather than exact, so the roundtrip is
     # only precise to sub-millimetre, not bit-identical.
     assert back.coordinates[0] == pytest.approx(point, abs=1e-3)
+
+
+def test_a_single_bound_crs_lists_its_operation_as_bound() -> None:
+    """The one declared operation is both the applied code and the bound one."""
+    transformation = Transformation(
+        _bound(CoordinateOperation.from_authority(*ED50_TO_WGS84)), "EPSG:4326"
+    )
+    assert transformation.operation.bound_operations == ("EPSG:1133",)
+    assert transformation.operation.requested is None
+
+
+@pytest.mark.filterwarnings("ignore:Best transformation is not available.*:UserWarning")
+def test_two_bound_crss_name_both_operations() -> None:
+    """Both declared operations are reported, source end first.
+
+    Neither was requested by the caller and no single code names the chain,
+    so ``requested`` and ``authority_code`` stay None -- but a consumer
+    logging the result must still be able to see which two operations the
+    CRSs declared, without parsing step names.
+    """
+    wgs84 = CRS.from_epsg(4326)
+    nad83 = BoundCRS(
+        CRS.from_epsg(4269), wgs84, CoordinateOperation.from_authority("EPSG", 1188)
+    )
+    nad27 = BoundCRS(
+        CRS.from_epsg(4267), wgs84, CoordinateOperation.from_authority("EPSG", 15851)
+    )
+
+    operation = Transformation(nad27, nad83).operation
+
+    assert operation.route is OperationRoute.BOUND
+    assert operation.requested is None
+    assert operation.authority_code is None
+    assert operation.bound_operations == ("EPSG:15851", "EPSG:1188")
+    assert Transformation(nad83, nad27).operation.bound_operations == (
+        "EPSG:1188",
+        "EPSG:15851",
+    )
+    rendered = Transformation(nad27, nad83).transform([(-95.0, 30.0)]).to_json_dict()
+    assert rendered["operation"]["bound_operations"] == ["EPSG:15851", "EPSG:1188"]
+
+
+def test_a_named_operation_lists_no_bound_operations() -> None:
+    """The field is about what the CRSs declared, not what the caller named."""
+    transformation = Transformation("EPSG:4230", "EPSG:4326", operation="EPSG:1133")
+    assert transformation.operation.bound_operations == ()

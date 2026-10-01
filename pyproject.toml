@@ -64,6 +64,7 @@ addopts = ["-m", "not dataset"]
 markers = [
     "network: test requires a reachable Georepository instance and credentials",
     "dataset: exhaustive sweep of tests/testdataset; run with -m dataset",
+    "regression: dataset record produced by PROJ alone (tier reference); a baseline of PROJ's output, not an independent check",
 ]
 
 [tool.mypy]
