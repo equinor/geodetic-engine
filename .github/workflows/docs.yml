@@ -2,7 +2,7 @@ name: Documentation
 
 # Built inside the devcontainer image for the same reason the tests are: every
 # executed example prints coordinates, and those depend on the pinned PROJ and
-# EPSG dataset. See lint-typecheck-test.yml.
+# EPSG dataset. See tests.yml.
 
 on:
   push:
@@ -18,8 +18,10 @@ permissions:
   contents: read
 
 env:
+  # DOCS_BRANCH labels the built site with the branch it came from.
   DOCKER_RUN: >-
     docker run --rm --user root --env LC_ALL=C.UTF-8
+    --env DOCS_BRANCH=${{ github.head_ref || github.ref_name }}
     --volume ${{ github.workspace }}:/workspace --workdir /workspace
     geodetic-engine-devcontainer:ci
 
@@ -91,13 +93,16 @@ jobs:
           retention-days: 14
 
       - name: Upload the site for GitHub Pages
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
+  # A push to main publishes. A manual run (Actions > Documentation > Run
+  # workflow) publishes the branch it is run on and replaces the live site, so
+  # that branch must be allowed under Settings > Environments > github-pages.
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     permissions:

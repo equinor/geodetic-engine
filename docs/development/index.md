@@ -31,8 +31,12 @@ running before a release, or after changing operation selection. It takes
 minutes, not seconds, which is why it is opt-in. Tests marked `network` need a
 reachable Georepository instance and credentials.
 
-CI (`.github/workflows/lint-typecheck-test.yml`) runs all of these, including
-the sweep, with a coverage floor of 80 %.
+CI runs these as two separate GitHub workflows, so a red check says which kind
+of problem it is:
+
+- **Lint and type check** (`.github/workflows/lint.yml`): `ruff` and `mypy`.
+- **Tests** (`.github/workflows/tests.yml`): the unit and integration tests, then
+  the dataset sweep, with a coverage floor of 80 % across both.
 
 ## Building the documentation
 
@@ -146,7 +150,7 @@ def transform(source_crs, target_crs, x, y=None, z=None, *, operation=None):
 ## Publishing the documentation
 
 `.github/workflows/docs.yml` builds the site in the devcontainer image, like
-the test workflow:
+the lint and test workflows:
 
 - **Pull requests**: build with warnings as errors, run the doctests, run the
   link check (reported, not blocking), and upload the HTML as an artifact to

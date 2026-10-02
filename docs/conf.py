@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,8 @@ release = version
 
 REPOSITORY = "https://github.com/equinor/geodetic-engine"
 PAGES = "https://equinor.github.io/geodetic-engine"
+# CI sets DOCS_BRANCH to the branch being built; a local build reads as main.
+BRANCH = os.environ.get("DOCS_BRANCH", "main")
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -120,10 +123,10 @@ html_theme_options = {
     "navigation_with_keys": True,
     "top_of_page_buttons": ["view"],
     "source_repository": REPOSITORY,
-    "source_branch": "main",
+    "source_branch": BRANCH,
     "source_directory": "docs/",
     "announcement": (
-        "Development documentation, built from <code>main</code> against "
+        f"Development documentation, built from <code>{BRANCH}</code> against "
         f"PROJ {pyproj.proj_version_str}. Every example on this site was executed "
         "during the build."
     ),
