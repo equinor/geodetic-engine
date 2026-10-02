@@ -35,27 +35,12 @@ units.
 a Georepository geodetic registry.
 :::
 
-:::{grid-item-card} Custom database from Georepository
-:link: projdb
+:::{grid-item-card} Custom PROJ database
+:link: custom-database
 :link-type: doc
 
-`geodetic_engine.projdb` and `geodetic-projdb`: add a register's own CRSs and
-transformations to a copy of PROJ's `proj.db`.
-:::
-
-:::{grid-item-card} Custom database from OSDU
-:link: osdudb
-:link-type: doc
-
-`geodetic_engine.osdudb` and `geodetic-osdudb`: the same, from an OSDU
-`CRS_CT.json` catalogue.
-:::
-
-:::{grid-item-card} Combining sources and using the result
-:link: combining
-:link-type: doc
-
-Build one database from both sources, patch grid mappings, and point PROJ at
-the result.
+`geodetic_engine.projdb`, `geodetic_engine.osdudb` and their commands: add a
+Georepository register's or an OSDU catalogue's own CRSs and transformations
+to a copy of PROJ's `proj.db`, and use the result.
 :::
 ::::

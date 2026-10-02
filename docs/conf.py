@@ -41,6 +41,7 @@ exclude_patterns = ["_build", "jupyter_execute", "**.ipynb_checkpoints"]
 templates_path = ["_templates"]
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
+html_js_files = [("expand-nav.js", {"defer": "defer"})]
 
 # -- Cross-references ---------------------------------------------------------
 
@@ -81,7 +82,14 @@ typehints_defaults = "comma"
 
 # -- Executed examples --------------------------------------------------------
 
-myst_enable_extensions = ["colon_fence", "deflist", "fieldlist", "substitution"]
+myst_enable_extensions = [
+    "amsmath",
+    "colon_fence",
+    "deflist",
+    "dollarmath",
+    "fieldlist",
+    "substitution",
+]
 myst_heading_anchors = 3
 myst_fence_as_directive = ["mermaid"]
 # The extension otherwise forces every diagram to 500px tall.
@@ -123,7 +131,6 @@ html_theme_options = {
         "color-announcement-background": "#0b6b86",
         "color-announcement-text": "#ffffff",
         "color-sidebar-background": "#f7f9fa",
-        "color-sidebar-caption-text": "#0b6b86",
         "color-admonition-title--note": "#0b6b86",
         "color-admonition-title-background--note": "#0b6b861a",
         "font-stack": (
@@ -145,7 +152,6 @@ html_theme_options = {
         "color-announcement-background": "#0b3d4c",
         "color-announcement-text": "#e6f4f8",
         "color-sidebar-background": "#161b1f",
-        "color-sidebar-caption-text": "#5cc0dd",
         "color-admonition-title--note": "#5cc0dd",
         "color-admonition-title-background--note": "#5cc0dd1a",
     },

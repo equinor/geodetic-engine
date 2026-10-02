@@ -31,10 +31,11 @@ scripts/build-projdb.sh --source osdu --catalog CRS_CT.json --append
 The script stages the whole chain, including the grid filename patches below,
 and replaces the output only after every step succeeds. Without `--append` it
 starts from the base database. With `--append` it stages the existing output. A
-dry run validates the same chain without publishing. Before each real build it
-also links grids from `local/grids/` into PROJ's data directory, so grids added
-after the devcontainer started are picked up. Run it with `--help` for all
-options.
+dry run validates the same chain without publishing. The script never modifies
+PROJ's installed data directory: grids in `local/grids/` are read in place from
+`PROJ_DATA`. Before each real build it checks that `local/grids/` is on
+`PROJ_DATA` and warns if it holds grids PROJ will not find; `--dry-run` skips
+the check. Run it with `--help` for all options.
 
 Points worth knowing:
 

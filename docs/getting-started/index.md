@@ -1,7 +1,3 @@
----
-orphan: true
----
-
 # Getting started
 
 New to the package? Read these three pages in order:
@@ -12,3 +8,11 @@ New to the package? Read these three pages in order:
    produced.
 3. {doc}`concepts`: CRS, datum, operation, axis order, epoch, grid, bound CRS
    and ballpark, in the sense this documentation uses them.
+
+```{toctree}
+:hidden:
+
+installation
+quickstart
+concepts
+```

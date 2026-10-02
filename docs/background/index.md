@@ -1,7 +1,3 @@
----
-orphan: true
----
-
 # Background
 
 Why the package works the way it does. None of this is needed to use the API,
@@ -19,3 +15,14 @@ but it explains the refusals and the design choices behind them.
   traced back to its inputs.
 - {doc}`/workarounds`: every defect or gap this package works around, with
   the condition for removing each workaround.
+
+```{toctree}
+:hidden:
+
+architecture
+guarantees
+axis-order
+bound-crs
+provenance
+/workarounds
+```
