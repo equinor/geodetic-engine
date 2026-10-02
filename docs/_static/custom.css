@@ -2,30 +2,39 @@
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
-/* Furo fixes the article at 46em. Coordinate tables, pipelines and executed
-   output are wide, so allow more on large screens. */
+/* Layout. Furo centres the menu, article and "On this page" drawer as one block
+   sized for a 46em article, which leaves a blank strip left of the menu once the
+   article is wider. Pin the menu to the left edge and let the article, text
+   included, take the rest of the window up to --content-max. Under 63em the menu
+   is an overlay and Furo's own layout applies. */
 :root {
-  --content-width: 62em;
+  --glossary-width: 100ch;
+  --content-max: 112em;
 }
 
-.content {
-  width: 100%;
-  max-width: var(--content-width);
-}
+@media (min-width: 63.01em) {
+  .sidebar-drawer,
+  .sidebar-container {
+    width: 17em;
+  }
 
-/* Furo shows the right-hand "On this page" drawer from 82em. Leave room for
-   it (15em) and the left sidebar (15em) so the article never pushes it off
-   screen; the cap above takes over once the viewport is wide enough. */
-@media (min-width: 82em) {
   .content {
-    max-width: min(var(--content-width), calc(100vw - 38em));
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    max-width: var(--content-max);
   }
 }
 
-@media (min-width: 110em) {
-  :root {
-    --content-width: 68em;
-  }
+/* The glossary holds nothing wide, so left-aligned it leaves the right of the
+   window empty; centre it as one column instead. */
+article[role="main"]:has(dl.glossary) {
+  max-width: var(--glossary-width);
+  margin-inline: auto;
+}
+
+article[role="main"] table.align-default {
+  margin-left: 0;
 }
 
 /* Logo in the sidebar: give it room and keep it crisp. */
