@@ -324,7 +324,7 @@ class AppliedOperation:
             The WKT2 of the applied operation, or None where it cannot be
             exported faithfully: either PROJ built something that is not a
             coordinate operation in its own right, or a step is applied
-            inverted and WKT2 cannot say so (see :func:`has_inverted_step`).
+            inverted and WKT2 cannot say so (see ``has_inverted_step``).
             Also returns None when the raw definition was executed in reverse,
             or when :attr:`axis_order_corrected` is True, since PROJ would run
             the exported operation with the axis order this package had to
@@ -416,7 +416,7 @@ class OperationStep:
 
     @property
     def reference(self) -> str:
-        """This step as an operation reference: its code, or else its name."""
+        """This step as an operation reference; its code, or else its name."""
         return self.authority_code or _base_operation_name(self.name)
 
     def __str__(self) -> str:
@@ -551,7 +551,7 @@ class OperationCandidate:
         Returns:
             The PROJJSON as a dict, or None where PROJ gave the candidate none
             or the pipeline cannot be exported faithfully because a step is
-            applied inverted (see :func:`has_inverted_step`). The raw text is
+            applied inverted (see ``has_inverted_step``). The raw text is
             still on :attr:`projjson` for anyone who needs to inspect it
             knowing that caveat.
 
@@ -584,7 +584,7 @@ class OperationCandidate:
             The WKT2 of the candidate, or None where it cannot be exported
             faithfully: either PROJ built something that is not a coordinate
             operation in its own right, or a step is applied inverted and
-            WKT2 cannot say so (see :func:`has_inverted_step`). Transform a
+            WKT2 cannot say so (see ``has_inverted_step``). Transform a
             point and read
             :attr:`~geodetic_engine.geodesy.result.TransformationResult.pipeline`
             in the latter case, which keeps the inversion explicit.
@@ -770,7 +770,7 @@ class OperationRequest:
         Raises:
             ValueError: If given an :class:`OperationCandidate` that no single
                 reference can name, because PROJ assembled it from operations
-                no authority publishes as one. Use :func:`parse_operations`,
+                no authority publishes as one. Use ``parse_operations``,
                 which expands it. Or if a payload states no usable operation.
 
         Example:

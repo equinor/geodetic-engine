@@ -81,10 +81,13 @@ def to_persistable_reference(
         MalformedReferenceError: If PROJ will not write the CRS as ESRI WKT.
 
     Example:
-        >>> payload = to_persistable_reference(CRS.from_epsg(23032))  # doctest: +SKIP
-        >>> crs = parse_persistable_reference(payload).to_crs()  # doctest: +SKIP
-        >>> crs.to_authority()  # doctest: +SKIP
-        ('EPSG', '23032')
+        >>> from geodetic_engine.persistablereference import (
+        ...     parse_persistable_reference,
+        ... )
+        >>> payload = to_persistable_reference(CRS.from_epsg(23032))
+        >>> crs = parse_persistable_reference(payload).to_crs()
+        >>> crs.equals(CRS.from_epsg(23032), ignore_axis_order=True)
+        True
     """
     if isinstance(value, CRS):
         body = _crs_payload(value, name)
@@ -116,6 +119,11 @@ def geogtran(operation: CoordinateOperation, name: str = "") -> Node:
             meridian change that ESRI cannot state unambiguously, or states an
             accuracy that is not one non-negative number of metres.
         MalformedReferenceError: If PROJ will not write either CRS as ESRI WKT.
+
+    Example:
+        >>> operation = CoordinateOperation.from_authority("EPSG", "1612")
+        >>> esriwkt.write(geogtran(operation))[:31]
+        'GEOGTRAN["ED50 to WGS 84 (23)",'
     """
     definition = operation.to_json_dict()
     if definition.get("type") != "Transformation":

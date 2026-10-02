@@ -1,0 +1,382 @@
+/* geodetic-engine documentation: adjustments on top of the Furo theme. */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* Layout. Furo centres the menu, article and "On this page" drawer as one block
+   sized for a 46em article, which leaves a blank strip left of the menu once the
+   article is wider. Pin the menu to the left edge and let the article, text
+   included, take the rest of the window up to --content-max. Under 63em the menu
+   is an overlay and Furo's own layout applies. */
+:root {
+  --glossary-width: 100ch;
+  --content-max: 112em;
+}
+
+@media (min-width: 63.01em) {
+  .sidebar-drawer,
+  .sidebar-container {
+    width: 17em;
+  }
+
+  .content {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    max-width: var(--content-max);
+  }
+}
+
+/* The glossary holds nothing wide, so left-aligned it leaves the right of the
+   window empty; centre it as one column instead. */
+article[role="main"]:has(dl.glossary) {
+  max-width: var(--glossary-width);
+  margin-inline: auto;
+}
+
+article[role="main"] table.align-default {
+  margin-left: 0;
+}
+
+/* The theme button toggles light and dark only (theme-toggle.js), so the
+   system-default state shows the sun or moon in use, not Furo's "auto" icon. */
+html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-auto-light,
+html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-auto-dark {
+  display: none;
+}
+
+html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-light {
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-light {
+    display: none;
+  }
+
+  html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-dark {
+    display: block;
+  }
+}
+
+/* The fold chevron takes the keyboard focus (expand-nav.js), so show where it is. */
+.sidebar-tree li.has-children > label:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: -2px;
+  border-radius: 0.3rem;
+}
+
+/* Logo in the sidebar: give it room and keep it crisp. */
+.sidebar-logo {
+  max-width: 100%;
+  padding: 0.5rem 0 0.25rem;
+}
+
+.sidebar-brand {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.sidebar-brand-text {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--color-foreground-muted);
+}
+
+/* Sidebar hierarchy: captions are quiet group labels with a divider, top-level
+   entries are bold, and sub-pages hang off a guide line. */
+.sidebar-tree .caption {
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  margin-top: 0.6rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-background-border);
+}
+
+.sidebar-tree .reference {
+  line-height: 1.4;
+}
+
+.sidebar-tree .toctree-l1 > .reference {
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+.sidebar-tree .toctree-l1 > ul {
+  margin: 0.1rem 0 0.5rem calc(var(--sidebar-item-spacing-horizontal) + 0.1rem);
+  border-left: 1px solid var(--color-background-border);
+}
+
+.sidebar-tree .toctree-l2 > .reference {
+  font-size: 0.95em;
+  color: var(--color-foreground-secondary);
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+  padding-left: 0.85rem;
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+}
+
+.sidebar-tree .toctree-l2 > .reference:hover {
+  color: var(--color-foreground-primary);
+}
+
+.sidebar-tree .toctree-l2.current-page > .reference {
+  color: var(--color-brand-primary);
+  border-left-color: var(--color-brand-primary);
+}
+
+/* Article spacing: Furo's defaults are compact, and pages alternate prose with
+   code cells and their output. */
+article[role="main"] {
+  line-height: 1.65;
+}
+
+article[role="main"] p,
+article[role="main"] ul,
+article[role="main"] ol,
+article[role="main"] dl {
+  margin-bottom: 1.1rem;
+}
+
+article[role="main"] li + li {
+  margin-top: 0.3rem;
+}
+
+article[role="main"] h2 {
+  margin-top: 3rem;
+  margin-bottom: 1rem;
+}
+
+article[role="main"] h3 {
+  margin-top: 2.25rem;
+  margin-bottom: 0.75rem;
+}
+
+article[role="main"] .cell,
+article[role="main"] div[class^="highlight-"],
+article[role="main"] table.docutils,
+article[role="main"] .admonition {
+  margin-top: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+article[role="main"] .cell div[class^="highlight-"] {
+  margin: 0;
+}
+
+article[role="main"] .cell_output {
+  margin-top: 0.6rem;
+}
+
+/* Workarounds overview: each group label sits directly on its table. */
+section#overview > p:has(+ .table-wrapper) {
+  margin: 2.25rem 0 0.5rem;
+  font-size: 1.2em;
+}
+
+section#overview > p:has(+ .table-wrapper) + .table-wrapper,
+section#overview > p:has(+ .table-wrapper) + .table-wrapper > table {
+  margin-top: 0;
+}
+
+/* Workarounds: each issue's content in its own frame under its title, so one
+   issue ends visibly before the next. The frame is drawn on the elements after
+   the title, joined edge to edge, since the title shares their section. */
+section#known-issues-and-workarounds > section > section {
+  margin: 2rem 0;
+}
+
+section#known-issues-and-workarounds > section > section > h3 {
+  margin: 0 0 0.6rem;
+}
+
+section#known-issues-and-workarounds > section > section > :not(h3) {
+  margin: 0 0 0 1.5rem;
+  padding: 0.4rem 1.4rem 0.4rem 1.9rem;
+  background: color-mix(in srgb, var(--color-brand-primary) 4%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-brand-primary) 70%, transparent);
+  border-right: 1px solid var(--color-background-border);
+}
+
+section#known-issues-and-workarounds > section > section > h3 + * {
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-background-border);
+  border-top-right-radius: 0.6rem;
+}
+
+section#known-issues-and-workarounds > section > section > :last-child {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-background-border);
+  border-bottom-right-radius: 0.6rem;
+}
+
+/* Glossary: each definition in a faded box under its term. */
+dl.glossary > dt {
+  margin-top: 1.4rem;
+  padding: 0.3rem 1rem 0.3rem calc(0.6rem + 3px);
+  font-size: 1.05em;
+  color: var(--color-brand-content);
+  border-radius: 0.4rem;
+  transition: background-color 0.3s ease;
+}
+
+/* A term reached from a link: the tint from color-highlight-on-target, drawn
+   as a rounded tab with an accent bar like the definition box below it. The
+   whole entry is marked, so the definition takes the tint too. */
+dl.glossary > dt:target {
+  box-shadow: inset 3px 0 0 var(--color-brand-primary);
+  border-radius: 0 0.4rem 0.4rem 0;
+}
+
+dl.glossary > dt:target + dd {
+  background: var(--color-highlight-on-target);
+  border-left-color: var(--color-brand-primary);
+}
+
+dl.glossary > dt:first-child {
+  margin-top: 0.5rem;
+}
+
+dl.glossary > dd {
+  margin: 0.4rem 0 0;
+  padding: 0.75rem 1rem;
+  background: color-mix(in srgb, var(--color-brand-primary) 7%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-brand-primary) 55%, transparent);
+  border-radius: 0 0.4rem 0.4rem 0;
+}
+
+dl.glossary > dd > :last-child {
+  margin-bottom: 0;
+}
+
+/* Landing page. */
+p.lead {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--color-brand-primary);
+  margin-top: -0.5rem;
+  margin-bottom: 1rem;
+}
+
+.hero {
+  margin: 1.5rem 0 1rem;
+}
+
+.hero .highlight pre {
+  font-size: 0.85rem;
+}
+
+/* Cards (sphinx-design): equal height, subtle lift, brand colour on hover. */
+.sd-card {
+  height: 100%;
+  border: 1px solid var(--color-background-border);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.sd-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-brand-primary);
+  box-shadow: 0 0.4rem 1.1rem rgba(0, 0, 0, 0.12);
+}
+
+.sd-card .sd-card-title {
+  font-size: 1.05rem;
+  color: var(--color-brand-primary);
+}
+
+.sd-card .sd-card-title svg {
+  vertical-align: -0.15em;
+  margin-right: 0.35rem;
+}
+
+/* Executed cells: distinguish input from output and wrap long output lines. */
+div.cell div.cell_input {
+  border-left: 3px solid var(--color-brand-primary);
+  border-radius: 0.2rem;
+}
+
+div.cell div.cell_output {
+  border-left: 3px solid var(--color-background-border);
+  padding-left: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+div.cell_output pre,
+div.output pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+  background: transparent;
+}
+
+div.cell_output .output.traceback pre {
+  color: var(--color-problematic);
+}
+
+/* Tables: denser and top aligned. */
+table.docutils {
+  font-size: 0.92rem;
+}
+
+table.docutils td,
+table.docutils th {
+  vertical-align: top;
+}
+
+/* Definition lists on the workarounds page read as labelled fields. */
+article dl.simple > dt,
+article dl:not(.field-list):not(.py):not(.option-list) > dt {
+  font-weight: 600;
+  color: var(--color-brand-primary);
+}
+
+/* API pages: signatures on one readable block; members indented. */
+dl.py > dt {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  padding: 0.35rem 0.6rem;
+  background: var(--color-background-secondary);
+  border-left: 3px solid var(--color-brand-primary);
+  border-radius: 0.2rem;
+}
+
+dl.py .sig-param {
+  white-space: nowrap;
+}
+
+/* Announcement banner: compact. */
+.announcement {
+  font-size: 0.85rem;
+}
+
+.announcement code {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Mermaid diagrams: sized by their own aspect ratio, centred, capped width. */
+.mermaid {
+  display: block;
+  max-width: 56rem;
+  margin: 1.25rem auto;
+}
+
+.mermaid svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Edge labels: no grey box behind the text. */
+.mermaid .labelBkg,
+.mermaid .edgeLabel,
+.mermaid .edgeLabel p,
+.mermaid .edgeLabel span {
+  background: transparent !important;
+  color: var(--color-foreground-secondary) !important;
+}
+
+.mermaid .edgeLabel rect {
+  fill: transparent !important;
+}

@@ -217,7 +217,14 @@ class GeorepositoryClient:
         return self.get_object(str(href))
 
     def self_href(self, item: JsonObject) -> str | None:
-        """Return the canonical URL of an object, if it advertises one."""
+        """Return the canonical URL of an object, if it advertises one.
+
+        Args:
+            item: An object as returned by the API, with a ``Links`` array.
+
+        Returns:
+            The ``self`` link, else the first link, else None.
+        """
         links = item.get("Links") or []
         for link in links:
             url = link.get("href")
@@ -401,7 +408,7 @@ class GeorepositoryClient:
         landing page: the EPSG dataset it carries, and the objects it defines
         itself. A version history entry states no ``DataSource``, so the two
         series are told apart by code, EPSG's running up from 1 and the
-        register's own from :data:`_CUSTOM_CODE_FLOOR`.
+        register's own from a fixed floor well above EPSG's range.
 
         Only the collection summaries are read, never the detail of each entry:
         there are hundreds of them, and a build needs this answer before it can

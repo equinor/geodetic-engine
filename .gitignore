@@ -70,6 +70,9 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+# Written by docs/_ext/geodetic_docs.py on every build.
+docs/api/
+docs/examples/notebooks/
 
 # PyBuilder
 .pybuilder/
