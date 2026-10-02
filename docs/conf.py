@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import sys
+from html import escape
 from pathlib import Path
+from urllib.parse import quote
 
 import pyproj
 
@@ -123,10 +125,10 @@ html_theme_options = {
     "navigation_with_keys": True,
     "top_of_page_buttons": ["view"],
     "source_repository": REPOSITORY,
-    "source_branch": BRANCH,
+    "source_branch": quote(BRANCH, safe="/"),
     "source_directory": "docs/",
     "announcement": (
-        f"Development documentation, built from <code>{BRANCH}</code> against "
+        f"Development documentation, built from <code>{escape(BRANCH)}</code> against "
         f"PROJ {pyproj.proj_version_str}. Every example on this site was executed "
         "during the build."
     ),

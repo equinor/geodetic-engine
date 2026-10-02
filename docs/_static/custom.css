@@ -58,6 +58,13 @@ html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-light {
   }
 }
 
+/* The fold chevron takes the keyboard focus (expand-nav.js), so show where it is. */
+.sidebar-tree li.has-children > label:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: -2px;
+  border-radius: 0.3rem;
+}
+
 /* Logo in the sidebar: give it room and keep it crisp. */
 .sidebar-logo {
   max-width: 100%;

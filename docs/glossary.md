@@ -163,7 +163,7 @@ Helmert transformation
 
   The transformation can be expressed as:
 
-  ```{math}
+  :::{math}
   \begin{bmatrix}
   X_t \\
   Y_t \\
@@ -187,6 +187,7 @@ Helmert transformation
   t_Y \\
   t_Z
   \end{bmatrix}.
+  :::
 
 Hub CRS
   The intermediate CRS to which a {term}`bound CRS <Bound CRS>` is linked

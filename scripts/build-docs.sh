@@ -82,10 +82,12 @@ if $live; then
         ) &
     fi
     # Notebook execution writes beside the output, under docs/; only the output
-    # itself is ignored by default.
+    # itself is ignored by default. -W --keep-going is the strict build of the
+    # other paths: a warning fails the rebuild, and the server keeps serving.
     exec uv run --extra docs sphinx-autobuild docs "${OUTPUT}" \
         --host 127.0.0.1 --port "${port}" \
-        --ignore "${REPO_ROOT}/docs/_build"
+        --ignore "${REPO_ROOT}/docs/_build" \
+        -W --keep-going
 fi
 
 uv run --extra docs sphinx-build -W --keep-going -b html docs "${OUTPUT}"
