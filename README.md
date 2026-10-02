@@ -1,10 +1,15 @@
-# geodetic-engine
+<h1>
+  <img src="docs/_static/logo.svg" alt="geodetic-engine" width="360">
+</h1>
 
-**Coordinate transformations you can defend.** `geodetic-engine` is a Python
-library built on [PROJ](https://proj.org) and
-[pyproj](https://pyproj4.github.io/pyproj/stable/). PROJ does the arithmetic.
-This package decides whether PROJ's answer can be trusted, refuses it when it
-cannot, and records exactly how every coordinate was produced.
+`geodetic-engine` is a Python library for transforming coordinates between
+coordinate reference systems (CRSs) under explicit, verifiable rules. It is
+built on [PROJ](https://proj.org) and
+[pyproj](https://pyproj4.github.io/pyproj/stable/): PROJ performs the numerical
+computation, while `geodetic-engine` determines which coordinate operation is
+applied, validates the result before returning it, and records the provenance
+required to reproduce and audit it. A transformation that cannot be carried out
+exactly as specified is refused with an error rather than approximated.
 
 **Documentation: <https://equinor.github.io/geodetic-engine/>**
 
