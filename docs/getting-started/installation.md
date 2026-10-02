@@ -1,8 +1,8 @@
 # Installation
 
 `geodetic-engine` needs Python 3.13 or newer, **PROJ 9.8.1 built from source**,
-and **pyproj 3.8.0 built against that PROJ**. These pages were built with
-PROJ {{ proj_version }} and pyproj {{ pyproj_version }}.
+and **pyproj 3.8.0 built against that PROJ**. 
+
 
 ## Why the versions are pinned
 

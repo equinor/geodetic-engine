@@ -89,6 +89,88 @@
   border-left-color: var(--color-brand-primary);
 }
 
+/* Article spacing: Furo's defaults are compact, and pages alternate prose with
+   code cells and their output. */
+article[role="main"] {
+  line-height: 1.65;
+}
+
+article[role="main"] p,
+article[role="main"] ul,
+article[role="main"] ol,
+article[role="main"] dl {
+  margin-bottom: 1.1rem;
+}
+
+article[role="main"] li + li {
+  margin-top: 0.3rem;
+}
+
+article[role="main"] h2 {
+  margin-top: 3rem;
+  margin-bottom: 1rem;
+}
+
+article[role="main"] h3 {
+  margin-top: 2.25rem;
+  margin-bottom: 0.75rem;
+}
+
+article[role="main"] .cell,
+article[role="main"] div[class^="highlight-"],
+article[role="main"] table.docutils,
+article[role="main"] .admonition {
+  margin-top: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+article[role="main"] .cell div[class^="highlight-"] {
+  margin: 0;
+}
+
+article[role="main"] .cell_output {
+  margin-top: 0.6rem;
+}
+
+/* Glossary: each definition in a faded box under its term. */
+dl.glossary > dt {
+  margin-top: 1.4rem;
+  padding: 0.3rem 1rem 0.3rem calc(0.6rem + 3px);
+  font-size: 1.05em;
+  color: var(--color-brand-content);
+  border-radius: 0.4rem;
+  transition: background-color 0.3s ease;
+}
+
+/* A term reached from a link: the tint from color-highlight-on-target, drawn
+   as a rounded tab with an accent bar like the definition box below it. The
+   whole entry is marked, so the definition takes the tint too. */
+dl.glossary > dt:target {
+  box-shadow: inset 3px 0 0 var(--color-brand-primary);
+  border-radius: 0 0.4rem 0.4rem 0;
+}
+
+dl.glossary > dt:target + dd {
+  background: var(--color-highlight-on-target);
+  border-left-color: var(--color-brand-primary);
+}
+
+dl.glossary > dt:first-child {
+  margin-top: 0.5rem;
+}
+
+dl.glossary > dd {
+  margin: 0.4rem 0 0;
+  padding: 0.75rem 1rem;
+  background: color-mix(in srgb, var(--color-brand-primary) 7%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-brand-primary) 55%, transparent);
+  border-radius: 0 0.4rem 0.4rem 0;
+}
+
+dl.glossary > dd > :last-child {
+  margin-bottom: 0;
+}
+
 /* Landing page. */
 p.lead {
   font-size: 1.35rem;

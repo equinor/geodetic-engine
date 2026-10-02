@@ -70,8 +70,22 @@ if $clean; then
 fi
 
 if $live; then
+    # sphinx-autobuild's --open-browser fires before its server listens, and a
+    # forwarded port then hangs until the next rebuild; open once it answers.
+    if [[ -n "${BROWSER:-}" ]]; then
+        (
+            until curl -s -o /dev/null "http://127.0.0.1:${port}/"; do
+                kill -0 $$ 2>/dev/null || exit 0
+                sleep 1
+            done
+            "${BROWSER}" "http://127.0.0.1:${port}/" >/dev/null 2>&1
+        ) &
+    fi
+    # Notebook execution writes beside the output, under docs/; only the output
+    # itself is ignored by default.
     exec uv run --extra docs sphinx-autobuild docs "${OUTPUT}" \
-        --host 127.0.0.1 --port "${port}" --open-browser
+        --host 127.0.0.1 --port "${port}" \
+        --ignore "${REPO_ROOT}/docs/_build"
 fi
 
 uv run --extra docs sphinx-build -W --keep-going -b html docs "${OUTPUT}"

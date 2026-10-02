@@ -36,13 +36,22 @@ Coordinate epoch
 Coordinate operation
   Any conversion or transformation between two CRSs.
 
+Coordinate system (CS)
+  A coordinate system (CS) defines how coordinates are expressed by specifying
+  the coordinate axes, their order, orientation, and the units used to measure
+  positions within the system. A coordinate system is an abstract mathematical
+  construct and, by itself, is not physically anchored to the Earth or any other
+  real-world object.
+
 CRS
-  Coordinate reference system: what a set of coordinate numbers means. Datum,
-  axes, units, order.
+  A Coordinate Reference System (CRS) defines the meaning of a set of
+  coordinates by combining a {term}`coordinate system <Coordinate system (CS)>`,
+  which specifies the axes, axis order, and units, with a {term}`datum` that
+  anchors the coordinate system to the Earth.
 
 Datum
-  What ties a coordinate system to the Earth. Moving between datums is a
-  transformation.
+  What ties a {term}`coordinate system <Coordinate system (CS)>` to the Earth.
+  Moving between datums is a transformation.
 
 Declared axis order
   The axis order in a CRS's definition, such as latitude-first for `EPSG:4326`.

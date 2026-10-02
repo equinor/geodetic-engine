@@ -41,7 +41,10 @@ exclude_patterns = ["_build", "jupyter_execute", "**.ipynb_checkpoints"]
 templates_path = ["_templates"]
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
-html_js_files = [("expand-nav.js", {"defer": "defer"})]
+html_js_files = [
+    ("expand-nav.js", {"defer": "defer"}),
+    ("clear-target.js", {"defer": "defer"}),
+]
 
 # -- Cross-references ---------------------------------------------------------
 
@@ -131,6 +134,7 @@ html_theme_options = {
         "color-announcement-background": "#0b6b86",
         "color-announcement-text": "#ffffff",
         "color-sidebar-background": "#f7f9fa",
+        "color-highlight-on-target": "#0b6b8622",
         "color-admonition-title--note": "#0b6b86",
         "color-admonition-title-background--note": "#0b6b861a",
         "font-stack": (
@@ -152,6 +156,7 @@ html_theme_options = {
         "color-announcement-background": "#0b3d4c",
         "color-announcement-text": "#e6f4f8",
         "color-sidebar-background": "#161b1f",
+        "color-highlight-on-target": "#a916bd25",
         "color-admonition-title--note": "#5cc0dd",
         "color-admonition-title-background--note": "#5cc0dd1a",
     },
