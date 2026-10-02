@@ -37,6 +37,27 @@ article[role="main"] table.align-default {
   margin-left: 0;
 }
 
+/* The theme button toggles light and dark only (theme-toggle.js), so the
+   system-default state shows the sun or moon in use, not Furo's "auto" icon. */
+html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-auto-light,
+html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-auto-dark {
+  display: none;
+}
+
+html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-light {
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-light {
+    display: none;
+  }
+
+  html body[data-theme="auto"] .theme-toggle svg.theme-icon-when-dark {
+    display: block;
+  }
+}
+
 /* Logo in the sidebar: give it room and keep it crisp. */
 .sidebar-logo {
   max-width: 100%;
@@ -139,6 +160,48 @@ article[role="main"] .cell div[class^="highlight-"] {
 
 article[role="main"] .cell_output {
   margin-top: 0.6rem;
+}
+
+/* Workarounds overview: each group label sits directly on its table. */
+section#overview > p:has(+ .table-wrapper) {
+  margin: 2.25rem 0 0.5rem;
+  font-size: 1.2em;
+}
+
+section#overview > p:has(+ .table-wrapper) + .table-wrapper,
+section#overview > p:has(+ .table-wrapper) + .table-wrapper > table {
+  margin-top: 0;
+}
+
+/* Workarounds: each issue's content in its own frame under its title, so one
+   issue ends visibly before the next. The frame is drawn on the elements after
+   the title, joined edge to edge, since the title shares their section. */
+section#known-issues-and-workarounds > section > section {
+  margin: 2rem 0;
+}
+
+section#known-issues-and-workarounds > section > section > h3 {
+  margin: 0 0 0.6rem;
+}
+
+section#known-issues-and-workarounds > section > section > :not(h3) {
+  margin: 0 0 0 1.5rem;
+  padding: 0.4rem 1.4rem 0.4rem 1.9rem;
+  background: color-mix(in srgb, var(--color-brand-primary) 4%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-brand-primary) 70%, transparent);
+  border-right: 1px solid var(--color-background-border);
+}
+
+section#known-issues-and-workarounds > section > section > h3 + * {
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-background-border);
+  border-top-right-radius: 0.6rem;
+}
+
+section#known-issues-and-workarounds > section > section > :last-child {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-background-border);
+  border-bottom-right-radius: 0.6rem;
 }
 
 /* Glossary: each definition in a faded box under its term. */

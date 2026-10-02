@@ -1,7 +1,7 @@
 # Known issues and workarounds
 
 This page lists every place where the package works around a defect or a gap
-in PROJ, pyproj, the EPSG dataset, the Georepository API, OSDU or ESRI WKT.
+in PROJ, pyproj, the EPSG dataset, OSDU or ESRI WKT.
 Each entry gives the symptom, the cause, what the package does, where the code
 is, and when the workaround can be removed. An upstream issue is linked only
 where the code cites one. "None referenced" means no upstream report is
@@ -10,10 +10,54 @@ recorded in this repository, not that the problem is unknown upstream.
 Versions checked: PROJ {{ proj_version }}, pyproj {{ pyproj_version }},
 proj-data 1.24.
 
-```{contents}
-:local:
-:depth: 2
-```
+## Overview
+
+Each issue links to its full entry below.
+
+**PROJ and pyproj**
+
+| Issue | What the package does |
+|---|---|
+| [`always_xy` leaves an axis swap at a vertical end](#always_xy-leaves-an-axis-swap-at-a-vertical-end) | Detects the leftover swap and transposes the values first |
+| [`always_xy` leaves an engineering CRS in declared order](#always_xy-leaves-an-engineering-crs-in-declared-order) | Adds the missing axis swap to the pipeline |
+| [PROJ reads a Similarity transformation's ordinates in declared axis order](#proj-reads-a-similarity-transformations-ordinates-in-declared-axis-order) | Picks the reading that lands inside the area of use |
+| [A bound CRS looked up by code comes back unbound](#a-bound-crs-looked-up-by-code-comes-back-unbound) | Rebuilds the bound CRS from its stored definition |
+| [A bound CRS cannot carry a concatenated operation](#a-bound-crs-cannot-carry-a-concatenated-operation) | Collapses a chain of Helmert steps into one, checked to 1 mm |
+| [A parts-per-billion scale is exported unconverted in a bound CRS](#a-parts-per-billion-scale-is-exported-unconverted-in-a-bound-crs) | Restates every scale in ppm before embedding |
+| [Exporting an inverted datum step reverses it silently](#exporting-an-inverted-datum-step-reverses-it-silently) | Detects inverted steps and returns no export for them |
+| [EPSG's reversible polynomial is not implemented](#epsgs-reversible-polynomial-is-not-implemented) | Restates the series as PROJ's `horner` operation |
+| [A grid is reported missing when PROJ reads a renamed copy](#a-grid-is-reported-missing-when-proj-reads-a-renamed-copy) | Checks the grid files the compiled pipeline will read |
+| [PROJ reads no ESRI `GEOGTRAN`, and writes none](#proj-reads-no-esri-geogtran-and-writes-none) | Parses and writes ESRI WKT itself |
+| [PROJJSON drops nested identifiers and unit codes](#projjson-drops-nested-identifiers-and-unit-codes) | Reads the codes from pyproj's sub-objects instead |
+| [Build configuration](#build-configuration) | Builds PROJ and pyproj from source so the pinned database is used |
+
+**PROJ data**
+
+| Issue | What the package does |
+|---|---|
+| [Missing `grid_alternatives` mapping for the 1′ EGM2008 geoid](#missing-grid_alternatives-mapping-for-the-1-egm2008-geoid) | Adds the mapping to a copy of `proj.db`, never the installed one |
+
+**OSDU catalogue**
+
+| Issue | What the package does |
+|---|---|
+| [No WKT for bound CRSs](#no-wkt-for-bound-crss) | Assembles each bound CRS with pyproj from its parts |
+| [Bound CRS extent has no code](#bound-crs-extent-has-no-code) | Records the extent under the importing authority |
+
+**ESRI WKT**
+
+| Issue | What the package does |
+|---|---|
+| [`Bursa_Wolf` read as Coordinate Frame](#bursa_wolf-read-as-coordinate-frame) | Maps both methods to EPSG method 9607 |
+
+**Known issues not worked around**
+
+| Issue | What to do |
+|---|---|
+| [Projected CRSs with south or west axes keep their declared order](#projected-crss-with-south-or-west-axes-keep-their-declared-order) | Read `value_axis_abbreviations` for the order used |
+| [A Similarity transformation into a northing-first engineering CRS](#a-similarity-transformation-into-a-northing-first-engineering-crs) | State the operation out of the grid instead |
+| [Area of use is not enforced](#area-of-use-is-not-enforced) | Check points against `area_of_use` yourself |
+| [Deprecated operations cannot be listed](#deprecated-operations-cannot-be-listed) | Name a deprecated operation by its code |
 
 ## PROJ and pyproj
 
@@ -402,57 +446,27 @@ Remove when
   returns a row in a stock PROJ database. Each entry in the script states why it
   is still needed.
 
-## Georepository API
-
-These are behaviours of the API as implemented, worked around in
-`geodetic_engine/georepository/client.py`. The code documents each one where it
-is handled.
-
-Export exists only on the generic CRS collection
-: `GeodeticCoordRefSystem/{code}/export` returns HTTP 404, while
-  `CoordRefSystem/{code}/export` returns the WKT. CRS export URLs are rewritten
-  to the generic collection (`_export_url`).
-
-`formatVersion` is not usable
-: The parameter is a small enum, not a year. Passing a year is rejected, and
-  `2019` returns HTTP 500. The default already gives WKT2, so it is not sent.
-
-No server-side authority filter
-: Every collection is enumerated in full and filtered on `DataSource` on the
-  client side. This makes annotation of other authorities' objects the slowest
-  part of a build.
-
-Version history entries state no `DataSource`
-: The register's own version series is told apart from the EPSG dataset's by
-  code: the register's own codes start at 40,000,000.
-
-Detail responses may lack a self link
-: A `Links` entry pointing at the fetched URL is added, so per-object
-  sub-resources such as aliases can still be reached.
-
-Pagination is verified
-: Every page is followed until the advertised `TotalResults` is collected. A
-  shortfall raises
-  {class}`~geodetic_engine.georepository.PaginationTruncatedError`, never a
-  silently short list.
 
 ## OSDU catalogue
 
-No WKT for bound CRSs
-: OSDU bound CRSs are assembled with pyproj from their parts, so the embedded
-  transformation is one this package has checked
-  ({doc}`/user-guide/osdudb`).
+### No WKT for bound CRSs
 
-Bound CRS extent has no code
-: OSDU gives the extent as the intersection of the CRS and transformation
-  extents, with no code. It is recorded under the importing authority, not
-  dropped.
+OSDU bound CRSs are assembled with pyproj from their parts, so the embedded
+transformation is one this package has checked
+({doc}`/user-guide/osdudb`).
+
+### Bound CRS extent has no code
+
+OSDU gives the extent as the intersection of the CRS and transformation
+extents, with no code. It is recorded under the importing authority, not
+dropped.
 
 ## ESRI WKT
 
-`Bursa_Wolf` read as Coordinate Frame
-: ESRI documents the Coordinate Frame and Bursa-Wolf methods as the same in its
-  Projection Engine (ArcSDE 10.0 SDK), so both map to EPSG method 9607.
+### `Bursa_Wolf` read as Coordinate Frame
+
+ESRI documents the Coordinate Frame and Bursa-Wolf methods as the same in its
+Projection Engine (ArcSDE 10.0 SDK), so both map to EPSG method 9607.
 
 ## Known issues not worked around
 

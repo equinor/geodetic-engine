@@ -13,8 +13,6 @@ sys.path.insert(0, str(DOCS / "_ext"))
 import geodetic_engine  # noqa: E402
 
 project = "geodetic-engine"
-author = "Equinor"
-copyright = "Equinor ASA"
 version = geodetic_engine.__version__
 release = version
 
@@ -44,6 +42,7 @@ html_css_files = ["custom.css"]
 html_js_files = [
     ("expand-nav.js", {"defer": "defer"}),
     ("clear-target.js", {"defer": "defer"}),
+    ("theme-toggle.js", {"defer": "defer"}),
 ]
 
 # -- Cross-references ---------------------------------------------------------
@@ -114,11 +113,12 @@ html_short_title = "geodetic-engine"
 html_logo = "_static/logo.svg"
 html_favicon = "_static/favicon.svg"
 html_show_sourcelink = False
+html_show_copyright = False
 html_copy_source = False
 html_theme_options = {
     "sidebar_hide_name": True,
     "navigation_with_keys": True,
-    "top_of_page_buttons": ["view", "edit"],
+    "top_of_page_buttons": ["view"],
     "source_repository": REPOSITORY,
     "source_branch": "main",
     "source_directory": "docs/",
@@ -183,7 +183,7 @@ html_theme_options = {
 }
 
 pygments_style = "friendly"
-pygments_dark_style = "monokai"
+pygments_dark_style = "material"
 
 rst_prolog = f"""
 .. |proj_version| replace:: {pyproj.proj_version_str}
