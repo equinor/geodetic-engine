@@ -8,7 +8,7 @@ here. The {doc}`/glossary` has short definitions to link to.
 A **coordinate reference system** says what a set of numbers means: which
 {term}`datum` they are relative to, which axes they are on, in what units, and
 in what order. `EPSG:4326` (WGS 84 geographic), `EPSG:25832` (ETRS89 / UTM
-zone 32N) and `EPSG:5941` (NN2000 height) are all CRSs. A CRS is not an
+zone 32N) and `EPSG:5941` (NN2000:2018 height) are all CRSs. A CRS is not an
 instruction to do anything. It only describes coordinates.
 
 In this package a CRS can be given as an authority code (`"EPSG:4326"`), WKT, a

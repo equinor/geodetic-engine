@@ -75,8 +75,8 @@ operations give rotations in different units (`EPSG:1147` uses microradians,
 not arc-seconds). Every collapse is therefore **checked against PROJ's own
 evaluation of the original chain** over the operation's area of use, and
 refused if any point moves by more than a millimetre. Across the EPSG dataset
-shipped with PROJ 9.8.1, 43 of the 266 concatenated operations (including
-deprecated ones; 20 of the 203 current ones) are chains of plain Helmerts and
+shipped with PROJ 9.9.0, 43 of the 286 concatenated operations (including
+deprecated ones; 20 of the 216 current ones) are chains of plain Helmerts and
 collapse, with a worst observed residual of 0.22 mm, against operations whose
 stated accuracy is in metres.
 

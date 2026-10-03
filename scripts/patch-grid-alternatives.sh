@@ -112,7 +112,7 @@ trap restore_on_exit EXIT
 # Each row: original_grid_name | proj_grid_name | proj_grid_format |
 #           proj_method | url (or "" if none) | reason
 #
-# Verified missing against proj.db built from PROJ 9.8.1 / EPSG v12.029.
+# Verified missing against proj.db built from PROJ 9.9.0 / EPSG v13.102.
 # Re-check with:
 #   sqlite3 "$db" "SELECT * FROM grid_alternatives WHERE original_grid_name='<name>';"
 # before removing an entry once PROJ ships it upstream.

@@ -23,7 +23,7 @@ def test_conflicting_id_cannot_be_satisfied_by_name() -> None:
     assert not OperationRequest.parse("EPSG:1133").is_satisfied_by(node)
 
 
-@pytest.mark.parametrize("operations", ["EPSG:11028", "EPSG:9484"])
+@pytest.mark.parametrize("operations", ["EPSG:11028", "EPSG:11559"])
 def test_partial_compound_request_is_refused(operations: str) -> None:
     with pytest.raises(OperationNotAvailableError):
         Transformation("EPSG:4979", "EPSG:6172", operation=operations)
@@ -133,9 +133,9 @@ def test_pyproj_group_index_error_is_wrapped() -> None:
 
 
 def test_modified_fused_pipeline_is_not_authorized() -> None:
-    transformation = Transformation("EPSG:4937", "EPSG:6172", operation="EPSG:9484")
+    transformation = Transformation("EPSG:4937", "EPSG:6172", operation="EPSG:11559")
     node = __import__("json").loads(transformation.operation.projjson)
     node["method"]["name"] = node["method"]["name"].replace(
         "multiplier=1", "multiplier=2"
     )
-    assert not fully_requested(node, (OperationRequest.parse("EPSG:9484"),))
+    assert not fully_requested(node, (OperationRequest.parse("EPSG:11559"),))

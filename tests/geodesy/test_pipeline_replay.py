@@ -133,7 +133,8 @@ def test_the_reported_pipeline_reproduces_the_result(
 
     assert result.pipeline is not None
     replayed = Transformer.from_pipeline(result.pipeline).transform(*point)
-    assert replayed == pytest.approx(result.coordinates[0], abs=1e-9)
+    # One composed pipeline and the chained steps may round apart by a few ULP.
+    assert replayed == pytest.approx(result.coordinates[0], rel=1e-15, abs=1e-9)
 
 
 def test_a_pure_conversion_reports_a_runnable_pipeline() -> None:
@@ -247,7 +248,7 @@ THREE_DIMENSIONAL = [
     pytest.param(
         "EPSG:4937",
         "EPSG:6172",
-        "EPSG:9484",
+        "EPSG:11559",
         (10.75, 59.91, 150.0),
         None,
         (0, 1, 2),

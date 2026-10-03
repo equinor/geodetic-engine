@@ -279,7 +279,7 @@ class Transformation:
         leave the other chosen silently.
 
         >>> tfm = Transformation("EPSG:4979", "EPSG:6172",
-        ...                      operation=["EPSG:11028", "EPSG:9484"])
+        ...                      operation=["EPSG:11028", "EPSG:11559"])
 
         A datum change requires an explicit operation or bound CRS.
         Automatic datum selection and ballpark results are not supported:

@@ -45,13 +45,13 @@ several ED50 to WGS 84 transformations exist and they disagree by metres. Use
 
 ## Installation
 
-The library needs **PROJ 9.8.1 built from source** and **pyproj 3.8.0 built
+The library needs **PROJ 9.9.0 built from source** and **pyproj 3.8.0 built
 against it**, because the EPSG dataset inside `proj.db` is part of every answer.
 The simplest way is the devcontainer: open the repository in VS Code and choose
 *Reopen in Container*. By hand:
 
 ```bash
-./.devcontainer/install-proj.sh                          # build PROJ 9.8.1
+./.devcontainer/install-proj.sh                          # build PROJ 9.9.0
 PROJ_DIR=/usr/local PROJ_WHEEL=false uv sync --extra dev # pyproj from source
 uv run pytest tests/test_environment.py                  # verify
 ```
