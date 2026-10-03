@@ -18,6 +18,7 @@
     "reference": "PROJ-generated regression baseline; expected coordinates recomputed locally with PROJ, not copied from upstream PROJ internal tests"
   },
   "note": "gold and silver expected values are a consensus across independent lineages; reference values come from PROJ alone and do not establish correctness; compare with tolerance_m, never for equality",
+  "amended": "for EPSG v13.102 (PROJ 9.9.0), expected values unchanged: source_axes of the 52 EPSG:28991 records x, y (was X, Y); the 6 EPSG:1149 records from EPSG:2180, now based on ETRS89, pass (were xfail); the 4 vertical records naming operations EPSG deprecated name their replacements (7958 -> 12239, 7959 -> 12243, 10106 -> 11562, 10107 -> 11564 with target 20001 -> 11563)",
   "field_meaning": {
     "coordinate_epoch": "the epoch to supply with the source coordinates; required to reproduce any record that carries it",
     "source_frame_epoch": "reference epoch of the source dynamic frame, descriptive only; using it as the coordinate epoch moves the answer by up to a metre",
@@ -37,7 +38,7 @@
       "cases": 9381,
       "gold": 7259,
       "silver": 2122,
-      "proj_expected_failures": 53
+      "proj_expected_failures": 47
     },
     "horizontal_grid.jsonl": {
       "description": "Datum change that consumed a PROJ grid file. Requires those grids.",

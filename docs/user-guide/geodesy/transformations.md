@@ -167,13 +167,13 @@ print([g.name for g in result.grids])
 ### Compound target: position and height together
 
 `EPSG:6172` is ETRS89 / UTM zone 32N + NN54 height. From ETRS89 3D
-(`EPSG:4937`), only the vertical part needs a transformation, `EPSG:9484`,
+(`EPSG:4937`), only the vertical part needs a transformation, `EPSG:11559`,
 which reads the Norwegian grid `no_kv_href2008a.tif`. Output is (E, N, H) in
 metres:
 
 ```{code-cell} python
 result = transform(
-    "EPSG:4937", "EPSG:6172", (11.12789451, 63.58496782, 100.0), operation="EPSG:9484"
+    "EPSG:4937", "EPSG:6172", (11.12789451, 63.58496782, 100.0), operation="EPSG:11559"
 )
 print(result.coordinates, result.target_axes)
 ```
@@ -186,7 +186,7 @@ PROJ:
 ```{code-cell} python
 result = transform(
     "EPSG:4979", "EPSG:6172", (11.12789451, 63.58496782, 100.0),
-    operation=["EPSG:11028", "EPSG:9484"],
+    operation=["EPSG:11028", "EPSG:11559"],
 )
 print(result.coordinates)
 print(result.operation.name)
@@ -197,7 +197,7 @@ Naming just the vertical one is refused:
 ```{code-cell} python
 :tags: [raises-exception]
 
-transform("EPSG:4979", "EPSG:6172", (11.12789451, 63.58496782, 100.0), operation="EPSG:9484")
+transform("EPSG:4979", "EPSG:6172", (11.12789451, 63.58496782, 100.0), operation="EPSG:11559")
 ```
 
 (time-dependent-transformations)=

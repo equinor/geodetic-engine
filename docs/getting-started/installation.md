@@ -1,7 +1,7 @@
 # Installation
 
-`geodetic-engine` needs Python 3.13 or newer, **PROJ 9.8.1 built from source**,
-and **pyproj 3.8.0 built against that PROJ**. 
+`geodetic-engine` needs Python 3.13 or newer, **PROJ {{ proj_version }} built
+from source**, and **pyproj {{ pyproj_version }} built against that PROJ**.
 
 
 ## Why the versions are pinned
@@ -18,7 +18,7 @@ built from source instead. `pyproject.toml` enforces this for `uv` with
 
 `tests/test_environment.py` checks the environment before anything else runs:
 
-- pyproj is 3.8.0 and PROJ is 9.8.1;
+- pyproj is {{ pyproj_version }} and PROJ is {{ proj_version }};
 - PROJ's data directory is not a copy inside `site-packages`;
 - the grids the test suite and these docs use (`us_nga_egm08_25.tif`,
   `no_kv_href2008a.tif`, `us_noaa_conus.tif`) are installed;
@@ -40,8 +40,8 @@ same image, so your results match CI's.
 sudo apt-get install -y build-essential cmake ninja-build pkg-config \
     libsqlite3-dev sqlite3 libtiff-dev libcurl4-openssl-dev zlib1g-dev
 
-# 2. Build and install PROJ 9.8.1. The script pins the version and verifies
-#    the tarball checksum before building.
+# 2. Build and install PROJ. The script pins the version and verifies the
+#    tarball checksum before building.
 ./.devcontainer/install-proj.sh
 
 # 3. Install the Python dependencies, building pyproj from source against it.
@@ -60,17 +60,18 @@ working.
 
 ```bash
 uv run python -c "import pyproj; print(pyproj.proj_version_str, pyproj.datadir.get_data_dir())"
-# 9.8.1 /usr/local/share/proj
 ```
 
-If the second value is under `site-packages`, pyproj was installed from a wheel
-and is using its own bundled PROJ. Reinstall it from source as in step 3.
+The first value should be {{ proj_version }}, the second PROJ's data directory,
+such as `/usr/local/share/proj`. If the second value is under `site-packages`,
+pyproj was installed from a wheel and is using its own bundled PROJ. Reinstall
+it from source as in step 3.
 
 ## Grids
 
 Grid-based operations (NTv2, NADCON, geoid models) read grid files from PROJ's
 data directory. The devcontainer installs the whole `proj-data` package, about
-750 MB. Elsewhere, fetch individual grids with PROJ's own tool,
+800 MB. Elsewhere, fetch individual grids with PROJ's own tool,
 `projsync --file <name>`.
 
 If a grid an operation needs is missing, this package raises

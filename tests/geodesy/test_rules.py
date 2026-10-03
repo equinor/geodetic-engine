@@ -51,9 +51,9 @@ from tests.support import installed_proj_db
 
 _PAYLOADS = Path(__file__).parents[1] / "persistablereference" / "payloads.jsonl"
 
-# No datum shift is defined between the Puerto Rico datum and GDA94, so PROJ
-# can only offer a ballpark geographic offset between them.
-BALLPARK_SOURCE = "EPSG:4139"
+# Jamaica 1875 has no published datum shift at all, so PROJ can only offer a
+# ballpark geographic offset between it and GDA94.
+BALLPARK_SOURCE = "EPSG:4241"
 BALLPARK_TARGET = "EPSG:4283"
 
 
@@ -189,14 +189,14 @@ def test_requested_operation_is_the_one_reported() -> None:
 def test_operation_folded_into_a_compound_crs_is_still_recognised() -> None:
     """A step touching only part of a compound target still satisfies its code.
 
-    Applying EPSG:9484 into EPSG:6172 (a projected + NN54 height compound)
+    Applying EPSG:11559 into EPSG:6172 (a projected + NN54 height compound)
     makes PROJ rebuild it as an unidentified "PROJ-based operation method"
     pipeline, dropping its EPSG id, since it can no longer be looked up as
     the registered operation as-is. Its name survives that rebuild, so the
     request must still be honoured rather than refused as unavailable.
     """
-    transformation = Transformation("EPSG:4937", "EPSG:6172", operation="EPSG:9484")
-    assert transformation.operation.requested == "EPSG:9484"
+    transformation = Transformation("EPSG:4937", "EPSG:6172", operation="EPSG:11559")
+    assert transformation.operation.requested == "EPSG:11559"
     assert transformation.operation.authority_code is None  # PROJ dropped the id
     assert transformation.operation.name == "ETRS89-NOR [EUREF89] to NN54 height (1)"
 
@@ -210,8 +210,8 @@ def test_operation_folded_into_a_compound_crs_is_still_recognised() -> None:
 
 def test_operation_folded_into_a_compound_crs_is_recognised_in_reverse() -> None:
     """PROJ renames the same rebuilt step "Inverse of ..." in the other direction."""
-    transformation = Transformation("EPSG:6172", "EPSG:4937", operation="EPSG:9484")
-    assert transformation.operation.requested == "EPSG:9484"
+    transformation = Transformation("EPSG:6172", "EPSG:4937", operation="EPSG:11559")
+    assert transformation.operation.requested == "EPSG:11559"
     assert transformation.operation.name == (
         "Inverse of ETRS89-NOR [EUREF89] to NN54 height (1)"
     )
@@ -228,16 +228,16 @@ def test_two_operations_fused_into_one_step_can_both_be_named() -> None:
     """A horizontal and a vertical operation fused into one step, named together.
 
     EPSG:4979 (WGS 84) to EPSG:6172 needs both a horizontal datum equivalence
-    (EPSG:11028) and the vertical shift (EPSG:9484) already exercised above.
+    (EPSG:11028) and the vertical shift (EPSG:11559) already exercised above.
     PROJ fuses the two into one unidentified step, joining their names with
     " + ", since the compound target only needs each to touch part of it.
     Naming only one would leave the other chosen without being asked for, so
     ``operation=`` accepts a sequence naming every operation involved.
     """
     transformation = Transformation(
-        "EPSG:4979", "EPSG:6172", operation=["EPSG:11028", "EPSG:9484"]
+        "EPSG:4979", "EPSG:6172", operation=["EPSG:11028", "EPSG:11559"]
     )
-    assert transformation.operation.requested == "EPSG:11028 + EPSG:9484"
+    assert transformation.operation.requested == "EPSG:11028 + EPSG:11559"
 
     easting, northing, height = transformation.transform(
         (11.12789451, 63.58496782, 100)
@@ -249,7 +249,7 @@ def test_two_operations_fused_into_one_step_can_both_be_named() -> None:
 
 def test_two_operations_fused_into_one_step_round_trip_in_reverse() -> None:
     transformation = Transformation(
-        "EPSG:6172", "EPSG:4979", operation=["EPSG:11028", "EPSG:9484"]
+        "EPSG:6172", "EPSG:4979", operation=["EPSG:11028", "EPSG:11559"]
     )
     lon, lat, height = transformation.transform(
         (605606.253, 7052523.904, 61.742)
@@ -277,7 +277,7 @@ def test_a_candidate_from_available_operations_can_be_passed_directly() -> None:
 def test_an_unidentified_candidate_can_be_pinned_down_by_object() -> None:
     """The one case naming an authority code cannot cover: no id to name.
 
-    PROJ fuses EPSG:11028 and EPSG:9484 into one step with no EPSG id of its
+    PROJ fuses EPSG:11028 and EPSG:11559 into one step with no EPSG id of its
     own (see the fused-step tests above), so its
     :attr:`~geodetic_engine.geodesy.operation.OperationCandidate.authority_code`
     is None -- there is no string that names it. Passing the candidate object

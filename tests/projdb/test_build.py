@@ -480,9 +480,9 @@ def test_authority_preferences_make_custom_operations_selectable(
 
 def test_report_records_provenance(report, config: ProjDbBuildConfig) -> None:
     """A result must be traceable back to the versions that produced it."""
-    assert report.proj_version == "9.8.1"
+    assert report.proj_version == "9.9.0"
     assert report.epsg_version.startswith("v")
-    assert report.database_layout_version == "1.6"
+    assert report.database_layout_version == "1.7"
     assert report.authorities == [AUTHORITY]
     assert {
         "table": "geodetic_crs",

@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import pyproj
+from pyproj.database import get_database_metadata
 
 DOCS = Path(__file__).resolve().parent
 sys.path.insert(0, str(DOCS / "_ext"))
@@ -190,14 +191,17 @@ html_theme_options = {
 pygments_style = "friendly"
 pygments_dark_style = "material"
 
-rst_prolog = f"""
-.. |proj_version| replace:: {pyproj.proj_version_str}
-.. |pyproj_version| replace:: {pyproj.__version__}
-"""
-myst_substitutions = {
+# Pages write {{ proj_version }} etc.; values follow the PROJ the docs build against.
+VERSIONS = {
     "proj_version": pyproj.proj_version_str,
     "pyproj_version": pyproj.__version__,
+    "epsg_version": get_database_metadata("EPSG.VERSION"),
+    "proj_data_version": get_database_metadata("PROJ_DATA.VERSION"),
 }
+rst_prolog = "".join(
+    f".. |{name}| replace:: {value}\n" for name, value in VERSIONS.items()
+)
+myst_substitutions = VERSIONS
 
 linkcheck_ignore = [
     # Placeholder hosts used in configuration examples.

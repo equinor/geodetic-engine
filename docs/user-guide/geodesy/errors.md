@@ -99,8 +99,8 @@ way, no approximate coordinate is returned:
 ```{code-cell} python
 :tags: [raises-exception]
 
-# Puerto Rico datum -> GDA94: PROJ knows no transformation, only a ballpark.
-Transformation("EPSG:4139", "EPSG:4283")
+# Jamaica 1875 -> GDA94: PROJ knows no transformation, only a ballpark.
+Transformation("EPSG:4241", "EPSG:4283")
 ```
 
 `BallparkTransformationError` is a last check. It is raised if the pipeline

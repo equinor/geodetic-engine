@@ -15,7 +15,7 @@ from pathlib import Path
 import pyproj
 from pyproj import CRS
 
-EXPECTED_PROJ_VERSION = "9.8.1"
+EXPECTED_PROJ_VERSION = "9.9.0"
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

@@ -126,7 +126,7 @@ for code in ("EPSG:5941", "EPSG:4979", "EPSG:6172", "EPSG:4978"):
     print(f"{code:10} dim={crs.dimension}  {crs.value_axis_abbreviations!s:18} {crs.name}")
 ```
 
-`EPSG:5941` is NN2000 height (1D). `EPSG:4979` is WGS 84 geographic 3D.
+`EPSG:5941` is NN2000:2018 height (1D). `EPSG:4979` is WGS 84 geographic 3D.
 `EPSG:6172` is a compound CRS, ETRS89 / UTM 32N + NN54 height. `EPSG:4978` is
 WGS 84 geocentric.
 

@@ -7,8 +7,8 @@ is, and when the workaround can be removed. An upstream issue is linked only
 where the code cites one. "None referenced" means no upstream report is
 recorded in this repository, not that the problem is unknown upstream.
 
-Versions checked: PROJ {{ proj_version }}, pyproj {{ pyproj_version }},
-proj-data 1.24.
+Versions checked: PROJ {{ proj_version }} with EPSG {{ epsg_version }},
+pyproj {{ pyproj_version }}, proj-data {{ proj_data_version }}.
 
 ## Overview
 
@@ -95,7 +95,8 @@ Remove when
   then be deleted outright, together with its call in `Transformation.transform`.
   Nothing else depends on it.
   `test_vertical_source_reads_its_position_in_xy_order` in
-  `tests/geodesy/test_axis_order.py` covers the behaviour.
+  `tests/geodesy/test_axis_order.py` covers the behaviour. PROJ still leaves
+  the swap, and the example above still returns `(58.5, 5.5, 57.087)`.
 
 ### `always_xy` leaves an engineering CRS in declared order
 
@@ -136,6 +137,7 @@ Remove when
   `test_proj_still_leaves_engineering_axes_alone` in
   `tests/geodesy/test_engineering_axes.py` fails the day it does, at which
   point the swap must be removed rather than adapted, or it is applied twice.
+  The test still passes.
 
 ### PROJ reads a Similarity transformation's ordinates in declared axis order
 
@@ -181,6 +183,8 @@ Remove when
 : EPSG and PROJ agree on the convention and `EPSG:1035` is restated or read
   accordingly. `test_epsg_1035_states_its_evaluation_point_easting_first` in
   `tests/geodesy/test_engineering_axes.py` fails the day EPSG restates it.
+  The origin is still stated easting-first and PROJ still reads it in
+  declared order.
 
 ### A bound CRS looked up by code comes back unbound
 
@@ -208,7 +212,7 @@ Upstream
 
 Remove when
 : `tests/geodesy/test_bound_from_database.py` fails because PROJ keeps the
-  wrapper.
+  wrapper. It still discards it.
 
 ### A bound CRS cannot carry a concatenated operation
 
@@ -236,7 +240,8 @@ Upstream
 : Not a defect. None referenced.
 
 Remove when
-: Permanent, unless the bound CRS model gains support for chains.
+: Permanent, unless the bound CRS model gains support for chains. A
+  `BoundCRS` over `EPSG:8047` is still refused.
 
 ### A parts-per-billion scale is exported unconverted in a bound CRS
 
@@ -262,7 +267,7 @@ Upstream
 
 Remove when
 : A `BoundCRS` built over `EPSG:10586` exports and re-reads with the correct
-  scale.
+  scale. The scale is still written as `2.25`.
 
 ### Exporting an inverted datum step reverses it silently
 
@@ -293,7 +298,9 @@ Upstream
 : [OSGeo/PROJ#4866](https://github.com/OSGeo/PROJ/issues/4866).
 
 Remove when
-: PROJ exports an inverted step in a form that reads back inverted.
+: PROJ exports an inverted step in a form that reads back inverted. The
+  issue's own example, `EPSG:4837`, still re-imports from PROJJSON about
+  176 m off.
 
 ### EPSG's reversible polynomial is not implemented
 
@@ -315,9 +322,8 @@ Upstream
 : [OSGeo/PROJ#4867](https://github.com/OSGeo/PROJ/issues/4867).
 
 Remove when
-: PROJ implements method 9651. With PROJ 9.8.1,
-  `CoordinateOperation.from_epsg(15753)` fails with "coordinate operation not
-  found".
+: PROJ implements method 9651. `CoordinateOperation.from_epsg(15753)` still
+  fails with "coordinate operation not found".
 
 ### A grid is reported missing when PROJ reads a renamed copy
 
@@ -359,7 +365,9 @@ Remove when
 : PROJ reports availability for the substituted file and refuses to compile a
   step whose file is gone. `test_a_superseded_grid_filename_is_not_reported_missing`
   and the three `*_names_its_missing_grid` tests in
-  `tests/geodesy/test_rules.py` cover both directions.
+  `tests/geodesy/test_rules.py` cover both directions. `conus.las` and
+  `conus.los` are still reported unavailable, and a compiled pipeline still
+  outlives its grid file.
 
 ### PROJ reads no ESRI `GEOGTRAN`, and writes none
 
@@ -382,7 +390,7 @@ Upstream
 : Not a defect. None referenced.
 
 Remove when
-: Permanent.
+: Permanent. PROJ still neither reads nor writes a `GEOGTRAN`.
 
 ### PROJJSON drops nested identifiers and unit codes
 
@@ -402,7 +410,7 @@ Upstream
 : None referenced.
 
 Remove when
-: PROJJSON export includes these identifiers.
+: PROJJSON export includes these identifiers. They are still omitted.
 
 ### Build configuration
 
@@ -444,7 +452,8 @@ Upstream
 Remove when
 : `SELECT * FROM grid_alternatives WHERE original_grid_name='Und_min1x1_egm2008_isw=82_WGS84_TideFree'`
   returns a row in a stock PROJ database. Each entry in the script states why it
-  is still needed.
+  is still needed. None of the three rows is there yet, and every grid name
+  is still cited by a current operation.
 
 
 ## OSDU catalogue

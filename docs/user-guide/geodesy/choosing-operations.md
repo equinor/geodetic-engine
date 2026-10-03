@@ -122,11 +122,11 @@ for c in ballpark:
     print(c.name, "| accuracy:", c.accuracy, "| usable:", c.usable)
 ```
 
-Between the Puerto Rico datum and GDA94, a ballpark is PROJ's only option. No
-result can be produced for that pair:
+Jamaica 1875 has no published transformation at all, so between it and GDA94 a
+ballpark is PROJ's only option. No result can be produced for that pair:
 
 ```{code-cell} python
-[(c.name, c.ballpark) for c in available_operations("EPSG:4139", "EPSG:4283")]
+[(c.name, c.ballpark) for c in available_operations("EPSG:4241", "EPSG:4283")]
 ```
 
 ## Exporting a candidate

@@ -13,7 +13,7 @@ def test_failed_report_replace_keeps_previous_file(
     path = tmp_path / "report.json"
     path.write_text("previous report")
     report = BuildReport(
-        "now", "9.8.1", "test", "1.24", "1.6", "test", None, [], True, "base", "output"
+        "now", "9.9.0", "test", "1.25", "1.7", "test", None, [], True, "base", "output"
     )
 
     def reject(*args: object) -> None:
