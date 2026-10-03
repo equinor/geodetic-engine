@@ -9,7 +9,12 @@ import pickle
 import numpy as np
 import pytest
 
-from geodetic_engine.geodesy import CoordinateReferenceSystem, Transformation, transform
+from geodetic_engine.geodesy import (
+    CoordinateReferenceSystem,
+    Coordinates,
+    Transformation,
+    transform,
+)
 from geodetic_engine.geodesy.transformation import _columns
 
 OSLO_XY = (10.7522, 59.9139)
@@ -252,6 +257,87 @@ def test_to_dataframe_columns_are_in_value_order_not_declared_order() -> None:
     assert list(frame.columns) == ["Lon", "Lat"]
     assert frame["Lon"][0] == pytest.approx(OSLO_XY[0], abs=1e-9)
     assert frame["Lat"][0] == pytest.approx(OSLO_XY[1], abs=1e-9)
+
+
+def test_to_dataframe_columns_are_distinct_when_abbreviations_are_not() -> None:
+    """EPSG:3388 abbreviates both axes ``none``; the axis names step in.
+
+    Two columns sharing a label would make ``frame["none"]`` return both, and
+    the easting and northing indistinguishable in the one export meant to
+    label them.
+    """
+    caspian = CoordinateReferenceSystem.from_user_input("EPSG:3388")
+    assert caspian.value_axis_abbreviations == ("none", "none")
+
+    result = transform("EPSG:4284", "EPSG:3388", [(51.0, 40.0)])
+    frame = result.coordinates.to_dataframe()
+
+    assert list(frame.columns) == ["Easting", "Northing"]
+    assert frame["Easting"][0] == pytest.approx(result.coordinates[0][0])
+    assert frame["Northing"][0] == pytest.approx(result.coordinates[0][1])
+
+
+def test_to_dataframe_columns_are_distinct_when_nothing_tells_axes_apart() -> None:
+    """Same abbreviation, name and direction: the declared position decides."""
+    indistinct = CoordinateReferenceSystem.from_user_input(
+        'ENGCRS["Indistinct grid",EDATUM["Site"],CS[Cartesian,2],'
+        'AXIS["grid (g)",unspecified,ORDER[1]],'
+        'AXIS["grid (g)",unspecified,ORDER[2]],LENGTHUNIT["metre",1]]'
+    )
+
+    frame = Coordinates(((1.0, 2.0),), target_crs=indistinct).to_dataframe()
+
+    assert list(frame.columns) == [
+        "Grid (unspecified) [1]",
+        "Grid (unspecified) [2]",
+    ]
+    assert frame.iloc[0].tolist() == [1.0, 2.0]
+
+
+def test_to_dataframe_extra_column_does_not_reuse_an_axis_label() -> None:
+    """A 2D grid whose own second axis is ``Z`` still gets a distinct extra column."""
+    grid_with_z = CoordinateReferenceSystem.from_user_input(
+        'ENGCRS["Section grid",EDATUM["Site"],CS[Cartesian,2],'
+        'AXIS["along (X)",east,ORDER[1]],AXIS["elevation (Z)",up,ORDER[2]],'
+        'LENGTHUNIT["metre",1]]'
+    )
+
+    frame = Coordinates(((1.0, 2.0, 3.0),), target_crs=grid_with_z).to_dataframe()
+
+    assert list(frame.columns) == ["X", "Z", "Z (carried)"]
+    assert frame["Z (carried)"][0] == 3.0
+
+
+def test_to_dataframe_extra_column_is_numbered_past_every_axis_label() -> None:
+    """An axis already called ``Z (carried)`` pushes the extra column further."""
+    crs = {
+        "type": "EngineeringCRS",
+        "name": "Section grid",
+        "datum": {"name": "Site"},
+        "coordinate_system": {
+            "subtype": "Cartesian",
+            "axis": [
+                {
+                    "name": "Elevation",
+                    "abbreviation": "Z",
+                    "direction": "up",
+                    "unit": "metre",
+                },
+                {
+                    "name": "Carried elevation",
+                    "abbreviation": "Z (carried)",
+                    "direction": "up",
+                    "unit": "metre",
+                },
+            ],
+        },
+    }
+    target = CoordinateReferenceSystem.from_user_input(json.dumps(crs))
+
+    frame = Coordinates(((1.0, 2.0, 3.0),), target_crs=target).to_dataframe()
+
+    assert list(frame.columns) == ["Z", "Z (carried)", "Z (carried 2)"]
+    assert frame["Z (carried 2)"][0] == 3.0
 
 
 def test_result_survives_a_pickle_round_trip() -> None:

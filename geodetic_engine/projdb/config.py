@@ -201,7 +201,14 @@ class ProjDbBuildConfig:
         return self.georepository.api_url
 
     def endpoint(self, name: str) -> str:
-        """Return the absolute URL of a Georepository v1 collection endpoint."""
+        """Return the absolute URL of a Georepository v1 collection endpoint.
+
+        Args:
+            name: Collection name, for example ``"Datum"``.
+
+        Returns:
+            The collection's absolute URL on the configured instance.
+        """
         return self.georepository.endpoint(name)
 
 
@@ -251,8 +258,9 @@ def load_config(
     file, and are rejected if they appear in the config file.
 
     Args:
-        config_file: TOML file with a ``[projdb]`` table. When omitted, the file
-            is located by :func:`find_config_file`.
+        config_file: TOML file with a ``[projdb]`` table. When omitted,
+            ``GEODETIC_ENGINE_CONFIG`` is read, and then ``geodetic-projdb.toml``
+            in the working directory.
         env: Environment mapping. Defaults to :data:`os.environ`.
         load_dotenv_file: Load a ``.env`` file into the environment first.
         **overrides: Explicit values taking precedence over all other sources.

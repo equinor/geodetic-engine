@@ -3,6 +3,13 @@
 Each record names the operation to apply, so these tests exercise the path that
 matters most: a caller asking for one specific EPSG operation and getting that
 operation, not whichever one PROJ would have picked.
+
+What a passing record proves depends on its tier. Gold and silver records were
+agreed by at least two engines, so they check the answer. Reference records
+(all of ``dynamic.jsonl``, nearly all of ``vertical.jsonl``) were produced by
+PROJ alone: they check that PROJ's answer has not changed, and carry the
+``regression`` marker so that ``-m "not regression"`` leaves only the
+independent evidence.
 """
 
 from __future__ import annotations
@@ -25,16 +32,25 @@ from tests.geodesy.conftest import (
     to_xy,
 )
 
+# The named operation ends on the ETRS89 ensemble, the target CRS on one of its
+# national realisations.
 INCOMPLETE_OPERATION_CASES = frozenset(
     {
-        "5bb3094db926bfa0",
-        "7a2697d9d2a9215a",
-        "bd56bfe492ecc08c",
         "849b69950e77f90f",
         "f305de87fcc21b7c",
         "715790dbf5979703",
         "6bdeb69247ba3e2d",
         "1ade3025e49dc9fb",
+        "7c0645f35eea0309",
+        "cbc036823ed3e6e3",
+        "2302592f76711002",
+        "db238c5d4edc1fe2",
+        "a87430483ca422e8",
+        "c3f9cbb070231546",
+        "d11ac86b1fdf72f6",
+        "3727fed312586c88",
+        "664a2968b6c28057",
+        "5b2f326e1a4ac2cc",
     }
 )
 

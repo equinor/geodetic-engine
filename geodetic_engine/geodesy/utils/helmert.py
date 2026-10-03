@@ -375,8 +375,8 @@ def collapse_concatenated(
     Example:
         >>> chain = CoordinateOperation.from_authority("EPSG", 8047)
         >>> collapsed = collapse_concatenated(chain)
-        >>> collapsed.towgs84[0]
-        -84.491...
+        >>> round(collapsed.towgs84[0], 3)
+        -84.491
     """
     if not math.isfinite(tolerance_m) or tolerance_m <= 0:
         raise NotCollapsibleError("tolerance_m must be finite and positive")

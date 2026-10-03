@@ -14,29 +14,38 @@ untrustworthy:
 4. A time-dependent operation without a coordinate epoch is an error. A dynamic
     reference frame alone does not require an epoch if the operation ignores time.
 
-Coordinate **values** are always in ``xy`` order, in and out. The CRSs' declared
-axis order is reported separately and is not changed by this; see
-:mod:`geodetic_engine.geodesy.crs`.
+Coordinate **values** are in ``xy`` order, in and out: easting or longitude
+first wherever a CRS has an easting and a northing, whatever order it declares
+them in. A CRS with no such pair (Krovak's southing and westing, a geocentric
+X/Y/Z, a plant grid declaring north and west) keeps its declared order, as
+PROJ's ``always_xy`` keeps it; ``value_axis_order`` states the order axis by
+axis. The CRSs' declared axis order is reported separately and is not changed
+by this; see :mod:`geodetic_engine.geodesy.crs`. PROJ does not honour this
+contract at an engineering CRS on its own; see the workaround block above
+``_correct_engineering_axes``.
 """
 
 from __future__ import annotations
 
 import json
 import math
+import os
 import warnings
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, cast
 
-from pyproj import CRS, Transformer
+from pyproj import CRS, Transformer, datadir
 from pyproj.crs import CoordinateOperation
 from pyproj.enums import TransformDirection
 from pyproj.exceptions import CRSError, ProjError
+from pyproj.network import is_network_enabled
 from pyproj.transformer import TransformerGroup
 
-from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
+from geodetic_engine.geodesy.crs import AxisSpec, CoordinateReferenceSystem
 from geodetic_engine.geodesy.database import (
     DatabaseIdentity,
     database_fingerprints,
@@ -69,6 +78,7 @@ from geodetic_engine.geodesy.operation import (
     has_inverted_step,
     is_ballpark,
     operation_names,
+    operation_references,
     parse_operations,
     requires_epoch,
 )
@@ -76,8 +86,9 @@ from geodetic_engine.geodesy.result import Coordinates, TransformationResult
 
 _VERTICAL_DIRECTIONS = frozenset({"up", "down"})
 
-# Axis directions that carry latitude in a geographic CRS.
+# Axis directions that carry latitude and longitude in a geographic CRS.
 _NORTHINGS = frozenset({"north", "south"})
+_EASTINGS = frozenset({"east", "west"})
 
 # PROJ transforms at most x, y, z: a fourth spatial component has no meaning to
 # it, so one extra value beyond what a CRS declares is tolerated (a height
@@ -88,6 +99,10 @@ _MAX_COORDINATE_VALUES = 3
 # PROJ's flag for running a step backwards. A bare token, never a parameter
 # with a value, so it can be added or removed by name.
 _INVERSE_FLAG = "inv"
+
+# How PROJ words a grid it cannot open while building a pipeline step. The
+# message names the step, never the file.
+_MISSING_FILE_MARKER = "File not found or invalid"
 
 # Methods that restate axes rather than move coordinates. PROJ inserts these
 # when it normalises axis order, and they are not the method a caller means.
@@ -126,20 +141,34 @@ class _Pipeline:
     steps: tuple[tuple[Transformer, TransformDirection], ...]
     core: Transformer
     route: OperationRoute
-    identified_by: OperationRequest | None = None
-    """Operation that names this pipeline when the caller did not name one.
+    identified_by: tuple[OperationRequest, ...] = ()
+    """Operations that name this pipeline when the caller did not name one.
 
-    Set for a bound CRS, whose definition states the operation itself. Kept
-    apart from the caller's request so that a result reports what was applied
-    without claiming it was asked for.
+    Set for a bound CRS, whose definition states the operation itself: one
+    entry per bound end. Kept apart from the caller's request so that a result
+    reports what was applied without claiming it was asked for.
     """
+    corrected: tuple[tuple[Transformer, TransformDirection], ...] | None = None
+    """The steps actually run, when a PROJ workaround had to rewrite one.
+
+    ``steps`` keeps the transformers PROJ built, which carry the provenance
+    (definition, accuracy, grids). This holds the same sequence with the
+    rewritten core in place of the original, and is what executes and what is
+    reported as the pipeline. None when nothing was rewritten. See
+    ``_correct_engineering_axes``.
+    """
+
+    @property
+    def executed(self) -> tuple[tuple[Transformer, TransformDirection], ...]:
+        """The steps that run, corrected where a PROJ workaround applies."""
+        return self.steps if self.corrected is None else self.corrected
 
     def run(
         self, columns: Sequence[Sequence[float]], epoch: float | None
     ) -> list[list[float]]:
         """Apply every step in order, carrying all coordinate components through."""
         values: list[list[float]] = [list(column) for column in columns]
-        for transformer, direction in self.steps:
+        for transformer, direction in self.executed:
             values = _apply(transformer, values, epoch, direction)
         return values
 
@@ -186,7 +215,7 @@ class _Pipeline:
             replayed is worse than none, so nothing is reported rather than a
             string that only looks executable.
         """
-        return _compose_pipeline(self.steps)
+        return _compose_pipeline(self.executed)
 
     @property
     def reads_declared_horizontal(self) -> bool:
@@ -204,9 +233,9 @@ class _Pipeline:
         ``_entry_step`` below for the upstream bug and how to retire this once
         it is fixed.
         """
-        if not self.steps:
+        if not self.executed:
             return False
-        transformer, direction = self.steps[0]
+        transformer, direction = self.executed[0]
         return _swaps_horizontal(_entry_step(transformer.definition, direction))
 
 
@@ -219,9 +248,14 @@ class Transformation:
     costs one resolution rather than one per batch.
 
     Coordinate values are in ``xy`` order in both directions: longitude then
-    latitude for geographic CRSs, easting then northing for projected ones,
-    then height. The CRSs' EPSG-declared axis order is reported by
-    :attr:`source_crs` and :attr:`target_crs` and is frequently different.
+    latitude for geographic CRSs, easting then northing for projected and
+    engineering ones that have both, then height. A CRS with no easting and
+    northing to order (Krovak's southing and westing, a geocentric X/Y/Z, a
+    plant grid declaring north and west) keeps its declared order, as PROJ's
+    ``always_xy`` keeps it. The CRSs' EPSG-declared axis order is reported by
+    :attr:`source_crs` and :attr:`target_crs` and is frequently different;
+    their ``value_axis_order`` states the order the values are in, axis by
+    axis.
 
     Example:
         Reusing one transformation for several batches, naming the operation
@@ -245,7 +279,7 @@ class Transformation:
         leave the other chosen silently.
 
         >>> tfm = Transformation("EPSG:4979", "EPSG:6172",
-        ...                      operation=["EPSG:11028", "EPSG:9484"])
+        ...                      operation=["EPSG:11028", "EPSG:11559"])
 
         A datum change requires an explicit operation or bound CRS.
         Automatic datum selection and ballpark results are not supported:
@@ -273,7 +307,10 @@ class Transformation:
             | int
             | OperationReference
             | StatedOperation
-            | Sequence[str | int | OperationReference | StatedOperation]
+            | CoordinateOperation
+            | Sequence[
+                str | int | OperationReference | StatedOperation | CoordinateOperation
+            ]
             | None
         ) = None,
         *,
@@ -299,8 +336,9 @@ class Transformation:
                 conversions or explicitly bound operations are permitted.
 
                 An operation may also be stated outright rather than named: an
-                OSDU persistableReference payload, an ESRI ``GEOGTRAN``, or a
-                parsed reference. What is stated is then applied exactly as
+                OSDU persistableReference payload, an ESRI ``GEOGTRAN``, a
+                :class:`pyproj.crs.CoordinateOperation`, or a parsed
+                reference. What is stated is then applied exactly as
                 given, parameters and all, instead of being resolved against
                 PROJ's database -- which is the point, since a payload's
                 parameters need not agree with whatever a register publishes
@@ -312,7 +350,11 @@ class Transformation:
         Raises:
             UnresolvableCRSError: If either CRS cannot be constructed.
             OperationNotAvailableError: If the requested operation(s) cannot
-                be applied to this CRS pair.
+                be applied to this CRS pair, or if the operation is a
+                Similarity or Affine parametric transformation into a
+                northing-first projected CRS whose evaluation point cannot be
+                placed inside the area of use under either reading of its
+                ordinates; see ``_correct_engineering_axes``.
             AmbiguousOperationError: If no operation was requested, the
                 transformation involves an unbound datum change.
             BallparkTransformationError: If the path includes a ballpark.
@@ -323,11 +365,13 @@ class Transformation:
         self._target = CoordinateReferenceSystem.from_user_input(target_crs)
         self._requests = () if operation is None else parse_operations(operation)
 
-        pipeline = _resolve(
-            self._source,
-            self._target,
-            self._requests,
-            allow_any_operation=allow_any_operation,
+        pipeline = _correct_engineering_axes(
+            _resolve(
+                self._source,
+                self._target,
+                self._requests,
+                allow_any_operation=allow_any_operation,
+            )
         )
         definition = pipeline.definition
 
@@ -438,9 +482,10 @@ class Transformation:
                 unchanged).
             MissingCoordinateEpochError: If the operation reads a coordinate
                 epoch and none was given.
-            CoordinateOutOfRangeError: If a latitude is outside the range the
-                source CRS's own axis unit can represent, which most often
-                means projected coordinates were passed to a geographic CRS.
+            CoordinateOutOfRangeError: If a latitude or longitude is outside
+                the range the source CRS's own axis unit can represent, which
+                most often means projected coordinates were passed to a
+                geographic CRS.
             TransformationFailedError: If PROJ could not produce a finite
                 result, or cannot produce every axis the target CRS declares.
 
@@ -673,7 +718,10 @@ def transform(
         | int
         | OperationReference
         | StatedOperation
-        | Sequence[str | int | OperationReference | StatedOperation]
+        | CoordinateOperation
+        | Sequence[
+            str | int | OperationReference | StatedOperation | CoordinateOperation
+        ]
         | None
     ) = None,
     allow_any_operation: bool = False,
@@ -708,9 +756,10 @@ def transform(
             target CRS needs more than one pinned down -- order does not
             matter, see :class:`Transformation`. Or the operation itself,
             stated as an OSDU persistableReference payload, an ESRI
-            ``GEOGTRAN`` or a parsed reference, which is then applied as given
-            rather than looked up. Required whenever a datum change is
-            involved, except where a bound CRS already names it.
+            ``GEOGTRAN``, a :class:`pyproj.crs.CoordinateOperation` or a
+            parsed reference, which is then applied as given rather than
+            looked up. Required whenever a datum change is involved, except
+            where a bound CRS already names it.
         allow_any_operation: Compatibility keyword with no effect on strict
             datum-operation selection or ballpark refusal.
         coordinate_epoch: Decimal year the coordinates were observed at,
@@ -742,14 +791,11 @@ def transform(
         >>> result.coordinates
         ((597868.38..., 6642681.51...),)
     """
-    references = (
-        ()
-        if operation is None
-        else (operation,)
-        if isinstance(operation, (str, int, OperationCandidate, StatedOperation))
-        else tuple(operation)
-    )
-    if any(isinstance(reference, StatedOperation) for reference in references):
+    references = () if operation is None else operation_references(operation)
+    if any(
+        isinstance(reference, (StatedOperation, CoordinateOperation))
+        for reference in references
+    ):
         resolved = Transformation(
             source_crs, target_crs, references, allow_any_operation=allow_any_operation
         )
@@ -757,7 +803,7 @@ def transform(
         cacheable = tuple(
             reference
             for reference in references
-            if not isinstance(reference, StatedOperation)
+            if not isinstance(reference, (StatedOperation, CoordinateOperation))
         )
         resolved = _cached_transformation(
             _cache_key(source_crs),
@@ -810,8 +856,13 @@ def available_operations(
             :class:`Transformation` refuses it.
 
     Returns:
-        One candidate per operation PROJ offers, ordered as PROJ ranks them
-        (most accurate/likely first). Pass any entry's
+        One candidate per operation PROJ offers, in the order PROJ ranks them,
+        which weighs area of use and other criteria alongside accuracy: for
+        ED50 to WGS 84 the first candidate is EPSG:1133 (10 m) ahead of
+        EPSG:1612 (1 m). Filter on
+        :attr:`~geodetic_engine.geodesy.operation.OperationCandidate.accuracy`
+        or pass ``accuracy=`` rather than taking the first entry as the best.
+        Pass any entry's
         :attr:`~geodetic_engine.geodesy.operation.OperationCandidate.authority_code`
         as ``Transformation``'s ``operation=`` argument.
 
@@ -1105,7 +1156,6 @@ def _from_bound_crs(
     )
     if not requests:
         return None
-    request = requests[0]
     found = _from_transformer_group(source, target, requests)
     if found is None:
         found = _bound_transformer(source, target, requests)
@@ -1115,7 +1165,7 @@ def _from_bound_crs(
         steps=((found, TransformDirection.FORWARD),),
         core=found,
         route=OperationRoute.BOUND,
-        identified_by=request,
+        identified_by=requests,
     )
 
 
@@ -1247,7 +1297,7 @@ def _from_operation(
     outright and so was never a candidate to begin with.
     """
     if request.definition is not None:
-        core = _stated_transformer(request)
+        core = _stated_transformer(request, source, target)
     else:
         try:
             core = Transformer.from_pipeline(
@@ -1302,11 +1352,23 @@ def _from_operation(
     return _Pipeline(steps=tuple(steps), core=core, route=OperationRoute.CHAINED)
 
 
-def _stated_transformer(request: OperationRequest) -> Transformer:
+def _stated_transformer(
+    request: OperationRequest,
+    source: CoordinateReferenceSystem,
+    target: CoordinateReferenceSystem,
+) -> Transformer:
     """Run the operation a caller stated, rather than one PROJ looked up.
 
     The definition is handed over whole, so a chain stays a chain: nothing has
     to be collapsed into a single step the way a bound CRS would require.
+
+    Raises:
+        MissingGridError: If PROJ cannot build the operation because a grid it
+            reads is not installed. PROJ reports that as a malformed pipeline
+            step, which would otherwise send the caller looking for another
+            operation instead of for the grid.
+        OperationNotAvailableError: If PROJ cannot build it for any other
+            reason.
     """
     definition = request.definition
     if definition is None:
@@ -1321,6 +1383,8 @@ def _stated_transformer(request: OperationRequest) -> Transformer:
     try:
         return Transformer.from_pipeline(definition.to_json(), always_xy=True)
     except (ProjError, CRSError) as error:
+        if _MISSING_FILE_MARKER in str(error):
+            _require_grids(grid_usages((definition,)), source, target)
         raise OperationNotAvailableError(
             f"{request} states an operation PROJ cannot run: {error}"
         ) from error
@@ -1419,29 +1483,88 @@ def _confirm_installed(
     the same failure in the opposite direction to the one
     :func:`_require_grids` exists to prevent.
 
-    A grid the registry calls missing is therefore taken as satisfied only when
-    the compiled pipeline reads some *other* file in its place. A pipeline that
-    reads the very same name the registry calls missing says nothing new, and
-    is left reported missing: PROJ keeps opened grids in memory, so compiling
-    is not by itself proof that the file is still on disk.
+    The compiled pipeline is the complete statement of what will be read, so
+    it is the pipeline's files that are checked, and checked on disk: PROJ
+    keeps opened grids in memory, and a pipeline compiled while a file was
+    present still compiles once the file is gone, only to fail at the first
+    coordinate. A registry grid reported missing is taken as satisfied only
+    when every file the pipeline must read is installed; a file the pipeline
+    must read and that is not installed is reported missing under PROJ's own
+    name, whatever the registry said. With PROJ's network access enabled a
+    file can be fetched on demand, so its absence proves nothing and the
+    pipeline is trusted as compiled.
 
     Args:
         grids: What the registry says the applied operations depend on.
         pipeline: The pipeline that was compiled from them.
 
     Returns:
-        The same grids, with availability taken from the pipeline where the
-        pipeline substituted a different file.
+        The same grids, with availability corrected from the pipeline and the
+        disk, plus one entry per file the pipeline reads that the registry did
+        not name and that is not installed.
     """
-    substitutes = _mandatory_pipeline_grids(pipeline)
-    if not substitutes or all(grid.available for grid in grids):
+    reads = _mandatory_pipeline_grids(pipeline)
+    if not reads:
         return grids
-    return tuple(
-        grid
-        if grid.available or grid.name in substitutes
-        else replace(grid, available=True)
-        for grid in grids
+    if is_network_enabled():
+        # A grid PROJ substituted may be fetched on demand, so its absence
+        # proves nothing; a name the registry calls missing and the pipeline
+        # reads unchanged still says nothing new.
+        return tuple(
+            grid
+            if grid.available or grid.name in reads
+            else replace(grid, available=True)
+            for grid in grids
+        )
+    absent = sorted(name for name in reads if not _installed_grid(name))
+    if not absent:
+        return tuple(replace(grid, available=True) for grid in grids)
+    # The pipeline is the complete list of what will be read: a registry name
+    # it does not read is satisfied, and only its own absent files are missing.
+    named = {grid.name for grid in grids}
+    return (
+        *(replace(grid, available=grid.name not in absent) for grid in grids),
+        *(
+            GridUsage(
+                name=name,
+                full_name="",
+                package_name="",
+                url="",
+                available=False,
+                open_license=False,
+                direct_download=False,
+            )
+            for name in absent
+            if name not in named
+        ),
     )
+
+
+def _installed_grid(name: str) -> bool:
+    """Whether PROJ will find a grid file on disk under the name it uses.
+
+    Searched where PROJ searches: the data directories on its search path, in
+    order, and the user-writable directory that ``projsync`` and PROJ's own
+    network cache write to.
+    """
+    path = Path(name)
+    if path.is_absolute():
+        return path.is_file()
+    return any((Path(directory) / name).is_file() for directory in _grid_directories())
+
+
+def _grid_directories() -> tuple[str, ...]:
+    """PROJ's grid search path, first match winning, without duplicates."""
+    found: list[str] = []
+    for entry in (
+        *datadir.get_data_dir().split(os.pathsep),
+        *os.environ.get("PROJ_DATA", "").split(os.pathsep),
+        *os.environ.get("PROJ_LIB", "").split(os.pathsep),
+        datadir.get_user_data_dir(),
+    ):
+        if entry and entry not in found:
+            found.append(entry)
+    return tuple(found)
 
 
 def _constituent_operations(
@@ -1512,10 +1635,13 @@ def _describe(
     the pipeline applies more than one datum transformation, and no authority
     publishes the whole of it. That is what a bound CRS on each side of the
     pair produces: each names its own shift to the hub, so the identification
-    one of them supplies would understate the result by the other. A
-    registered concatenated operation such as EPSG:8047 is unaffected, since
-    the identifier is then on the top-level node, and so is an operation the
-    caller named, which is reported as asked for.
+    one of them supplies would understate the result by the other. Both are
+    then reported as :attr:`AppliedOperation.bound_operations` instead, since
+    a chain of two identified operations has no single code but is not
+    unidentified either. A registered concatenated operation such as
+    EPSG:8047 is unaffected, since the identifier is then on the top-level
+    node, and so is an operation the caller named, which is reported as asked
+    for.
     """
     node = definition
     unnamed_chain = (
@@ -1523,7 +1649,13 @@ def _describe(
         and datum_operation_count(definition) > 1
         and _identifier(definition) is None
     )
-    identifier_of = requests[0] if len(requests) == 1 else pipeline.identified_by
+    identifier_of = (
+        requests[0]
+        if len(requests) == 1
+        else pipeline.identified_by[0]
+        if len(pipeline.identified_by) == 1
+        else None
+    )
     if not unnamed_chain:
         if identifier_of is not None:
             matched = identifier_of.find_in(definition)
@@ -1563,6 +1695,8 @@ def _describe(
         steps=tuple(sorted(steps)),
         projjson=json.dumps(node),
         execution_direction=pipeline.core_direction,
+        bound_operations=tuple(r.text for r in pipeline.identified_by),
+        axis_order_corrected=pipeline.corrected is not None,
     )
 
 
@@ -1825,6 +1959,364 @@ def _report_horizontal_swap(pipeline: str | None) -> str | None:
     return f"proj=pipeline step proj=axisswap order=2,1 {body}"
 
 
+# ---------------------------------------------------------------------------
+# PROJ/EPSG workaround, not permanent design. Two things go wrong at an
+# engineering CRS, and both transpose coordinates without any error:
+#
+# 1. ``always_xy`` never normalises an engineering CRS. PROJ's
+#    ``mustAxisOrderBeSwitchedForVisualization`` considers geographic,
+#    projected and derived projected CRSs only, so a plant grid declared
+#    (northing, easting) is read and written in that order while every other
+#    end of the pipeline is east-first. This package promises ``xy`` wherever
+#    a CRS has an easting and a northing, so the ``axisswap`` PROJ omits is
+#    added here. Cartesian Grid Offsets (EPSG:9656) is the exception: PROJ
+#    renders it as an east-first ``affine`` and adapts projected ends around
+#    it but leaves engineering ends alone, so at such an end the values PROJ
+#    consumes already are ``xy``. A grid with no east/north pair at all
+#    (EPSG:5800 declares north and west) is left in declared order, which is
+#    what ``value_axis_order`` reports for it and what PROJ does with the
+#    corresponding projected case (Krovak's south and west).
+#
+# 2. PROJ reads the "Ordinate 1/2 of evaluation point in target CRS" of a
+#    Similarity transformation (EPSG:9621), and A0/B0 of an Affine parametric
+#    transformation (EPSG:9624), as the target CRS's first and second declared
+#    axes, then appends an ``axisswap`` to normalise a northing-first target.
+#    EPSG's own data does not follow that reading: EPSG:1035 states the Astra
+#    Minas grid origin as (2610200.48, 4905282.73) in EPSG:22192, which is
+#    declared (northing, easting) -- read that way the origin lies in
+#    Antarctica, read as (easting, northing) it lies at Comodoro Rivadavia,
+#    the operation's area of use. Registers of plant grids are authored both
+#    ways. So the convention is established from the data: the evaluation
+#    point is unprojected under both readings and the one that falls inside
+#    the area of use wins. When the ordinates turn out east-first, PROJ's
+#    appended ``axisswap`` transposes a result that was already ``xy`` and is
+#    removed. When neither or both readings are plausible the operation is
+#    refused rather than guessed at. An evaluation point stated in an
+#    engineering CRS cannot be unprojected, so PROJ's declared-order reading
+#    is kept there.
+#
+# Retire part 1 when PROJ normalises engineering CRSs under always_xy; the
+# canary is tests/geodesy/test_engineering_axes.py::
+# test_proj_still_leaves_engineering_axes_alone, which fails the day it does.
+# Retire part 2 when EPSG and PROJ agree on which axis each ordinate of
+# methods 9621/9624 refers to. The corrected core is rebuilt from its text
+# and reported as TransformationResult.pipeline, so replaying that pipeline
+# reproduces the result from the caller's own ``xy`` values.
+# ---------------------------------------------------------------------------
+
+_AXIS_SWAP_STEP = "proj=axisswap order=2,1"
+_AFFINE_STEP = "proj=affine"
+_INVERSE_METHOD_PREFIX = "inverse of "
+_EVALUATION_POINT_METHODS = frozenset(
+    {"similarity transformation", "affine parametric transformation"}
+)
+_GRID_OFFSETS_METHOD = "cartesian grid offsets"
+# Slack around an area of use when placing an evaluation point, in degrees.
+# Extents are quoted coarsely; the two readings differ by thousands of
+# kilometres, so this only has to absorb a sloppy bounding box.
+_AREA_MARGIN_DEGREES = 1.0
+
+
+def _correct_engineering_axes(pipeline: _Pipeline) -> _Pipeline:
+    """Rewrite the core so that its engineering ends honour the ``xy`` contract.
+
+    See the block comment above for what is corrected and why.
+
+    Returns:
+        The pipeline unchanged when no engineering CRS and no northing-first
+        evaluation point is involved, otherwise with ``corrected`` set to the
+        steps to execute.
+
+    Raises:
+        OperationNotAvailableError: If the operation is a Similarity or Affine
+            parametric transformation whose evaluation point is stated in a
+            northing-first projected CRS and cannot be placed inside the area
+            of use under exactly one reading of its ordinates, or if PROJ
+            built it in a shape this correction does not recognise.
+    """
+    nodes = _substantive_nodes(pipeline.definition)
+    steps = _pipeline_steps(pipeline.core.definition)
+    if not nodes or steps is None:
+        return pipeline
+    rewritten = list(steps)
+    changed = _drop_spurious_ordinate_swap(rewritten, nodes, pipeline.core)
+    changed = _add_engineering_swaps(rewritten, nodes) or changed
+    if not changed:
+        return pipeline
+    corrected = Transformer.from_pipeline(
+        " ".join(["proj=pipeline", *(f"step {step}" for step in rewritten)])
+    )
+    return replace(
+        pipeline,
+        corrected=tuple(
+            (corrected if transformer is pipeline.core else transformer, direction)
+            for transformer, direction in pipeline.steps
+        ),
+    )
+
+
+def _substantive_nodes(definition: dict[str, Any]) -> list[dict[str, Any]]:
+    """The operations in a PROJJSON tree that move coordinates, in order.
+
+    ``always_xy`` wraps the operation in a concatenated operation together
+    with the axis-order bookkeeping it inserts; that bookkeeping is skipped.
+    """
+    if definition.get("type") == "ConcatenatedOperation":
+        return [
+            node
+            for node in definition.get("steps", ())
+            if isinstance(node, dict)
+            and _method_of(node)[0] not in _BOOKKEEPING_METHODS
+        ]
+    return [definition] if isinstance(definition.get("method"), dict) else []
+
+
+def _method_of(node: dict[str, Any]) -> tuple[str, bool]:
+    """A node's method name, lower-cased, and whether PROJ inverted the node.
+
+    PROJ exports an inverted step with its forward parameters, the ends
+    swapped, and ``Inverse of`` prefixed to the method name.
+    """
+    method = node.get("method")
+    name = str(method.get("name", "")).lower() if isinstance(method, dict) else ""
+    if name.startswith(_INVERSE_METHOD_PREFIX):
+        return name[len(_INVERSE_METHOD_PREFIX) :], True
+    return name, False
+
+
+def _node_crs(node: dict[str, Any], end: str) -> CRS | None:
+    """The CRS a PROJJSON operation node names at ``end``, as declared."""
+    value = node.get(end)
+    if not isinstance(value, dict):
+        return None
+    try:
+        return CRS.from_json_dict(value)
+    except CRSError:
+        return None
+
+
+def _north_first(crs: CRS) -> bool:
+    """Whether the CRS declares a northing before an easting.
+
+    Read through :attr:`CoordinateReferenceSystem.value_axis_order` so that
+    the correction and the order this package reports cannot disagree.
+    """
+    order = CoordinateReferenceSystem(crs, crs.name).value_axis_order
+    return order[:2] == (1, 0)
+
+
+def _add_engineering_swaps(steps: list[str], nodes: list[dict[str, Any]]) -> bool:
+    """Part 1: swap the values at a northing-first engineering end.
+
+    Returns:
+        Whether ``steps`` was changed.
+    """
+    changed = False
+    entry = _node_crs(nodes[0], "source_crs")
+    if (
+        entry is not None
+        and entry.is_engineering
+        and _north_first(entry)
+        and _method_of(nodes[0])[0] != _GRID_OFFSETS_METHOD
+    ):
+        steps.insert(0, _AXIS_SWAP_STEP)
+        changed = True
+    exit_ = _node_crs(nodes[-1], "target_crs")
+    if (
+        exit_ is not None
+        and exit_.is_engineering
+        and _north_first(exit_)
+        and _method_of(nodes[-1])[0] != _GRID_OFFSETS_METHOD
+    ):
+        steps.append(_AXIS_SWAP_STEP)
+        changed = True
+    return changed
+
+
+def _drop_spurious_ordinate_swap(
+    steps: list[str], nodes: list[dict[str, Any]], core: Transformer
+) -> bool:
+    """Part 2: remove PROJ's normalising swap when the ordinates are east-first.
+
+    Returns:
+        Whether ``steps`` was changed.
+
+    Raises:
+        OperationNotAvailableError: See :func:`_correct_engineering_axes`.
+    """
+    evaluated = []
+    for node in nodes:
+        method, inverted = _method_of(node)
+        if method not in _EVALUATION_POINT_METHODS:
+            continue
+        # The evaluation point is stated in the operation's own target CRS,
+        # which is the node's source once PROJ has inverted it.
+        crs = _node_crs(node, "source_crs" if inverted else "target_crs")
+        if crs is not None and crs.is_projected and _north_first(crs):
+            evaluated.append((node, crs))
+    if not evaluated:
+        return False
+    if len(nodes) > 1:
+        raise OperationNotAvailableError(
+            f"{_node_label(evaluated[0][0])} states its evaluation point in "
+            f"{evaluated[0][1].name!r}, which declares its northing first, and "
+            "PROJ chained it with other steps; whether the ordinates follow "
+            "that declared order or are east-first cannot be established for "
+            "a step inside a chain, so the operation is refused rather than "
+            "risk a transposed result. Apply the operation between its own "
+            "CRSs instead"
+        )
+    node, crs = evaluated[0]
+    affine = [index for index, step in enumerate(steps) if _AFFINE_STEP in step.split()]
+    if len(affine) != 1:
+        raise OperationNotAvailableError(
+            f"PROJ built {_node_label(node)} as {len(affine)} affine steps "
+            "rather than one, a shape this package does not recognise; "
+            "refusing rather than risk a transposed result"
+        )
+    index = affine[0]
+    inverted = _INVERSE_FLAG in steps[index].split()
+    first, second = _affine_offsets(steps[index])
+    convention = _ordinate_convention(
+        crs, first, second, _area_bounds(core.area_of_use, crs, node)
+    )
+    if convention is None:
+        raise OperationNotAvailableError(
+            f"{_node_label(node)} states its evaluation point as ({first:g}, "
+            f"{second:g}) in {crs.name!r}, which declares its northing first, "
+            "and the point does not fall inside the area of use under exactly "
+            "one reading of those ordinates (declared order, or easting "
+            "first); which axis each ordinate refers to cannot be established, "
+            "so the operation is refused rather than risk a transposed result"
+        )
+    if convention == "declared":
+        return False
+    swap = index - 1 if inverted else index + 1
+    if not (0 <= swap < len(steps) and _swaps_horizontal(steps[swap])):
+        raise OperationNotAvailableError(
+            f"PROJ built {_node_label(node)} without the axis swap this "
+            "package expects beside its affine step; refusing rather than "
+            "risk a transposed result"
+        )
+    del steps[swap]
+    return True
+
+
+def _affine_offsets(step: str) -> tuple[float, float]:
+    """The translation of a PROJ ``affine`` step, in the CRS's own units."""
+    offsets = {"xoff": 0.0, "yoff": 0.0}
+    for token in step.split():
+        key, separator, value = token.partition("=")
+        if separator and key in offsets:
+            offsets[key] = float(value)
+    return offsets["xoff"], offsets["yoff"]
+
+
+def _area_bounds(
+    area: Any, crs: CRS, node: dict[str, Any]
+) -> tuple[float, float, float, float] | None:
+    """The bounding box to place an evaluation point against.
+
+    The operation's own area of use is the most specific. Failing that, the
+    CRS's -- read from the registry by the authority code the operation names
+    for it when the embedded definition dropped its usage, as PROJ's export of
+    an operation's ends does.
+    """
+    bounds = getattr(area, "bounds", None)
+    if bounds is not None:
+        return cast("tuple[float, float, float, float]", bounds)
+    if crs.area_of_use is not None:
+        return crs.area_of_use.bounds
+    for end in ("target_crs", "source_crs"):
+        value = node.get(end)
+        if not isinstance(value, dict) or value.get("name") != crs.name:
+            continue
+        identifier = _identifier(value)
+        if identifier is None:
+            return None
+        try:
+            registered = CRS.from_authority(*identifier)
+        except CRSError:
+            return None
+        if registered.area_of_use is not None and registered.equals(
+            crs, ignore_axis_order=False
+        ):
+            return registered.area_of_use.bounds
+    return None
+
+
+def _ordinate_convention(
+    crs: CRS,
+    first: float,
+    second: float,
+    bounds: tuple[float, float, float, float] | None,
+) -> str | None:
+    """Which axes an evaluation point's ordinates refer to, from where it lands.
+
+    Args:
+        crs: The northing-first projected CRS the point is stated in.
+        first: The first ordinate as stated.
+        second: The second ordinate as stated.
+        bounds: The area of use to place the point against, or None when
+            nothing states one.
+
+    Returns:
+        ``"declared"`` when only the declared reading (first ordinate a
+        northing) lands inside the area of use, ``"east-first"`` when only
+        the other does, None when neither or both do or there is no area.
+    """
+    geodetic = crs.geodetic_crs
+    if bounds is None or geodetic is None:
+        return None
+    to_geographic = Transformer.from_crs(crs, geodetic, always_xy=True)
+    # An area of use is stated from Greenwich; a base CRS on another prime
+    # meridian (NGO 1948 counts from Oslo) reports longitudes from there.
+    meridian = geodetic.prime_meridian
+    offset = (
+        0.0
+        if meridian is None
+        else math.degrees(
+            float(meridian.longitude) * float(meridian.unit_conversion_factor)
+        )
+    )
+
+    def lands(easting: float, northing: float) -> bool:
+        longitude, latitude = to_geographic.transform(easting, northing)
+        return _inside(bounds, longitude + offset, latitude)
+
+    declared = lands(second, first)
+    east_first = lands(first, second)
+    if declared and not east_first:
+        return "declared"
+    if east_first and not declared:
+        return "east-first"
+    return None
+
+
+def _inside(
+    bounds: tuple[float, float, float, float], longitude: float, latitude: float
+) -> bool:
+    """Whether a position lies within a bounding box, allowing for slack."""
+    if not (math.isfinite(longitude) and math.isfinite(latitude)):
+        return False
+    longitude = (longitude + 180.0) % 360.0 - 180.0
+    west, south, east, north = bounds
+    margin = _AREA_MARGIN_DEGREES
+    if not south - margin <= latitude <= north + margin:
+        return False
+    if west <= east:
+        return west - margin <= longitude <= east + margin
+    # A box across the antimeridian.
+    return longitude >= west - margin or longitude <= east + margin
+
+
+def _node_label(node: dict[str, Any]) -> str:
+    """Short identification of an operation node for error messages."""
+    identifier = _identifier(node)
+    name = node.get("name") or "the operation"
+    return f"{name!r}" if identifier is None else f"{identifier[0]}:{identifier[1]}"
+
+
 def _carry_unread_horizontal(
     source: CoordinateReferenceSystem,
     target: CoordinateReferenceSystem,
@@ -1873,25 +2365,36 @@ def _carry_unread_horizontal(
 def _require_in_range(
     source: CoordinateReferenceSystem, columns: tuple[tuple[float, ...], ...]
 ) -> None:
-    """Refuse a latitude a geographic CRS's own axis unit cannot represent.
+    """Refuse a latitude or longitude a geographic CRS's axis unit cannot represent.
 
-    PROJ rejects these too, but only as "Invalid latitude", naming neither the
-    CRS nor the units nor which value it read as latitude. Since the usual
-    cause is projected coordinates in metres handed to a geographic CRS, or
-    latitude passed first, the message has to name all three to be actionable.
+    PROJ rejects an impossible latitude too, but only as "Invalid latitude",
+    naming neither the CRS nor the units nor which value it read as latitude.
+    Since the usual cause is projected coordinates in metres handed to a
+    geographic CRS, or latitude passed first, the message has to name all
+    three to be actionable. An impossible longitude PROJ does not reject at
+    all: it wraps it, so a longitude of 400 degrees quietly becomes 40.
 
-    The limit is derived from the axis's own unit rather than assumed to be 90,
-    so a CRS declaring grads (``EPSG:4807``) is held to 100 rather than
-    wrongly refused.
+    The limits are derived from each axis's own unit rather than assumed to
+    be 90 and 180, so a CRS declaring grads (``EPSG:4807``) is held to 100
+    rather than wrongly refused. Longitude is allowed a full turn either way,
+    since a dataset counted from 0 to 360 is a convention, not a mistake.
     """
     if not source.is_geographic:
         return
     order = source.value_axis_order
+    checks: list[tuple[int, AxisSpec, float]] = []
     for value_index, declared_index in enumerate(order[: len(columns)]):
         axis = source.axes[declared_index]
-        if axis.direction.lower() not in _NORTHINGS:
-            continue
-        limit = (math.pi / 2) / axis.unit_conversion_factor
+        direction = axis.direction.lower()
+        if direction in _NORTHINGS:
+            limit = (math.pi / 2) / axis.unit_conversion_factor
+            checks.insert(0, (value_index, axis, limit))
+        elif direction in _EASTINGS:
+            limit = (2 * math.pi) / axis.unit_conversion_factor
+            checks.append((value_index, axis, limit))
+    # Latitude first: when both values are metres, the one read as latitude is
+    # the diagnostic the caller can act on.
+    for value_index, axis, limit in checks:
         for point, value in enumerate(columns[value_index]):
             if math.isfinite(value) and abs(value) > limit:
                 raise CoordinateOutOfRangeError(
@@ -1902,7 +2405,6 @@ def _require_in_range(
                     f"{source.axis_units} -- projected coordinates in metres "
                     "need a projected CRS"
                 )
-        return
 
 
 def _require_finite(

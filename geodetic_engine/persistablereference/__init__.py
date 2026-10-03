@@ -2,7 +2,9 @@
 
 OSDU identifies the CRS, transformation or unit of a record with a
 ``persistableReference``: a JSON envelope wrapping ESRI WKT, frequently
-URL-encoded and frequently embedded as a string inside another document. It is
+URL-encoded, and found as the value of a field in another document -- extract
+that string and pass it here as it is (a payload that has itself been
+JSON-encoded a second time is not decoded for you). It is
 self-contained, carrying the full definition rather than a code to look up, and
 this package reads it that way -- the parameters are what is built from, and the
 authority code beside them is provenance.

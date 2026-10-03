@@ -9,15 +9,15 @@
 # is part of the answer we give callers.
 set -euo pipefail
 
-PROJ_VERSION="${PROJ_VERSION:-9.8.1}"
-PROJ_SHA256="${PROJ_SHA256:-af5b731c145c1d13c4e3b4eeb7d167e94e845e440f71e3496b4ed8dae0291960}"
+PROJ_VERSION="${PROJ_VERSION:-9.9.0}"
+PROJ_SHA256="${PROJ_SHA256:-791a0610547eeabb17006cfd49cdbd2034f3240f47ed5e88a1031811f4e2bcf3}"
 PROJ_PREFIX="${PROJ_PREFIX:-/usr/local}"
 
 # The transformation grids, which a PROJ source build does not include. The
 # version matches the PROJ_DATA.VERSION recorded in this PROJ's proj.db.
-# Set SKIP_PROJ_DATA=1 to omit them; the download is roughly 750 MB.
-PROJ_DATA_VERSION="${PROJ_DATA_VERSION:-1.24}"
-PROJ_DATA_SHA256="${PROJ_DATA_SHA256:-eadf412754a2a9a727d79579873fbe7dae802038d4c2a19e452a886d4eddd111}"
+# Set SKIP_PROJ_DATA=1 to omit them; the download is roughly 800 MB.
+PROJ_DATA_VERSION="${PROJ_DATA_VERSION:-1.25}"
+PROJ_DATA_SHA256="${PROJ_DATA_SHA256:-16d65cb5d25b7d8492dbde4d39cafcc8c42f3e55e6715bac4d87519d6d08f4c8}"
 
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT

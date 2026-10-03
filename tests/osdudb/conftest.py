@@ -14,11 +14,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pyproj
 import pytest
 
 from geodetic_engine.osdudb.catalog import OsduCatalog
 from geodetic_engine.osdudb.config import OsduBuildConfig
+from tests.support import installed_proj_db
 
 AUTHORITY = "OSDU"
 
@@ -47,8 +47,8 @@ def isolated_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def base_proj_db() -> Path:
-    """Path to the official proj.db of the linked PROJ."""
-    return Path(pyproj.datadir.get_data_dir()) / "proj.db"
+    """Path to the proj.db of the linked PROJ, the first on its search path."""
+    return installed_proj_db()
 
 
 @pytest.fixture

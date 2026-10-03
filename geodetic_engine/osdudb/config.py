@@ -172,9 +172,9 @@ def load_config(
     ``catalog`` override.
 
     Args:
-        config_file: TOML file with an ``[osdudb]`` table. When omitted, the
-            file is located by
-            :func:`~geodetic_engine.projdb.settings.find_config_file`.
+        config_file: TOML file with an ``[osdudb]`` table. When omitted,
+            ``GEODETIC_ENGINE_CONFIG`` is read, and then
+            ``geodetic-osdudb.toml`` in the working directory.
         env: Environment mapping. Defaults to :data:`os.environ`.
         load_dotenv_file: Load a ``.env`` file into the environment first, so
             an operator can keep one settings file for both workflows.

@@ -401,13 +401,13 @@ ETRS89_NOR_geog3D = "EPSG:10874"  # ETRS89-NOR Geographic 3D.
 NN54_HEIGHT = "EPSG:5776"  # NN54 height.
 UTM32N_NN54_HEIGHT = "EPSG:6172"  # ETRS89-NOR / UTM zone 32N + NN54 height.
 UTM32N_NN2000_HEIGHT = "EPSG:5972"  # ETRS89-NOR / UTM zone 32N + NN2000 height.
-ETRS89_TO_NN54 = "EPSG:9484"  # ETRS89-NOR to NN54 height (1).
+ETRS89_TO_NN54 = "EPSG:11559"  # ETRS89-NOR to NN54 height (1).
 
 
 def test_a_named_vertical_operation_reaches_a_compound_target() -> None:
     """A vertical operation composes with the conversion PROJ adds for a compound target.
 
-    EPSG:9484 reads the NN54 geoid grid at a geographic position; naming it
+    EPSG:11559 reads the NN54 geoid grid at a geographic position; naming it
     against the *compound* UTM+height target still reaches it, with PROJ's own
     UTM conversion applied around it. The composite pipeline has no authority
     code of its own -- only the named vertical operation inside it does.

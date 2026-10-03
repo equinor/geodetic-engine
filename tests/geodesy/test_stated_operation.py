@@ -25,6 +25,7 @@ from pyproj.crs import CoordinateOperation
 from geodetic_engine.geodesy import (
     OperationNotAvailableError,
     OperationRoute,
+    Transformation,
     transform,
 )
 from geodetic_engine.persistablereference import parse_persistable_reference
@@ -115,6 +116,47 @@ def test_a_parsed_reference_is_accepted_as_readily_as_its_payload() -> None:
     assert transform(ED50, WGS84, POINT, operation=parsed).coordinates == (
         transform(ED50, WGS84, POINT, operation=payload()).coordinates
     )
+
+
+def test_a_pyproj_operation_is_accepted_as_the_operation_itself() -> None:
+    """The natural way to state an operation is the pyproj object for it.
+
+    It is applied as stated, like a payload, so the same altered translation
+    moves the point the same way, and provenance names the object, not the
+    code it carries.
+    """
+    altered = CoordinateOperation.from_json(
+        parse_persistable_reference(payload(ALTERED_X)).to_operation().to_json()
+    )
+
+    result = transform(ED50, WGS84, POINT, operation=altered)
+
+    assert result.coordinates == (
+        transform(ED50, WGS84, POINT, operation=payload(ALTERED_X)).coordinates
+    )
+    assert result.operation.name == "ED_1950_To_WGS_1984_1"
+    assert result.operation.requested == "ED_1950_To_WGS_1984_1"
+
+
+@pytest.mark.parametrize(
+    ("operation", "culprit"),
+    [
+        (1.5, "float"),
+        ([1.5], "float"),
+        (["EPSG:1133", None], "NoneType"),
+        (b"EPSG:1133", "bytes"),
+    ],
+    ids=["bare", "in-a-list", "beside-a-code", "bytes"],
+)
+def test_something_that_names_no_operation_is_refused_with_its_type_named(
+    operation: object, culprit: str
+) -> None:
+    """Whatever names no operation is a TypeError naming its type, alone or listed."""
+    expected = rf"pyproj CoordinateOperation.*got {culprit}$"
+    with pytest.raises(TypeError, match=expected):
+        transform(ED50, WGS84, POINT, operation=operation)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=expected):
+        Transformation(ED50, WGS84, operation=operation)  # type: ignore[arg-type]
 
 
 def test_the_stated_parameters_are_applied_and_not_the_published_ones() -> None:
