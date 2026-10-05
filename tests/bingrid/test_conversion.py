@@ -264,7 +264,7 @@ def test_applied_operations_name_both_crss_and_every_operation() -> None:
     assert "WGS 84 / UTM zone 15N" in steps[0]
     assert "NAD27 / BLM 14N (ftUS)" in steps[0]
     assert "EPSG:15851" in steps[0]
-    assert "dI=0.00, dJ=0.38" in steps[1]
+    assert "dI=0.00 inline numbers, dJ=0.38 crossline numbers" in steps[1]
     assert "WGS 84" in steps[2]
     assert "EPSG:15851" in steps[2]
 

@@ -113,7 +113,8 @@ class BinGridResult:
         mislocation = self.max_mislocation
         steps.append(
             f"Squared up the bin grid in {self.crs.name}: "
-            f"dI={mislocation.di:.2f}, dJ={mislocation.dj:.2f} bin"
+            f"dI={mislocation.di:.2f} inline numbers, "
+            f"dJ={mislocation.dj:.2f} crossline numbers"
         )
         if self.wgs84_conversion is not None:
             steps.append(
