@@ -336,6 +336,42 @@ def test_a_projected_crs_without_easting_and_northing_axes_is_refused(crs: str) 
         convert_bin_grid(ACCEPTANCE, crs, wgs84=False)
 
 
+def _utm_15n_with_second_axis_in(unit: dict[str, Any], *, of_base: bool = False) -> CRS:
+    """WGS 84 / UTM zone 15N, the second axis of it or of its base CRS in ``unit``."""
+    definition = CRS.from_epsg(32615).to_json_dict()
+    stated = definition["base_crs"] if of_base else definition
+    stated["coordinate_system"]["axis"][1]["unit"] = unit
+    definition.pop("id", None)
+    definition["base_crs"].pop("id", None)
+    return CRS.from_json_dict(definition)
+
+
+def test_a_crs_with_easting_and_northing_in_different_units_is_refused() -> None:
+    crs = _utm_15n_with_second_axis_in(
+        {
+            "type": "LinearUnit",
+            "name": "US survey foot",
+            "conversion_factor": 0.304800609601219,
+        }
+    )
+
+    with pytest.raises(UnsupportedCRSError, match="US survey foot"):
+        convert_bin_grid(ACCEPTANCE, crs, wgs84=False)
+
+
+def test_a_geographic_crs_with_axes_in_different_units_gives_no_scale_factor() -> None:
+    crs = _utm_15n_with_second_axis_in(
+        {"type": "AngularUnit", "name": "grad", "conversion_factor": 0.015707963267949},
+        of_base=True,
+    )
+
+    with pytest.raises(UnsupportedCRSError, match="grad"):
+        convert_bin_grid(ACCEPTANCE, crs, wgs84=False)
+
+    stated = convert_bin_grid(ACCEPTANCE, crs, scale_factor=1.0, wgs84=False)
+    assert stated.parameters.scale_factor == 1.0
+
+
 def test_corners_may_be_given_in_any_order_or_already_labelled() -> None:
     labelled = BinGridCorners.from_corners(ACCEPTANCE)
 

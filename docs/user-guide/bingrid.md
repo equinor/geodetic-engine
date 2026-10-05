@@ -126,7 +126,7 @@ subclasses of {class}`~geodetic_engine.bingrid.BinGridError`:
 | {class}`~geodetic_engine.bingrid.InvalidCornersError` | There are not four corners, or their numbers are not the four combinations of two inlines and two crosslines. |
 | {class}`~geodetic_engine.bingrid.DegenerateBinGridError` | Coordinates are not finite, corners coincide, or the outline A-B-D-C is not convex (swapped or collinear corners). |
 | {class}`~geodetic_engine.bingrid.InvalidParameterError` | A P6 parameter is out of range, for example a scale factor that is not positive. |
-| {class}`~geodetic_engine.bingrid.UnsupportedCRSError` | A CRS is not a 2D projected CRS with easting and northing axes, or k is to be derived from a projection that is not conformal at the grid. |
+| {class}`~geodetic_engine.bingrid.UnsupportedCRSError` | A CRS is not a 2D projected CRS with easting and northing axes in one linear unit, or k is to be derived from a projection that is not conformal at the grid. |
 
 {func}`~geodetic_engine.bingrid.derive_p6` and
 {func}`~geodetic_engine.bingrid.square_up` expose the fit itself. They take a
