@@ -13,7 +13,6 @@ import logging
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from itertools import pairwise
 from typing import Any
 
 from geodetic_engine.bingrid.corners import LABELS, BinGridCorners
@@ -56,7 +55,8 @@ def outline(corners: BinGridCorners) -> BinGridOutline:
         A closed, counterclockwise ring of five points.
 
     Raises:
-        DegenerateBinGridError: If the corners enclose no area.
+        DegenerateBinGridError: If the outline A-B-D-C of the corners does not
+            enclose a convex area.
     """
     return outline_of([(c.easting, c.northing) for c in corners])
 
@@ -74,19 +74,24 @@ def outline_of(points: Sequence[Sequence[float]]) -> BinGridOutline:
         A closed, counterclockwise ring of five points.
 
     Raises:
-        DegenerateBinGridError: If the points enclose no area.
+        DegenerateBinGridError: If the outline A-B-D-C of the points does not
+            enclose a convex area: it crosses itself, turns back, or has no area.
     """
     if len(points) != 4 or any(len(point) != 2 for point in points):
         raise DegenerateBinGridError(
             f"an outline needs 4 xy pairs, in order A, B, C, D, got {points!r}"
         )
     xy = [(float(x), float(y)) for x, y in points]
-    area = _twice_signed_area([xy[index] for index in _RING])
-    if not math.isfinite(area) or area == 0:
+    turns = _turns([xy[index] for index in _RING])
+    if all(0.0 < turn < math.inf for turn in turns):
+        ring = _RING
+    elif all(-math.inf < turn < 0.0 for turn in turns):
+        ring = _REVERSED_RING
+    else:
         raise DegenerateBinGridError(
-            f"the corners {xy} enclose no area, so they have no outline"
+            f"the outline A-B-D-C of the corners {xy} does not enclose a convex "
+            "area, as happens when corners are swapped or lie on one line"
         )
-    ring = _RING if area > 0 else _REVERSED_RING
     order = (*ring, ring[0])
     return BinGridOutline(
         labels=tuple(LABELS[index] for index in order),
@@ -94,10 +99,11 @@ def outline_of(points: Sequence[Sequence[float]]) -> BinGridOutline:
     )
 
 
-def _twice_signed_area(ring: Sequence[tuple[float, float]]) -> float:
-    """Shoelace sum relative to the first point, positive when counterclockwise."""
-    x0, y0 = ring[0]
-    total = 0.0
-    for (x1, y1), (x2, y2) in pairwise(ring[1:]):
-        total += (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
-    return total
+def _turns(ring: Sequence[tuple[float, float]]) -> list[float]:
+    """Cross product of the two edges at each point of a ring: positive to the left."""
+    turns = []
+    for index, (x1, y1) in enumerate(ring):
+        x0, y0 = ring[index - 1]
+        x2, y2 = ring[(index + 1) % len(ring)]
+        turns.append((x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1))
+    return turns

@@ -53,6 +53,21 @@ def test_corners_on_one_line_have_no_outline() -> None:
         outline(corners)
 
 
+@pytest.mark.parametrize(
+    "points",
+    [
+        pytest.param([(0.0, 0.0), (4.0, 0.0), (0.0, 3.0), (1.0, -1.0)], id="crossing"),
+        pytest.param([(0.0, 0.0), (0.0, 4.0), (4.0, 0.0), (1.0, 1.0)], id="concave"),
+    ],
+)
+def test_points_whose_outline_is_not_convex_have_none(
+    points: list[tuple[float, float]],
+) -> None:
+    """Both enclose a nonzero signed area, so the sign alone would give a ring."""
+    with pytest.raises(DegenerateBinGridError, match="convex"):
+        outline_of(points)
+
+
 def test_outline_renders_as_plain_data() -> None:
     rendered = outline(
         BinGridCorners.from_corners(corner_tuples(CASES[2]))
