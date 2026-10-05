@@ -340,7 +340,7 @@ def pairs(
         ValueError: If the values do not make up two per point.
     """
     if second is None:
-        values = np.asarray(first, dtype=np.float64)
+        values = np.asarray(_listed(first), dtype=np.float64)
         if values.ndim == 1 and values.size in (0, 2):
             return values.reshape(-1, 2)
         if values.ndim != 2 or values.shape[1] != 2:
@@ -349,14 +349,23 @@ def pairs(
                 f"{values.shape}"
             )
         return values
-    x = np.atleast_1d(np.asarray(first, dtype=np.float64))
-    y = np.atleast_1d(np.asarray(second, dtype=np.float64))
+    x = np.atleast_1d(np.asarray(_listed(first), dtype=np.float64))
+    y = np.atleast_1d(np.asarray(_listed(second), dtype=np.float64))
     if x.ndim != 1 or x.shape != y.shape:
         raise ValueError(
             f"the two axes' values must be matching scalars or sequences, got "
             f"shapes {x.shape} and {y.shape}"
         )
     return np.column_stack((x, y))
+
+
+def _listed(values: Any) -> Any:
+    """``values`` with its iterables as lists, since NumPy cannot read a generator."""
+    if hasattr(values, "__array__") or isinstance(values, str | bytes):
+        return values
+    if isinstance(values, Iterable):
+        return [_listed(value) for value in values]
+    return values
 
 
 @lru_cache(maxsize=256)

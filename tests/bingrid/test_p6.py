@@ -100,6 +100,24 @@ def test_positions_can_be_given_in_every_shape_transform_accepts() -> None:
     assert grid.to_map([]).shape == (0, 2)
 
 
+def test_positions_can_be_one_shot_iterables_as_transform_accepts() -> None:
+    grid = p6(NORTH_UP)
+    nodes = [(1, 1000), (101, 2000)]
+    expected = grid.to_map(nodes)
+
+    np.testing.assert_array_equal(grid.to_map(iter(nodes)), expected)
+    np.testing.assert_array_equal(grid.to_map(iter(n) for n in nodes), expected)
+    np.testing.assert_array_equal(
+        grid.to_map(zip([1, 101], [1000, 2000], strict=True)), expected
+    )
+    np.testing.assert_array_equal(
+        grid.to_map(iter([1, 101]), (j for j in [1000, 2000])), expected
+    )
+    np.testing.assert_array_equal(grid.to_map(iter((1, 1000))), expected[:1])
+    points = expected.tolist()
+    np.testing.assert_array_equal(grid.to_bin(iter(points)), grid.to_bin(points))
+
+
 def test_map_points_can_be_given_in_every_shape_transform_accepts() -> None:
     grid = p6(NORTH_UP)
     points = [(500000.0, 3000000.0), (600000.0, 3100000.0)]
