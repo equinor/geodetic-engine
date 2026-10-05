@@ -18,6 +18,7 @@ from pyproj import Transformer
 from geodetic_engine import bingrid
 from geodetic_engine.bingrid import (
     BinGridCorners,
+    Handedness,
     P6Parameters,
     UnsupportedCRSError,
     corners_from_p6,
@@ -84,6 +85,22 @@ def test_a_dataset_must_be_within_half_a_bin(east: float, matched: bool) -> None
     assert (result.best is not None) is matched
     if result.best is not None:
         assert result.best.distance == pytest.approx(east)
+
+
+def test_a_grid_exactly_half_a_bin_away_matches() -> None:
+    """Bin widths of 32 and 16 on a north-up grid keep every distance exact."""
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=1000.0, origin_northing=2000.0,
+        bin_width_i=32.0, bin_width_j=16.0, bearing_j=0.0, handedness=Handedness.RIGHT,
+    )  # fmt: skip
+    dataset = _volume(grid, inlines=(1, 51), crosslines=(1, 101))
+    edge = StoredBinGrid("half-a-bin-off", _moved(grid, 8.0), NAD27_UTM_15N)
+
+    result = match_bin_grid(dataset, NAD27_UTM_15N, [edge])
+
+    assert result.tolerance == 8.0
+    assert result.best is not None
+    assert result.best.distance == 8.0
 
 
 def test_a_decimated_dataset_is_held_to_half_of_its_own_spacing() -> None:

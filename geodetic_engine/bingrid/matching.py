@@ -201,7 +201,7 @@ def match_bin_grid(
             modelled = converted.transform(modelled).coordinates.to_numpy()
         offsets = modelled - dataset.coordinates
         distance = float(np.hypot(offsets[:, 0], offsets[:, 1]).max())
-        if distance < tolerance:
+        if distance <= tolerance:
             matches.append(
                 BinGridMatch(
                     grid=grid,
