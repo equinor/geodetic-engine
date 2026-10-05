@@ -51,5 +51,7 @@ class UnsupportedCRSError(BinGridError):
     north and its widths are distances on the grid. A geographic CRS has no
     such grid, and a projected CRS whose axes are not easting and northing (a
     southing and westing, say) would have the bearing measured the wrong way
-    round.
+    round. Also raised when the scale factor is to be derived from a projection
+    that is not conformal at the grid: its scale there depends on direction, so
+    no one scale factor makes both bin widths ground distances.
     """

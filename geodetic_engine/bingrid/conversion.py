@@ -5,7 +5,9 @@ service's ``POST v3/convertBinGrid``, without any of its JSON: optionally
 convert the corners to another CRS, fit the best rectangle through them there,
 report how far they were from it, and give the squared corners in WGS 84. The
 bin grid scale factor is that CRS's point scale factor at the grid centre, so
-that the P6 bin widths are the ground spacing of the bins there.
+that the P6 bin widths are the ground spacing of the bins there. A projection
+that is not conformal there has a scale per direction rather than one, so the
+scale factor must then be stated.
 
 Coordinate conversions go through :class:`~geodetic_engine.geodesy.Transformation`
 and keep its guarantees: a datum change needs a named operation or a bound CRS,
@@ -39,6 +41,9 @@ from geodetic_engine.geodesy import (
 logger = logging.getLogger(__name__)
 
 WGS84 = "EPSG:4326"
+
+# PROJ's Tissot axes of a conformal projection differ by up to ~2e-8 of noise.
+_CONFORMAL_TOLERANCE = 1e-6
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +182,8 @@ def convert_bin_grid(
         scale_factor: Bin grid scale factor of the squared grid. Omitted, it
             is the point scale factor of the CRS the grid is squared in, at
             the grid centre (``point_scale_factor``), so that the bin widths
-            are the ground spacing of the bins there.
+            are the ground spacing of the bins there. Required where that
+            CRS's projection is not conformal at the grid.
         increment_i: Inline node increment.
         increment_j: Crossline node increment.
         wgs84: Whether to also give the squared corners in WGS 84.
@@ -191,7 +197,9 @@ def convert_bin_grid(
         InvalidCornersError: If the corners are not those of a bin grid.
         DegenerateBinGridError: If their coordinates cannot be.
         InvalidParameterError: If a parameter is out of range.
-        UnsupportedCRSError: If a CRS cannot carry a bin grid.
+        UnsupportedCRSError: If a CRS cannot carry a bin grid, or
+            ``scale_factor`` is omitted and the projection is not conformal
+            at the grid.
         ValueError: If ``operation`` is given without a conversion to apply it to.
         geodetic_engine.geodesy.GeodesyError: If a conversion cannot be resolved
             or applied, for example a datum change that names no operation.
@@ -290,15 +298,18 @@ def point_scale_factor(
 ) -> float:
     """EPSG's bin grid scale factor: the map grid's point scale at the grid centre.
 
-    For a projection that is not conformal, whose scale depends on direction,
-    the geometric mean of its scales in the principal directions.
-
     Args:
         corners: The corners, in ``crs``.
         crs: A CRS that :func:`map_grid_crs` accepts.
 
     Returns:
         Map grid distance per ellipsoidal distance at the centre of the corners.
+
+    Raises:
+        UnsupportedCRSError: If the CRS states no geographic CRS, or its
+            projection is not conformal at the centre: where the scale there
+            differs by more than 1e-6 between directions, no one scale factor
+            gives the ground spacing along both bin grid axes.
     """
     base = unbound_crs(crs)
     geographic = base.geodetic_crs
@@ -316,6 +327,14 @@ def point_scale_factor(
         geographic.axis_info[0].unit_conversion_factor
     )
     factors = Proj(base).get_factors(longitude, latitude, errcheck=True)
+    smallest, largest = factors.tissot_semiminor, factors.tissot_semimajor
+    if largest > smallest * (1 + _CONFORMAL_TOLERANCE):
+        raise UnsupportedCRSError(
+            f"the projection of {crs.name} is not conformal at the grid: its "
+            f"scale there ranges from {smallest:.9f} to {largest:.9f} by "
+            "direction, so no one bin grid scale factor makes both bin widths "
+            "ground distances; pass scale_factor to state one"
+        )
     return math.sqrt(factors.areal_scale)
 
 

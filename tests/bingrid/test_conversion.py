@@ -205,6 +205,33 @@ def test_the_scale_factor_holds_whatever_the_geographic_crs_states(
     assert result.parameters.scale_factor == pytest.approx(k0, rel=1e-9)
 
 
+@pytest.mark.parametrize(
+    ("crs", "centre"),
+    [
+        pytest.param("EPSG:5070", (-96.0, 37.5), id="albers-equal-area"),
+        pytest.param("EPSG:30200", (-61.0, 10.4), id="cassini-36-km-off-meridian"),
+    ],
+)
+def test_a_projection_not_conformal_at_the_grid_needs_a_stated_scale_factor(
+    crs: str, centre: tuple[float, float]
+) -> None:
+    """Its scale depends on direction, so no one k makes both widths ground ones."""
+    projected = CRS.from_user_input(crs)
+    to_map = Transformer.from_crs(projected.geodetic_crs, projected, always_xy=True)
+    easting, northing = to_map.transform(*centre)
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=easting, origin_northing=northing,
+        bin_width_i=25.0, bin_width_j=25.0, bearing_j=30.0, handedness=Handedness.RIGHT,
+    )  # fmt: skip
+    corners = corners_from_p6(grid, inline_range=(1, 401), crossline_range=(1, 401))
+
+    with pytest.raises(UnsupportedCRSError, match="not conformal"):
+        convert_bin_grid(corners, crs, wgs84=False)
+
+    stated = convert_bin_grid(corners, crs, scale_factor=1.0, wgs84=False)
+    assert stated.parameters.scale_factor == 1.0
+
+
 def test_an_explicit_scale_factor_is_used_and_moves_nothing() -> None:
     derived = convert_bin_grid(
         ACCEPTANCE, "EPSG:32615", target_crs=BLM_14N, wgs84=False

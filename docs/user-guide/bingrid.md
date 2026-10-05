@@ -121,7 +121,7 @@ subclasses of {class}`~geodetic_engine.bingrid.BinGridError`:
 | {class}`~geodetic_engine.bingrid.InvalidCornersError` | There are not four corners, or their numbers are not the four combinations of two inlines and two crosslines. |
 | {class}`~geodetic_engine.bingrid.DegenerateBinGridError` | Coordinates are not finite, corners coincide, or the outline A-B-D-C is not convex (swapped or collinear corners). |
 | {class}`~geodetic_engine.bingrid.InvalidParameterError` | A P6 parameter is out of range, for example a scale factor that is not positive. |
-| {class}`~geodetic_engine.bingrid.UnsupportedCRSError` | A CRS is not a 2D projected CRS with easting and northing axes. |
+| {class}`~geodetic_engine.bingrid.UnsupportedCRSError` | A CRS is not a 2D projected CRS with easting and northing axes, or k is to be derived from a projection that is not conformal at the grid. |
 
 {func}`~geodetic_engine.bingrid.derive_p6` and
 {func}`~geodetic_engine.bingrid.square_up` expose the fit itself. They take a
@@ -138,14 +138,16 @@ makes deriving, applying and inverting the parameters round-trip exactly for
 any k, and k moves no position: only k × bin width enters the formulas.
 
 `convert_bin_grid` derives k as EPSG defines it: the point scale factor of the
-CRS the grid is squared in, taken at the centre of the grid, from PROJ. For a
-projection that is not conformal, whose scale depends on direction, it is the
-geometric mean of the scales in the principal directions. The bin widths are
-then the ground spacing of the bins at the centre, the same in any CRS. Where
-the projection's scale varies across the grid, the spacing elsewhere differs:
-the average over the grid by about 1e-5 (1 cm per km) for a 100 km grid, and
-4e-7 for a 20 km one. Pass `scale_factor` to state k yourself; `square_up` and
-`derive_p6` take k as given, 1.0 by default.
+CRS the grid is squared in, taken at the centre of the grid, from PROJ. The bin
+widths are then the ground spacing of the bins at the centre, the same in any
+CRS. Where the projection's scale varies across the grid, the spacing elsewhere
+differs: the average over the grid by about 1e-5 (1 cm per km) for a 100 km
+grid, and 4e-7 for a 20 km one. A projection that is not conformal, such as
+Cassini-Soldner or an equal-area one, has a scale that depends on direction,
+and no single k makes both bin widths ground distances. Where the scale at the
+grid centre differs by more than 1e-6 between directions, `convert_bin_grid`
+raises `UnsupportedCRSError` rather than derive k. Pass `scale_factor` to state
+k yourself; `square_up` and `derive_p6` take k as given, 1.0 by default.
 
 Node increments are how the inline and crossline numbers step between adjacent
 nodes: a grid numbered 1, 5, 9, ... in crossline has `increment_j=4`, and its
