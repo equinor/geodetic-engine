@@ -25,9 +25,9 @@ from typing import Any
 
 from pyproj import CRS, Proj
 
-from geodetic_engine.bingrid.corners import BinGridCorner, BinGridCorners
+from geodetic_engine.bingrid.corners import LABELS, BinGridCorner, BinGridCorners
 from geodetic_engine.bingrid.errors import UnsupportedCRSError
-from geodetic_engine.bingrid.outline import BinGridOutline, outline, outline_of
+from geodetic_engine.bingrid.outline import BinGridOutline, outline
 from geodetic_engine.bingrid.p6 import P6Parameters
 from geodetic_engine.bingrid.squaring import MaxMislocation, SquaringResult, square_up
 from geodetic_engine.geodesy import (
@@ -61,10 +61,11 @@ class BinGridResult:
         outline: Outline of the squared corners in :attr:`crs`.
         wgs84_corners: Longitude and latitude of the squared corners, in order
             A, B, C, D; None when WGS 84 coordinates were not asked for.
-        wgs84_outline: Outline of :attr:`wgs84_corners`, or None. Across the
-            antimeridian its longitudes continue past 180 (-179.9 becomes
-            180.1), so that the ring goes round the grid rather than round
-            the rest of the world.
+        wgs84_outline: The ring of :attr:`outline` through
+            :attr:`wgs84_corners`, or None. Each edge runs the short way round
+            in longitude: across the antimeridian the longitudes continue past
+            180 (-179.9 becomes 180.1), and a ring round a pole closes along
+            the pole's latitude through two points labelled ``"pole"``.
         conversion: The conversion to :attr:`crs`, or None.
         wgs84_conversion: The conversion to WGS 84, or None.
     """
@@ -252,6 +253,7 @@ def convert_bin_grid(
             increment_j=increment_j,
         )
 
+    squared_outline = outline(squaring.squared_corners)
     wgs84_conversion, wgs84_corners, wgs84_outline = None, None, None
     if wgs84:
         wgs84_conversion = Transformation(working, WGS84, wgs84_operation).transform(
@@ -260,7 +262,7 @@ def convert_bin_grid(
         wgs84_corners = tuple(
             (point[0], point[1]) for point in wgs84_conversion.coordinates
         )
-        wgs84_outline = outline_of(_unwrapped(wgs84_corners))
+        wgs84_outline = _geographic_ring(wgs84_corners, squared_outline.labels)
 
     return BinGridResult(
         source_crs=source,
@@ -268,7 +270,7 @@ def convert_bin_grid(
         input_corners=labelled,
         converted_corners=converted_corners,
         squaring=squaring,
-        outline=outline(squaring.squared_corners),
+        outline=squared_outline,
         wgs84_corners=wgs84_corners,
         wgs84_outline=wgs84_outline,
         conversion=conversion,
@@ -366,14 +368,30 @@ def unbound_crs(crs: CoordinateReferenceSystem) -> CRS:
     return crs.crs if base is None else base
 
 
-def _unwrapped(
-    lonlat: tuple[tuple[float, float], ...],
-) -> tuple[tuple[float, float], ...]:
-    """Longitudes continued past 180 east where the points straddle the antimeridian."""
-    longitudes = [lon for lon, _ in lonlat]
-    if max(longitudes) - min(longitudes) <= 180.0:
-        return lonlat
-    return tuple((lon + 360.0 if lon < 0.0 else lon, lat) for lon, lat in lonlat)
+def _geographic_ring(
+    lonlat: tuple[tuple[float, float], ...], labels: tuple[str, ...]
+) -> BinGridOutline:
+    """The map grid's ring of corners, ``labels``, in longitude and latitude.
+
+    Each edge runs the short way round, continuing past 180 east rather than
+    -180 west; a ring that goes round a pole closes along the pole's latitude.
+    """
+    by_label = dict(zip(LABELS, lonlat, strict=True))
+    points: list[tuple[float, float]] = []
+    for label in labels:
+        lon, lat = by_label[label]
+        if points:
+            lon += 360.0 * round((points[-1][0] - lon) / 360.0)
+        points.append((lon, lat))
+    if min(lon for lon, _ in points) < -180.0:
+        points = [(lon + 360.0, lat) for lon, lat in points]
+    laps = round((points[-1][0] - points[0][0]) / 360.0)
+    if laps:
+        # A counterclockwise ring goes east round the North Pole, west round the South.
+        pole = 90.0 * laps
+        points += [(points[-1][0], pole), (points[0][0], pole), points[0]]
+        labels += ("pole", "pole", labels[0])
+    return BinGridOutline(labels=labels, coordinates=tuple(points))
 
 
 def _points(axis: AxisSpec, direction: str, abbreviation: str) -> bool:

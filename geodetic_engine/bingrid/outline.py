@@ -30,8 +30,11 @@ class BinGridOutline:
     """A closed, counterclockwise ring through the four corners.
 
     Attributes:
-        labels: Corner labels of the five ring points, first and last equal.
-        coordinates: The five ring points, in ``xy`` order.
+        labels: Corner labels of the ring points, first and last equal: five,
+            or eight for a ring of longitudes and latitudes round a pole, which
+            closes along the pole's latitude through two points labelled
+            ``"pole"``.
+        coordinates: The ring points, in ``xy`` order.
     """
 
     labels: tuple[str, ...]
@@ -64,8 +67,7 @@ def outline(corners: BinGridCorners) -> BinGridOutline:
 def outline_of(points: Sequence[Sequence[float]]) -> BinGridOutline:
     """The outer ring through four points given in order A, B, C, D.
 
-    For points that are not bin grid corners as such, such as the corners'
-    longitude and latitude.
+    For points in a plane that are not bin grid corners as such.
 
     Args:
         points: Four ``xy`` pairs, in order A, B, C, D.

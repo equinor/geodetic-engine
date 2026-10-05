@@ -27,7 +27,7 @@ from geodetic_engine.bingrid import (
     corners_from_p6,
 )
 from geodetic_engine.geodesy import AmbiguousOperationError, OperationRoute
-from tests.bingrid.conftest import corner_tuples, load, osdu_outcome
+from tests.bingrid.conftest import corner_tuples, load, osdu_outcome, signed_area
 
 ACCEPTANCE = corner_tuples(
     next(
@@ -323,6 +323,34 @@ def test_a_grid_across_the_antimeridian_has_a_wgs84_outline_round_itself() -> No
     assert result.wgs84_outline.coordinates == tuple(
         (lon % 360.0, lat) for lon, lat in (a, c, d, b, a)
     )
+
+
+@pytest.mark.parametrize(
+    ("crs", "pole"),
+    [
+        pytest.param("EPSG:32661", 90.0, id="ups-north"),
+        pytest.param("EPSG:32761", -90.0, id="ups-south"),
+    ],
+)
+def test_a_grid_round_a_pole_has_a_wgs84_outline_closed_through_it(
+    crs: str, pole: float
+) -> None:
+    """A square centred on the pole: its corners share one latitude."""
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=1950000.0, origin_northing=1950000.0,
+        bin_width_i=25.0, bin_width_j=25.0, bearing_j=0.0, handedness=Handedness.RIGHT,
+    )  # fmt: skip
+    corners = corners_from_p6(grid, inline_range=(1, 4001), crossline_range=(1, 4001))
+
+    result = convert_bin_grid(corners, crs)
+
+    ring = result.wgs84_outline
+    assert ring is not None
+    assert ring.labels == (*result.outline.labels, "pole", "pole", "A")
+    assert ring.coordinates[0] == ring.coordinates[-1]
+    assert abs(ring.coordinates[4][0] - ring.coordinates[0][0]) == pytest.approx(360)
+    assert [lat for _, lat in ring.coordinates[5:7]] == [pole, pole]
+    assert signed_area(ring.coordinates) > 0
 
 
 def test_an_operation_without_a_target_is_a_mistake() -> None:

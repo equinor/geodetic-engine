@@ -113,10 +113,12 @@ are kept on the result as
 {class}`~geodetic_engine.geodesy.TransformationResult` objects. A target CRS
 equal to the source CRS means no conversion.
 
-For a grid across the antimeridian, the longitudes of `result.wgs84_outline`
-continue past 180° (-179.9 becomes 180.1), so that the ring goes round the grid
-and not round the rest of the world. GeoJSON (RFC 7946) asks for such a polygon
-to be cut in two at the antimeridian.
+`result.wgs84_outline` visits the corners in the order of `result.outline`,
+each edge the short way round in longitude. For a grid across the antimeridian
+its longitudes continue past 180° (-179.9 becomes 180.1), so that the ring goes
+round the grid and not round the rest of the world; GeoJSON (RFC 7946) asks for
+such a polygon to be cut in two at the antimeridian. A ring round a pole closes
+along the pole's latitude, through two points labelled `pole`.
 
 Everything that cannot be a bin grid is refused with a specific error, all
 subclasses of {class}`~geodetic_engine.bingrid.BinGridError`:
