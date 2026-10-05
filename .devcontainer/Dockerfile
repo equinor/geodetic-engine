@@ -34,6 +34,11 @@ RUN apt-get update \
     && git lfs install --system --skip-repo \
     && rm -rf /var/lib/apt/lists/*
 
+# Root CAs of a TLS-intercepting proxy, as .crt files in certs/ (gitignored, so
+# empty in CI). Installed before install-proj.sh, whose downloads pass the proxy.
+COPY certs/ /usr/local/share/ca-certificates/proxy/
+RUN update-ca-certificates
+
 # PROJ is built from source so the version is pinned and reproducible. See the
 # script for why the resource files must not be embedded into libproj.
 COPY install-proj.sh /tmp/install-proj.sh

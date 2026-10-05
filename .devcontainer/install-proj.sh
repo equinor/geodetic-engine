@@ -84,13 +84,8 @@ fi
 
 data_tarball="proj-data-${PROJ_DATA_VERSION}.tar.gz"
 
-# PROJ-data release tags carry a patch component the file name leaves off.
-data_tag="${PROJ_DATA_VERSION}"
-[[ "${data_tag}" == *.*.* ]] || data_tag="${data_tag}.0"
-
-fetch "${data_tarball}" \
-    "https://download.osgeo.org/proj/${data_tarball}" \
-    "https://github.com/OSGeo/PROJ-data/releases/download/${data_tag}/${data_tarball}"
+# Not from GitHub: its PROJ-data 1.25.0 release has no archives attached.
+fetch "${data_tarball}" "https://download.osgeo.org/proj/${data_tarball}"
 echo "${PROJ_DATA_SHA256}  ${data_tarball}" | sha256sum --check --strict -
 
 # The archive is flat and extracts directly into the PROJ data directory.
