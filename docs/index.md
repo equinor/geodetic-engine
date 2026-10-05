@@ -53,10 +53,11 @@ operation needs a coordinate epoch.
 | {mod}`geodetic_engine.osdudb` | Build a `proj.db` from an OSDU catalogue (`geodetic-osdudb`) |
 | {mod}`geodetic_engine.bingrid` | Seismic bin grids: P6 conversion, four-corner squaring and QC, outlines |
 
-PROJ does all the numerical work. The package is a layer over pyproj that
-decides which operation runs, checks the result, and records how it was
-produced. It is a library, not a service: transformations run locally and never
-contact the Georepository. See {doc}`background/architecture`.
+For coordinate transformations, PROJ does all the numerical work, and the
+package is a layer over pyproj that decides which operation runs, checks the
+result, and records how it was produced. It is a library, not a service:
+transformations run locally and never contact the Georepository. See
+{doc}`background/architecture`.
 
 ## When to use it
 

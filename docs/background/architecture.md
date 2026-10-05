@@ -1,9 +1,9 @@
 # Architecture
 
 `geodetic-engine` is a Python library with two database-building command-line
-tools. It is not a web service. PROJ does the numerical work. The package adds
-explicit operation selection, quality checks, custom definitions and
-provenance.
+tools. It is not a web service. PROJ does the numerical work of coordinate
+transformations. The package adds explicit operation selection, quality checks,
+custom definitions and provenance.
 
 ```mermaid
 flowchart TD
