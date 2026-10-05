@@ -1,0 +1,133 @@
+{
+  "source": {
+    "note": "Hand-constructed P6 grids covering every bearing quadrant, the 0/360 degree wrap, both handednesses, node increments other than 1, scale factors other than 1, metre and US survey foot magnitudes, and negative coordinates. Corner coordinates are generated from these parameters in the tests by an independent transcription of the EPSG formulas (tests/bingrid/_epsg_reference.py), so every grid here is an exact rectangle whose four-corner derivation must give the parameters back with zero misfit."
+  },
+  "grids": [
+    {
+      "case_id": "north_up_right",
+      "description": "Constant inline due grid north, inline axis due east; the acceptance-test grid shape.",
+      "parameters": {"origin_i": 1, "origin_j": 1000, "origin_easting": 500000.0, "origin_northing": 3000000.0, "bin_width_i": 1000.0, "bin_width_j": 100.0, "bearing_j": 0.0, "handedness": "right", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 101],
+      "crossline_range": [1000, 2000]
+    },
+    {
+      "case_id": "bearing_45_left",
+      "description": "First quadrant, left-handed.",
+      "parameters": {"origin_i": 100, "origin_j": 200, "origin_easting": 420000.0, "origin_northing": 6650000.0, "bin_width_i": 25.0, "bin_width_j": 25.0, "bearing_j": 45.0, "handedness": "left", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [100, 1100],
+      "crossline_range": [200, 2200]
+    },
+    {
+      "case_id": "bearing_89_9_right",
+      "description": "Just short of due east.",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 612345.678, "origin_northing": 7001234.5, "bin_width_i": 12.5, "bin_width_j": 25.0, "bearing_j": 89.9, "handedness": "right", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 801],
+      "crossline_range": [1, 1201]
+    },
+    {
+      "case_id": "bearing_90_right",
+      "description": "Constant inline due east.",
+      "parameters": {"origin_i": 1000, "origin_j": 1000, "origin_easting": 300000.0, "origin_northing": 5500000.0, "bin_width_i": 25.0, "bin_width_j": 12.5, "bearing_j": 90.0, "handedness": "right", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1000, 2000],
+      "crossline_range": [1000, 3000]
+    },
+    {
+      "case_id": "bearing_135_left",
+      "description": "Second quadrant, left-handed.",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 455000.0, "origin_northing": 6120000.0, "bin_width_i": 18.75, "bin_width_j": 6.25, "bearing_j": 135.0, "handedness": "left", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 1501],
+      "crossline_range": [1, 3001]
+    },
+    {
+      "case_id": "bearing_180_right",
+      "description": "Constant inline due grid south.",
+      "parameters": {"origin_i": 500, "origin_j": 500, "origin_easting": 501000.0, "origin_northing": 6300000.0, "bin_width_i": 25.0, "bin_width_j": 25.0, "bearing_j": 180.0, "handedness": "right", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [500, 1500],
+      "crossline_range": [500, 1500]
+    },
+    {
+      "case_id": "bearing_225_left",
+      "description": "Third quadrant, left-handed.",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 380000.0, "origin_northing": 6900000.0, "bin_width_i": 37.5, "bin_width_j": 12.5, "bearing_j": 225.0, "handedness": "left", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 401],
+      "crossline_range": [1, 1601]
+    },
+    {
+      "case_id": "bearing_270_right",
+      "description": "Constant inline due grid west.",
+      "parameters": {"origin_i": 2000, "origin_j": 3000, "origin_easting": 700000.0, "origin_northing": 4000000.0, "bin_width_i": 50.0, "bin_width_j": 50.0, "bearing_j": 270.0, "handedness": "right", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [2000, 2400],
+      "crossline_range": [3000, 3600]
+    },
+    {
+      "case_id": "bearing_315_left",
+      "description": "Fourth quadrant, left-handed.",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 510000.0, "origin_northing": 6800000.0, "bin_width_i": 25.0, "bin_width_j": 25.0, "bearing_j": 315.0, "handedness": "left", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 1001],
+      "crossline_range": [1, 1001]
+    },
+    {
+      "case_id": "bearing_359_5_right",
+      "description": "Half a degree short of grid north: the averaged bearing must not wrap to 179.5.",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 450000.0, "origin_northing": 6450000.0, "bin_width_i": 25.0, "bin_width_j": 12.5, "bearing_j": 359.5, "handedness": "right", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 2001],
+      "crossline_range": [1, 4001]
+    },
+    {
+      "case_id": "bearing_0_5_left",
+      "description": "Half a degree past grid north.",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 450000.0, "origin_northing": 6450000.0, "bin_width_i": 25.0, "bin_width_j": 12.5, "bearing_j": 0.5, "handedness": "left", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 2001],
+      "crossline_range": [1, 4001]
+    },
+    {
+      "case_id": "increments_2_1",
+      "description": "Inline numbers step by 2 between adjacent bin nodes.",
+      "parameters": {"origin_i": 1001, "origin_j": 1, "origin_easting": 432100.0, "origin_northing": 6543210.0, "bin_width_i": 25.0, "bin_width_j": 12.5, "bearing_j": 30.0, "handedness": "right", "scale_factor": 1.0, "increment_i": 2, "increment_j": 1},
+      "inline_range": [1001, 3001],
+      "crossline_range": [1, 2001]
+    },
+    {
+      "case_id": "sdu_note_increments_1_4",
+      "description": "The SDU note's P6/11 example (Table 2) with crossline increment 4, on its stated inline/crossline extent.",
+      "parameters": {"origin_i": 14100, "origin_j": 5161, "origin_easting": 423081.91, "origin_northing": 3227689.59, "bin_width_i": 30.0, "bin_width_j": 25.0, "bearing_j": 2.48019694, "handedness": "right", "scale_factor": 1.0, "increment_i": 1, "increment_j": 4},
+      "inline_range": [14100, 17700],
+      "crossline_range": [5161, 9409]
+    },
+    {
+      "case_id": "scale_factor_0_9996",
+      "description": "Bin widths in ground distance on a grid whose map scale is 0.9996 (UTM central meridian).",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 500000.0, "origin_northing": 6600000.0, "bin_width_i": 25.0, "bin_width_j": 25.0, "bearing_j": 12.0, "handedness": "right", "scale_factor": 0.9996, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 2001],
+      "crossline_range": [1, 3001]
+    },
+    {
+      "case_id": "scale_factor_1_0004",
+      "description": "Scale factor above one, left-handed.",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 680000.0, "origin_northing": 6600000.0, "bin_width_i": 25.0, "bin_width_j": 12.5, "bearing_j": 300.0, "handedness": "left", "scale_factor": 1.0004, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 1601],
+      "crossline_range": [1, 3201]
+    },
+    {
+      "case_id": "epsg_9666_example_grid",
+      "description": "The EPSG 9666 example grid: scale factor 0.99984 at the origin, 25 x 12.5 m bins, J-axis bearing 20 degrees.",
+      "parameters": {"origin_i": 1, "origin_j": 1, "origin_easting": 456781.0, "origin_northing": 5836723.0, "bin_width_i": 25.0, "bin_width_j": 12.5, "bearing_j": 20.0, "handedness": "right", "scale_factor": 0.99984, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 300],
+      "crossline_range": [1, 247]
+    },
+    {
+      "case_id": "epsg_1049_example_grid_ftus",
+      "description": "The EPSG 1049 example grid in US survey feet: 82.5 x 41.25 ftUS bins, J-axis bearing 340 degrees, left-handed.",
+      "parameters": {"origin_i": 5000, "origin_j": 0, "origin_easting": 871200.0, "origin_northing": 10280160.0, "bin_width_i": 82.5, "bin_width_j": 41.25, "bearing_j": 340.0, "handedness": "left", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [4700, 5000],
+      "crossline_range": [0, 247]
+    },
+    {
+      "case_id": "negative_eastings_ftus",
+      "description": "Negative eastings, as a grid far west of a BLM zone's central meridian has (SDU spreadsheet test 1e).",
+      "parameters": {"origin_i": 1, "origin_j": 1000, "origin_easting": -312617.66, "origin_northing": 9888576.39, "bin_width_i": 3292.65, "bin_width_j": 329.26, "bearing_j": 2.78, "handedness": "right", "scale_factor": 1.0, "increment_i": 1, "increment_j": 1},
+      "inline_range": [1, 101],
+      "crossline_range": [1000, 2000]
+    }
+  ]
+}

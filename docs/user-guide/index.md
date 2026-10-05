@@ -43,4 +43,12 @@ a Georepository geodetic registry.
 Georepository register's or an OSDU catalogue's own CRSs and transformations
 to a copy of PROJ's `proj.db`, and use the result.
 :::
+
+:::{grid-item-card} Seismic bin grids
+:link: bingrid
+:link-type: doc
+
+`geodetic_engine.bingrid`: convert between bin grid and map grid with P6
+parameters, and check, square and convert a four-corner bin grid.
+:::
 ::::

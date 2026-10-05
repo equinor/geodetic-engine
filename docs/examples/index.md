@@ -48,6 +48,7 @@ examples:
 | Refusals | {doc}`/user-guide/geodesy/errors` | Triggering every `GeodesyError` subclass, including a simulated missing grid |
 | Helmert algebra | {doc}`/user-guide/geodesy/helmert` | Reading, composing and collapsing Helmerts; restating ppb scales |
 | OSDU payloads | {doc}`/user-guide/persistable-reference` | All six payload kinds, transforming with payloads, stated operations, units, writing payloads, method support tables |
+| Seismic bin grids | {doc}`/user-guide/bingrid` | P6 conversion both ways, four-corner squaring with a datum change, matching a dataset to a stored grid |
 
 ```{toctree}
 :hidden:

@@ -18,6 +18,13 @@ All notable changes to this project are documented here. The format follows
   itself, applied as stated.
 - A longitude beyond a full turn is refused with `CoordinateOutOfRangeError`,
   as an impossible latitude already was.
+- `geodetic_engine.bingrid`: seismic bin grids. P6 bin grid to map grid
+  conversion with PROJ's EPSG methods 9666 and 1049, four-corner QC and
+  squaring, outlines, and conversion to another CRS through `geodesy`. The bin
+  grid scale factor is PROJ's point scale factor at the grid centre.
+  `geodetic_engine.bingrid.matching` assigns a legacy dataset to a stored grid.
+  Defects of the OSDU Java service's bin grid computation are fixed, each with
+  a test marked `java_defect`.
 
 ### Changed
 

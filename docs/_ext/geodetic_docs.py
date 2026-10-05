@@ -48,6 +48,14 @@ SUBPACKAGES: tuple[tuple[str, str], ...] = (
         "geodetic_engine.osdudb",
         "Build an enriched proj.db from an OSDU catalogue.",
     ),
+    (
+        "geodetic_engine.bingrid",
+        "Seismic bin grids: P6 parameters, four-corner squaring, conversion.",
+    ),
+    (
+        "geodetic_engine.bingrid.matching",
+        "Assign a legacy dataset to a bin grid that is already stored.",
+    ),
     ("geodetic_engine.errors", "The root of every exception the package raises."),
 )
 

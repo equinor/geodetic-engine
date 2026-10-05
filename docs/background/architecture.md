@@ -25,6 +25,8 @@ flowchart TD
     API --> Engine
     Engine --> API
     API --> Result["Coordinates + provenance"]
+    App --> BinGrid["bingrid: P6 bin grids, squaring, outline"]
+    BinGrid --> API
 ```
 
 ## Two separate workflows
@@ -62,4 +64,5 @@ straight from it.
 | {mod}`geodetic_engine.georepository` | Authentication, HTTP requests, pagination, response caching |
 | {mod}`geodetic_engine.projdb` | Georepository import, and the shared database writer, schema check, validation and build report |
 | {mod}`geodetic_engine.osdudb` | OSDU catalogue parsing and definition recovery, on the shared database infrastructure |
+| {mod}`geodetic_engine.bingrid` | Seismic bin grids: P6 bin grid to map grid conversion, four-corner squaring and QC, outlines, and conversion to another CRS through `geodesy` |
 | {mod}`geodetic_engine.errors` | The root exception every package error derives from |

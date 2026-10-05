@@ -1,0 +1,107 @@
+{
+  "source": {
+    "repository": "OSDU crs-conversion-service (local clone)",
+    "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
+    "note": "Expected outcome of the OSDU acceptance test grid, squared without and with a toCRS, as ported from the crs-conversion-service's acceptance tests (crs-converter_acceptance_test/v3/data) and Java unit tests. Reference values marked 'java' are the Java service's (Apache SIS) output; values marked 'sdu' come from the SDU spreadsheet (Excel), case Test1d, whose converted corners are rounded to 2 decimals."
+  },
+  "tolerances": {
+    "map": 0.001,
+    "origin": 0.001,
+    "wgs84": 1e-08,
+    "bin_width": 1e-06,
+    "bearing": 1e-08,
+    "mislocation": 0.0001
+  },
+  "tolerance_rationale": "Measured on the first run against PROJ 9.8.1, with the CRSs built from their EPSG definitions: the squared corners agree with the Java output to within its 3-decimal rounding (largest difference 0.0004 ftUS), the P6 origin to 2e-6 ftUS, bin widths to 2e-8, bearing to 6e-10 degree and WGS 84 corners to within its 8-decimal rounding (5e-9 degree).",
+  "cases": [
+    {
+      "case_id": "without_to_crs",
+      "ported_from": [
+        "crs-converter_acceptance_test/test_crs_converter_v3.py::test_bin_grid_without_TOCRS",
+        "crs-converter-core/src/test/java/org/opengroup/osdu/crs/BinGrid/ConvertBinGridTests.java::convertBinGridWithSuccessfulResponse",
+        "crs-converter-core/src/test/java/org/opengroup/osdu/crs/api/CrsConverterBinGridV3Tests.java::convertBinGridWithoutCRS"
+      ],
+      "expected": {
+        "max_mislocation_rounded": {"dI": 0.0, "dJ": 0.0},
+        "max_mislocation": {"di": 0.0, "dj": 0.0},
+        "crs_id": "osdu:reference-data--CoordinateReferenceSystem:Projected:EPSG::32615:",
+        "linear_unit": "metre",
+        "p6": {
+          "method_code": 9666,
+          "origin_i": 1.0,
+          "origin_j": 1000.0,
+          "origin_easting": 500000.0,
+          "origin_northing": 3000000.0,
+          "scale_factor": 1.0,
+          "bin_width_i": 1000.0,
+          "bin_width_j": 100.0,
+          "bearing_j": 0.0,
+          "increment_i": 1,
+          "increment_j": 1
+        },
+        "corners": [
+          ["A", 1, 1000, 500000.0, 3000000.0],
+          ["B", 1, 2000, 500000.0, 3100000.0],
+          ["C", 101, 1000, 600000.0, 3000000.0],
+          ["D", 101, 2000, 600000.0, 3100000.0]
+        ],
+        "wgs84": [
+          [-93.0, 27.12246964],
+          [-93.0, 28.02525499],
+          [-91.99105764, 27.11884583],
+          [-91.98276722, 28.02148995]
+        ],
+        "reference": "java: ConvertBinGridTests.java Input_Response_Without_CRS"
+      }
+    },
+    {
+      "case_id": "with_to_crs",
+      "ported_from": [
+        "crs-converter_acceptance_test/test_crs_converter_v3.py::test_bin_grid_with_TOCRS",
+        "crs-converter-core/src/test/java/org/opengroup/osdu/crs/BinGrid/ConvertBinGridTests.java::convertBinGridWithToCRSSuccessfulResponse",
+        "crs-converter-core/src/test/java/org/opengroup/osdu/crs/api/CrsConverterBinGridV3Tests.java::convertBinGridWithCRS"
+      ],
+      "expected": {
+        "max_mislocation_rounded": {"dI": 0.0, "dJ": 0.38},
+        "max_mislocation": {"di": 0.0018, "dj": 0.3804},
+        "crs_id": "osdu:reference-data--CoordinateReferenceSystem:BoundProjected:EPSG::32064_EPSG::15851:",
+        "linear_unit": "US survey foot",
+        "converted_corners": [
+          ["A", 1, 1000, 3593524.86, 9888579.93],
+          ["B", 1, 2000, 3577518.40, 10217694.31],
+          ["C", 101, 1000, 3922906.04, 9904378.13],
+          ["D", 101, 2000, 3906852.11, 10233974.62]
+        ],
+        "converted_corners_tolerance": 0.01,
+        "converted_corners_reference": "sdu: SDU_geometric_aspects_of_bin_grids.xlsx sheet Test1d (2 decimals)",
+        "p6": {
+          "method_code": 9666,
+          "origin_i": 1.0,
+          "origin_j": 1000.0,
+          "origin_easting": 3593536.4619751107,
+          "origin_northing": 9888463.879346535,
+          "scale_factor": 1.0,
+          "bin_width_i": 3297.478414657676,
+          "bin_width_j": 329.74530454204273,
+          "bearing_j": 357.2135341919337,
+          "increment_i": 1,
+          "increment_j": 1
+        },
+        "corners": [
+          ["A", 1, 1000, 3593536.462, 9888463.879],
+          ["B", 1, 2000, 3577506.278, 10217819.309],
+          ["C", 101, 1000, 3922894.426, 9904494.186],
+          ["D", 101, 2000, 3906864.242, 10233849.616]
+        ],
+        "wgs84": [
+          [-92.99998152, 27.12215051],
+          [-93.00001836, 28.02559868],
+          [-91.99107323, 27.11916457],
+          [-91.98275212, 28.02114667]
+        ],
+        "conversion_operation": "EPSG:15851",
+        "reference": "java: ConvertBinGridTests.java Input_Response_With_CRS"
+      }
+    }
+  ]
+}

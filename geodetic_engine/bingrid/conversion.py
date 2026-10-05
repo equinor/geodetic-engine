@@ -1,0 +1,344 @@
+"""Check, convert and square up a bin grid defined by its four corners.
+
+:func:`convert_bin_grid` is the computation behind the OSDU CRS conversion
+service's ``POST v3/convertBinGrid``, without any of its JSON: optionally
+convert the corners to another CRS, fit the best rectangle through them there,
+report how far they were from it, and give the squared corners in WGS 84. The
+bin grid scale factor is that CRS's point scale factor at the grid centre, so
+that the P6 bin widths are the ground spacing of the bins there.
+
+Coordinate conversions go through :class:`~geodetic_engine.geodesy.Transformation`
+and keep its guarantees: a datum change needs a named operation or a bound CRS,
+ballpark results and missing grids are refused, and the result records what was
+applied.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
+
+from pyproj import CRS, Proj
+
+from geodetic_engine.bingrid.corners import BinGridCorner, BinGridCorners
+from geodetic_engine.bingrid.errors import UnsupportedCRSError
+from geodetic_engine.bingrid.outline import BinGridOutline, outline, outline_of
+from geodetic_engine.bingrid.p6 import P6Parameters
+from geodetic_engine.bingrid.squaring import MaxMislocation, SquaringResult, square_up
+from geodetic_engine.geodesy import (
+    AppliedOperation,
+    AxisSpec,
+    CoordinateReferenceSystem,
+    Transformation,
+    TransformationResult,
+)
+
+logger = logging.getLogger(__name__)
+
+WGS84 = "EPSG:4326"
+
+
+@dataclass(frozen=True, slots=True)
+class BinGridResult:
+    """A bin grid checked, optionally converted, and squared up.
+
+    Attributes:
+        source_crs: CRS the input corners are in.
+        crs: CRS of the converted and squared grid: the target CRS if one was
+            given and differs from the source CRS, else the source CRS.
+        input_corners: The corners as given.
+        converted_corners: The input corners converted to :attr:`crs`, before
+            squaring; None when no conversion was applied.
+        squaring: The rectangle fitted in :attr:`crs`, and the mis-location.
+        outline: Outline of the squared corners in :attr:`crs`.
+        wgs84_corners: Longitude and latitude of the squared corners, in order
+            A, B, C, D; None when WGS 84 coordinates were not asked for.
+        wgs84_outline: Outline of :attr:`wgs84_corners`, or None.
+        conversion: The conversion to :attr:`crs`, or None.
+        wgs84_conversion: The conversion to WGS 84, or None.
+    """
+
+    source_crs: CoordinateReferenceSystem
+    crs: CoordinateReferenceSystem
+    input_corners: BinGridCorners
+    converted_corners: BinGridCorners | None
+    squaring: SquaringResult
+    outline: BinGridOutline
+    wgs84_corners: tuple[tuple[float, float], ...] | None
+    wgs84_outline: BinGridOutline | None
+    conversion: TransformationResult | None
+    wgs84_conversion: TransformationResult | None
+
+    @property
+    def parameters(self) -> P6Parameters:
+        """The P6 parameters of the squared grid, anchored at corner A."""
+        return self.squaring.parameters
+
+    @property
+    def squared_corners(self) -> BinGridCorners:
+        """Corners of the squared grid in :attr:`crs`."""
+        return self.squaring.squared_corners
+
+    @property
+    def max_mislocation(self) -> MaxMislocation:
+        """How far the corners were from a rectangle, in :attr:`crs`."""
+        return self.squaring.max_mislocation
+
+    @property
+    def converted(self) -> bool:
+        """Whether the corners were converted to another CRS."""
+        return self.conversion is not None
+
+    @property
+    def linear_unit(self) -> str:
+        """Unit of :attr:`crs`'s coordinates and of the bin widths."""
+        return self.crs.axes[self.crs.value_axis_order[0]].unit_name
+
+    def applied_operations(self) -> tuple[str, ...]:
+        """What was done to the corners, one sentence per step, in order."""
+        steps = []
+        if self.conversion is not None:
+            steps.append(
+                f"Converted the corners from {self.source_crs.name} to "
+                f"{self.crs.name} using {_label(self.conversion.operation)}"
+            )
+        mislocation = self.max_mislocation
+        steps.append(
+            f"Squared up the bin grid in {self.crs.name}: "
+            f"dI={mislocation.di:.2f}, dJ={mislocation.dj:.2f} bin"
+        )
+        if self.wgs84_conversion is not None:
+            steps.append(
+                "Computed WGS 84 coordinates of the squared corners from "
+                f"{self.crs.name} using {_label(self.wgs84_conversion.operation)}"
+            )
+        return tuple(steps)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        """Render the result as plain data, for logging or serialisation."""
+        squaring = self.squaring.to_json_dict()
+        return {
+            "source_crs": _crs_label(self.source_crs),
+            "crs": _crs_label(self.crs),
+            "converted": self.converted,
+            "linear_unit": self.linear_unit,
+            "parameters": squaring["parameters"],
+            "input_corners": self.input_corners.to_json_dict(),
+            "converted_corners": None
+            if self.converted_corners is None
+            else self.converted_corners.to_json_dict(),
+            "squared_corners": squaring["squared_corners"],
+            "residuals": squaring["residuals"],
+            "max_mislocation": squaring["max_mislocation"],
+            "outline": self.outline.to_json_dict(),
+            "wgs84_corners": None
+            if self.wgs84_corners is None
+            else [list(point) for point in self.wgs84_corners],
+            "wgs84_outline": None
+            if self.wgs84_outline is None
+            else self.wgs84_outline.to_json_dict(),
+            "conversion": None
+            if self.conversion is None
+            else self.conversion.to_json_dict(),
+            "wgs84_conversion": None
+            if self.wgs84_conversion is None
+            else self.wgs84_conversion.to_json_dict(),
+            "applied_operations": list(self.applied_operations()),
+        }
+
+
+def convert_bin_grid(
+    corners: BinGridCorners | Iterable[BinGridCorner | tuple[int, int, float, float]],
+    crs: Any,
+    *,
+    target_crs: Any = None,
+    operation: Any = None,
+    scale_factor: float | None = None,
+    increment_i: int = 1,
+    increment_j: int = 1,
+    wgs84: bool = True,
+    wgs84_operation: Any = None,
+) -> BinGridResult:
+    """Check a four-corner bin grid, optionally convert it, and square it up.
+
+    Args:
+        corners: The four corners, in any order.
+        crs: CRS the corners' coordinates are in; anything
+            :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`
+            accepts. Must be projected, optionally bound.
+        target_crs: CRS to convert the grid to. Omitted, or equal to ``crs``,
+            the grid is squared up where it is.
+        operation: Coordinate operation for the conversion to ``target_crs``,
+            as :class:`~geodetic_engine.geodesy.Transformation` takes it.
+            Needed when the conversion changes datum and neither CRS is bound.
+        scale_factor: Bin grid scale factor of the squared grid. Omitted, it
+            is the point scale factor of the CRS the grid is squared in, at
+            the grid centre (``point_scale_factor``), so that the bin widths
+            are the ground spacing of the bins there.
+        increment_i: Inline node increment.
+        increment_j: Crossline node increment.
+        wgs84: Whether to also give the squared corners in WGS 84.
+        wgs84_operation: Coordinate operation to WGS 84, when the grid's CRS
+            does not state one.
+
+    Returns:
+        The squared grid with its provenance.
+
+    Raises:
+        InvalidCornersError: If the corners are not those of a bin grid.
+        DegenerateBinGridError: If their coordinates cannot be.
+        InvalidParameterError: If a parameter is out of range.
+        UnsupportedCRSError: If a CRS cannot carry a bin grid.
+        ValueError: If ``operation`` is given without a conversion to apply it to.
+        geodetic_engine.geodesy.GeodesyError: If a conversion cannot be resolved
+            or applied, for example a datum change that names no operation.
+    """
+    labelled = (
+        corners
+        if isinstance(corners, BinGridCorners)
+        else BinGridCorners.from_corners(corners)
+    )
+    source = map_grid_crs(crs, "")
+    target = None if target_crs is None else map_grid_crs(target_crs, "target ")
+    if target is not None and target == source:
+        target = None
+    if operation is not None and target is None:
+        raise ValueError(
+            "an operation was given, but no target_crs other than the grid's own "
+            "CRS to convert the corners to"
+        )
+
+    working, conversion, converted_corners = source, None, None
+    if target is not None:
+        conversion = Transformation(source, target, operation).transform(
+            labelled.coordinates
+        )
+        working = target
+        converted_corners = labelled.with_coordinates(conversion.coordinates)
+        logger.debug(
+            "converted bin grid corners from %s to %s", source.name, target.name
+        )
+
+    in_crs = labelled if converted_corners is None else converted_corners
+    squaring = square_up(
+        in_crs,
+        scale_factor=1.0 if scale_factor is None else scale_factor,
+        increment_i=increment_i,
+        increment_j=increment_j,
+    )
+    if scale_factor is None:
+        # Squared at k = 1 first to refuse bad corners; k moves no fitted position.
+        squaring = square_up(
+            in_crs,
+            scale_factor=point_scale_factor(in_crs, working),
+            increment_i=increment_i,
+            increment_j=increment_j,
+        )
+
+    wgs84_conversion, wgs84_corners, wgs84_outline = None, None, None
+    if wgs84:
+        wgs84_conversion = Transformation(working, WGS84, wgs84_operation).transform(
+            squaring.squared_corners.coordinates
+        )
+        wgs84_corners = tuple(
+            (point[0], point[1]) for point in wgs84_conversion.coordinates
+        )
+        wgs84_outline = outline_of(wgs84_corners)
+
+    return BinGridResult(
+        source_crs=source,
+        crs=working,
+        input_corners=labelled,
+        converted_corners=converted_corners,
+        squaring=squaring,
+        outline=outline(squaring.squared_corners),
+        wgs84_corners=wgs84_corners,
+        wgs84_outline=wgs84_outline,
+        conversion=conversion,
+        wgs84_conversion=wgs84_conversion,
+    )
+
+
+def map_grid_crs(value: Any, role: str) -> CoordinateReferenceSystem:
+    """Resolve a CRS a bin grid can be defined in: easting and northing.
+
+    Raises:
+        UnsupportedCRSError: If the CRS is not a 2D projected CRS, optionally
+            bound, with an easting and a northing axis.
+    """
+    crs = CoordinateReferenceSystem.from_user_input(value)
+    if not crs.crs.is_projected or crs.dimension != 2:
+        raise UnsupportedCRSError(
+            f"the {role}CRS {crs.name} is not a 2D projected CRS: a bin grid is "
+            "laid out on a map grid, in its linear units"
+        )
+    easting, northing = (crs.axes[index] for index in crs.value_axis_order)
+    if not (_points(easting, "east", "E") and _points(northing, "north", "N")):
+        raise UnsupportedCRSError(
+            f"the {role}CRS {crs.name} has axes pointing "
+            f"{easting.direction} and {northing.direction}, not east and north, "
+            "which the bin grid formulas need"
+        )
+    return crs
+
+
+def point_scale_factor(
+    corners: BinGridCorners, crs: CoordinateReferenceSystem
+) -> float:
+    """EPSG's bin grid scale factor: the map grid's point scale at the grid centre.
+
+    For a projection that is not conformal, whose scale depends on direction,
+    the geometric mean of its scales in the principal directions.
+
+    Args:
+        corners: The corners, in ``crs``.
+        crs: A CRS that :func:`map_grid_crs` accepts.
+
+    Returns:
+        Map grid distance per ellipsoidal distance at the centre of the corners.
+    """
+    base = unbound_crs(crs)
+    geographic = base.geodetic_crs
+    if geographic is None:
+        raise UnsupportedCRSError(
+            f"the CRS {crs.name} states no geographic CRS to measure the grid on"
+        )
+    centre = (
+        Transformation(base, geographic)
+        .transform(corners.coordinates.mean(axis=0, keepdims=True))
+        .coordinates.to_numpy()[0]
+    )
+    # Proj's factors take degrees from the CRS's own prime meridian, on its datum.
+    longitude, latitude = centre * math.degrees(
+        geographic.axis_info[0].unit_conversion_factor
+    )
+    factors = Proj(base).get_factors(longitude, latitude, errcheck=True)
+    return math.sqrt(factors.areal_scale)
+
+
+def unbound_crs(crs: CoordinateReferenceSystem) -> CRS:
+    """The CRS itself, without any transformation to WGS 84 it is bound with."""
+    base = crs.crs.source_crs if crs.crs.is_bound else None
+    return crs.crs if base is None else base
+
+
+def _points(axis: AxisSpec, direction: str, abbreviation: str) -> bool:
+    # A polar CRS's easting and northing both point "south" (along different
+    # meridians), so its axes are known from their abbreviations instead.
+    return axis.direction.lower() == direction or axis.abbrev.upper() == abbreviation
+
+
+def _label(operation: AppliedOperation) -> str:
+    codes = (
+        (operation.authority_code,)
+        if operation.authority_code
+        else operation.bound_operations
+    )
+    return f"{operation.name} [{', '.join(codes)}]" if codes else operation.name
+
+
+def _crs_label(crs: CoordinateReferenceSystem) -> str:
+    return crs.authority_code or crs.name
