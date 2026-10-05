@@ -21,7 +21,7 @@ from geodetic_engine.welltrajectory.methods.base import LocalFrame, Place, Place
 
 
 class Method(StrEnum):
-    """How offsets from the wellhead are placed in the trajectory CRS."""
+    """How offsets from the wellhead are georeferenced in the trajectory CRS."""
 
     AZIMUTHAL_EQUIDISTANT = "AzimuthalEquidistant"
     GRID_NORTH_LOCAL = "GridNorthLocal"

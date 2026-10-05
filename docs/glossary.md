@@ -243,4 +243,46 @@ Value order
   longitude before latitude, easting before northing, then height, wherever
   the CRS has such axes; a CRS without an east/north pair keeps its declared
   order.
+
+Grid convergence
+  The angle between true north and grid north at a point of a projected CRS.
+  In this package it is measured from true north to grid north, positive
+  clockwise, so a grid azimuth is the true azimuth less the convergence. See
+  {doc}`/user-guide/projection-factors/index`.
+
+Point scale factor
+  The ratio of a short distance on the grid to the same distance on the
+  ellipsoid, at a point of a projected CRS. For a conformal projection it is
+  the same in every direction. See {doc}`/user-guide/projection-factors/index`.
+
+Measured depth (MD)
+  The length along the wellbore from its reference point, as drilled. It is
+  what a survey station is located by.
+
+True vertical depth (TVD)
+  The vertical distance of a point of the wellbore below its reference point,
+  positive down.
+
+Wellhead
+  The reference point of a well's survey, from which measured depth and true
+  vertical depth count: its position in the trajectory CRS and its elevation.
+
+Inclination
+  The angle of the wellbore from vertical at a survey station: 0 is straight
+  down, 90 degrees horizontal.
+
+Survey azimuth
+  The direction of the wellbore in the horizontal plane at a survey station,
+  clockwise from north. It is measured against grid north or true north, which
+  differ by the {term}`grid convergence`.
+
+Dogleg severity (DLS)
+  How sharply the wellbore turns: the angle between the directions at two
+  survey stations, per length of measured depth, usually in degrees per 30 m
+  or per 100 ft.
+
+Minimum curvature
+  The standard way of reducing a directional survey to positions: between two
+  stations, the wellbore follows the one circular arc tangent to both
+  stations' directions. See {doc}`/user-guide/welltrajectory/minimum-curvature`.
 ```

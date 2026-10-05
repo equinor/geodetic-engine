@@ -3,8 +3,9 @@
 Needs plotly, from the ``plot`` extra: ``pip install geodetic-engine[plot]``.
 It is imported only when a plot is drawn, so nothing else in the package
 depends on it. Paths are drawn along their arcs, every axis at one scale, with
-shadows on the floor and walls. Drag to rotate, scroll to zoom, right-drag to
-pan, and hover a point for its MD, angles, TVD and dogleg severity.
+the survey stations marked on them and shadows on the floor and walls. Drag to
+rotate, scroll to zoom, right-drag to pan, and hover a point for its MD,
+angles, TVD and dogleg severity.
 
 :func:`open_in_browser` serves a figure from this process on ``127.0.0.1`` and
 opens it in the default browser. In a dev container that is the host's
@@ -33,7 +34,7 @@ import numpy as np
 from geodetic_engine.welltrajectory.survey import length_factor
 
 if TYPE_CHECKING:
-    from geodetic_engine.welltrajectory.trajectory import WellTrajectory
+    from geodetic_engine.welltrajectory.datamodels import WellTrajectory
 
 type ColorBy = Literal["dls", "md"] | None
 
@@ -53,6 +54,7 @@ _FONT = "Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
 _INK, _MUTED, _GRID, _PANE = "#1f2937", "#6b7280", "#e5e7eb", "#f8fafc"
 _PALETTE = ("#2563eb", "#ea580c", "#059669", "#dc2626", "#7c3aed", "#0891b2")
 _SHADOW = {"color": "rgba(100, 116, 139, 0.35)", "width": 2}
+_STATIONS = "Survey stations"
 # The camera looks from the south-east, above, from a distance fitting the box.
 _VIEW = np.array([1.25, -2.0, 0.95]) / np.linalg.norm([1.25, -2.0, 0.95])
 _CAMERA_DISTANCE = 1.7
@@ -80,6 +82,7 @@ def plot_trajectory(
     color_by: ColorBy = "dls",
     labels: Sequence[str] | None = None,
     projections: bool = True,
+    stations: bool = True,
     title: str | None = None,
 ) -> Any:
     """Draw trajectories as an interactive plotly figure.
@@ -90,8 +93,12 @@ def plot_trajectory(
         trajectories: One or more trajectories, all in the same CRS.
         color_by: Colour each path by dogleg severity or by measured depth;
             with None each well gets a colour of its own.
-        labels: A name per trajectory, for the legend and the hover box.
+        labels: A name per trajectory, for the legend and the hover box;
+            each trajectory's own :attr:`~WellTrajectory.name` when omitted.
         projections: Also draw each path's shadow on the floor and two walls.
+        stations: Also mark each surveyed station on its path, to show the
+            path passing through them. Points added by interpolation are not
+            marked.
         title: Figure title; the CRS's name when omitted.
 
     Returns:
@@ -111,12 +118,18 @@ def plot_trajectory(
     lower, upper, aspect = _box_at_one_scale(
         first, points.min(axis=0), points.max(axis=0)
     )
-    names = list(labels or [f"Well {index + 1}" for index in range(len(smooth))])
+    named = labels is not None or any(t.name for t in trajectories)
+    names = list(
+        labels or [t.name or f"Well {index + 1}" for index, t in enumerate(smooth)]
+    )
     values = [t.dls() if color_by == "dls" else t.md for t in smooth]
     joined = np.concatenate(values)
 
     figure = go.Figure()
-    for index, (trajectory, path) in enumerate(zip(smooth, paths, strict=True)):
+    stations_in_legend = False
+    for index, (given, trajectory, path) in enumerate(
+        zip(trajectories, smooth, paths, strict=True)
+    ):
         line: dict[str, Any] = {"width": 7}
         if color_by is None:
             line["color"] = _PALETTE[index % len(_PALETTE)]
@@ -149,15 +162,7 @@ def plot_trajectory(
                 name=names[index],
                 legendrank=index,
                 line=line,
-                customdata=np.column_stack(
-                    [
-                        trajectory.md,
-                        trajectory.inclination,
-                        trajectory.azimuth_true,
-                        trajectory.tvd,
-                        trajectory.dls(),
-                    ]
-                ),
+                customdata=_hover_data(trajectory),
                 hovertemplate=_hover(trajectory),
             )
         )
@@ -178,6 +183,28 @@ def plot_trajectory(
                         showlegend=False,
                     )
                 )
+        surveyed = given.is_survey_station
+        if stations and surveyed.any():
+            figure.add_trace(
+                go.Scatter3d(
+                    x=given.x[surveyed],
+                    y=given.y[surveyed],
+                    z=given.z[surveyed],
+                    mode="markers",
+                    marker={
+                        "size": 4,
+                        "color": "white",
+                        "line": {"color": _INK, "width": 1.5},
+                    },
+                    name=_STATIONS,
+                    legendgroup=_STATIONS,
+                    showlegend=not stations_in_legend,
+                    customdata=_hover_data(given)[surveyed],
+                    hovertemplate=f"Survey station of {names[index]}"
+                    f"<br>{_hover(given)}<extra></extra>",
+                )
+            )
+            stations_in_legend = True
         for position, symbol, marker in (
             (0, "diamond", "Wellhead"),
             (-1, "circle", "TD"),
@@ -221,7 +248,7 @@ def plot_trajectory(
             "font": {"size": 11, "color": _INK},
         }
         for index, (name, path) in enumerate(zip(names, paths, strict=True))
-        if labels is not None
+        if named
     ]
 
     eye = _VIEW * _CAMERA_DISTANCE * float(np.linalg.norm(aspect * _WIDTH_ALLOWANCE))
@@ -332,13 +359,13 @@ def _axes(
 
 
 def _subtitle(trajectories: Sequence[WellTrajectory], title: str | None) -> str:
-    """The CRS if the title is not it, how the wells were placed, and their TD."""
+    """The CRS if the title is not it, how the wells were georeferenced, and TD."""
     first = trajectories[0]
     methods = " / ".join(
         sorted({re.sub(r"(?<=[a-z])(?=[A-Z])", " ", t.method) for t in trajectories})
     )
     parts = [first.crs.name] if title else []
-    parts.append(f"{methods} placement")
+    parts.append(f"{methods} georeferencing")
     if len(trajectories) == 1:
         parts.append(
             f"TD {first.md[-1]:,.0f} {first.md_unit} MD, "
@@ -347,6 +374,19 @@ def _subtitle(trajectories: Sequence[WellTrajectory], title: str | None) -> str:
     else:
         parts.append(f"{len(trajectories)} wells")
     return "  ·  ".join(parts)
+
+
+def _hover_data(trajectory: WellTrajectory) -> np.ndarray:
+    """The values :func:`_hover` reads, one row per point."""
+    return np.column_stack(
+        [
+            trajectory.md,
+            trajectory.inclination,
+            trajectory.azimuth_true,
+            trajectory.tvd,
+            trajectory.dls(),
+        ]
+    )
 
 
 def _hover(trajectory: WellTrajectory) -> str:

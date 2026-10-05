@@ -30,6 +30,18 @@ operations, Norwegian NN54 heights with and without a datum change, an
 engineering CRS, operation discovery by area of use, coordinate export, and
 ten OSDU `persistableReference` scenarios.
 :::
+
+:::{grid-item-card} Well trajectories
+:link: notebooks/welltrajectory_examples
+:link-type: doc
+
+The synthetic survey file that ships with the package, and the OSDU request
+bodies and survey tables of the test suite, end to end: building the input
+from a file, arrays, rows, a DataFrame or a request body, minimum curvature
+checked by hand, the four georeferencing methods compared, grid and true
+north, units and interpolation, a geographic CRS, moving to WGS 84, and 3D
+plots.
+:::
 ::::
 
 ## Examples by topic
@@ -48,10 +60,20 @@ examples:
 | Refusals | {doc}`/user-guide/geodesy/errors` | Triggering every `GeodesyError` subclass, including a simulated missing grid |
 | Helmert algebra | {doc}`/user-guide/geodesy/helmert` | Reading, composing and collapsing Helmerts; restating ppb scales |
 | OSDU payloads | {doc}`/user-guide/persistable-reference` | All six payload kinds, transforming with payloads, stated operations, units, writing payloads, method support tables |
+| Projection factors | {doc}`/user-guide/projection-factors/computing` | One point and many, from longitude and latitude, bound and compound CRSs, units and prime meridians, a non-conformal projection, JSON |
+| Projection factors across a zone | {doc}`/user-guide/projection-factors/across-a-zone` | Figures of the grid convergence and the point scale factor over a UTM zone, and of how the angles relate |
+| Azimuths and distances | {doc}`/user-guide/projection-factors/azimuths-and-distances` | Grid and true azimuths, the sign checked against transformed points, the scale factor checked against a geodesic |
+| Building the input | {doc}`/user-guide/welltrajectory/input` | A trajectory input from arrays, rows, a DataFrame, a survey file and an OSDU request body; the survey file format; checks; changing and saving an input |
+| Surveys | {doc}`/user-guide/welltrajectory/surveys` | Stations, units in every accepted form, inclination-only surveys, the wellhead, malformed surveys |
+| Trajectories | {doc}`/user-guide/welltrajectory/trajectories` | Results and their units, dogleg severity, interpolation, grid azimuths, a geographic CRS, moving to WGS 84 |
+| Minimum curvature | {doc}`/user-guide/welltrajectory/minimum-curvature` | The method on its own, points on the arcs, resampling that reproduces the survey |
+| Georeferencing methods | {doc}`/user-guide/welltrajectory/georeferencing` | The four methods side by side, and their geometric differences at depth |
+| Plotting | {doc}`/user-guide/welltrajectory/plotting` | One well, several wells, colouring and shadows |
 
 ```{toctree}
 :hidden:
 
 notebooks/geodesy_quickstart
 notebooks/geodetic-engine-examples
+notebooks/welltrajectory_examples
 ```

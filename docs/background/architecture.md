@@ -56,8 +56,9 @@ straight from it.
 
 | Package | Responsibility |
 | --- | --- |
-| {mod}`geodetic_engine.geodesy` | Public transformation API, CRS handling, operation checks, result provenance |
+| {mod}`geodetic_engine.geodesy` | Public transformation API, CRS handling, operation checks, result provenance, projection factors |
 | {mod}`geodetic_engine.geodesy.utils` | Helmert composition and collapse, abridged-transformation unit fixes |
+| {mod}`geodetic_engine.welltrajectory` | Directional surveys, minimum curvature, georeferencing in a CRS through `geodesy`, 3D plots |
 | {mod}`geodetic_engine.persistablereference` | OSDU `persistableReference` and ESRI WKT reading and writing |
 | {mod}`geodetic_engine.georepository` | Authentication, HTTP requests, pagination, response caching |
 | {mod}`geodetic_engine.projdb` | Georepository import, and the shared database writer, schema check, validation and build report |

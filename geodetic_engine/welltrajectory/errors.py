@@ -23,6 +23,14 @@ class DegenerateSurveyError(InvalidSurveyError):
     """Two stations point in opposite directions, so no arc joins them."""
 
 
+class InvalidInputError(WellTrajectoryError):
+    """A trajectory input is incomplete or malformed.
+
+    A required setting is missing, a setting has a value it cannot take, a
+    survey file does not follow the format, or a payload lacks a field.
+    """
+
+
 class UnitError(WellTrajectoryError):
     """A unit was not recognised, or is not a unit of the quantity needed.
 

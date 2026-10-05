@@ -36,6 +36,10 @@ operation needs a coordinate epoch.
   and audited later.
 - **Reads and writes OSDU `persistableReference`s**, and transforms with
   exactly the CRS or operation a payload states.
+- **Evaluates projection factors.** Grid convergence and point scale factor at
+  any point of a projected CRS, with the sign convention stated.
+- **Positions wellbores.** A directional survey, by minimum curvature,
+  georeferenced in a CRS on its own datum, with dogleg severity and a 3D view.
 - **Builds custom PROJ databases.** Adds an organisation's CRSs and
   transformations, from a Georepository register or an OSDU catalogue, to a
   validated copy of PROJ's `proj.db`.
@@ -46,7 +50,8 @@ operation needs a coordinate epoch.
 
 | Module | Purpose |
 |---|---|
-| {mod}`geodetic_engine.geodesy` | Transformations, CRS inspection, operation lookup, results and provenance |
+| {mod}`geodetic_engine.geodesy` | Transformations, CRS inspection, operation lookup, results and provenance, projection factors |
+| {mod}`geodetic_engine.welltrajectory` | Well trajectories from directional surveys: minimum curvature, georeferencing in a CRS, 3D plots |
 | {mod}`geodetic_engine.persistablereference` | Parse and emit OSDU `persistableReference` payloads |
 | {mod}`geodetic_engine.georepository` | Authenticated client for a Georepository API |
 | {mod}`geodetic_engine.projdb` | Build a `proj.db` from a Georepository register (`geodetic-projdb`) |
@@ -91,8 +96,9 @@ ideas the rest of the documentation assumes you know.
 :link: user-guide/index
 :link-type: doc
 
-Task-oriented guides for every module: transformations, OSDU
-persistableReferences, the Georepository client, and custom `proj.db` builds.
+Task-oriented guides for every module: transformations, projection factors,
+well trajectories, OSDU persistableReferences, the Georepository client, and
+custom `proj.db` builds.
 :::
 
 :::{grid-item-card} {octicon}`beaker` Examples
@@ -134,6 +140,8 @@ each workaround can be removed.
 | Transform coordinates between two CRSs | {doc}`user-guide/geodesy/transformations` |
 | Find out which operations exist between two CRSs | {doc}`user-guide/geodesy/choosing-operations` |
 | Understand why my transformation was refused | {doc}`user-guide/geodesy/errors` |
+| Turn an azimuth between true and grid north, or scale a distance onto the grid | {doc}`user-guide/projection-factors/azimuths-and-distances` |
+| Position a well from its directional survey | {doc}`user-guide/welltrajectory/input` |
 | Read or write an OSDU `persistableReference` | {doc}`user-guide/persistable-reference` |
 | Add my organisation's CRSs and transformations to PROJ | {doc}`user-guide/custom-database` |
 | Know what the package does differently from plain pyproj | {doc}`background/guarantees` |
@@ -152,6 +160,8 @@ getting-started/index
 :maxdepth: 2
 
 user-guide/geodesy/index
+user-guide/projection-factors/index
+user-guide/welltrajectory/index
 user-guide/persistable-reference
 user-guide/georepository
 user-guide/custom-database

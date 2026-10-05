@@ -7,7 +7,13 @@ offsets are placed in the CRS by one of four methods. Every coordinate change
 goes through `geodetic_engine.geodesy`, on the CRS's own datum, so no datum
 shift is ever applied silently.
 
+The full guide, with executed examples, is the documentation's
+[Well trajectories](../../docs/user-guide/welltrajectory/index.md) section.
+
 - [Quickstart](#quickstart)
+- [Building the input](#building-the-input)
+  - [The survey file format](#the-survey-file-format)
+- [Package layout](#package-layout)
 - [Conventions](#conventions)
 - [Minimum curvature](#minimum-curvature)
   - [The step between two stations](#the-step-between-two-stations)
@@ -19,48 +25,118 @@ shift is ever applied silently.
 ## Quickstart
 
 ```python
-from geodetic_engine.welltrajectory import Survey, compute_trajectory, open_in_browser
+from importlib.resources import files
 
-survey = Survey(
+from geodetic_engine.welltrajectory import TrajectoryInput, open_in_browser
+
+well = TrajectoryInput.from_arrays(
     md=[0, 500, 1500, 2500],
     inclination=[0, 20, 60, 70],
     azimuth=[10, 30, 45, 50],
-    md_unit="m",
-)
-trajectory = compute_trajectory(
-    survey,
     wellhead=(500000.0, 6600000.0, 25.0),  # x, y in the CRS; z = elevation
     crs="EPSG:32631",  # or WKT, PROJJSON, an OSDU persistableReference, a bound CRS
-    north="GN",  # azimuths against grid north; "TN" for true north
+    north_reference="GN",  # azimuths against grid north; "TN" for true north
+    md_unit="m",  # optional from here on, defaults shown
+    angle_unit="degree",
     method="AzimuthalEquidistant",
     z_unit="m",
-    md_step=30,  # optional: also a point every 30 m of MD, on the arcs
+    md_step=None,  # e.g. 30: also a point every 30 m of MD, on the arcs
+    md_points=None,  # e.g. [1234.5]: also a point at these MDs
+    name=None,  # labels the well in plots
 )
+trajectory = well.compute()
 
 trajectory.to_dataframe()  # md, angles, offsets, x, y, z, dls
 trajectory.interpolate([1234.5, 2000])  # on the arcs, not linearly
 trajectory.to_geographic(operation="EPSG:1133")  # a datum change must be named
 trajectory.plot(color_by="dls")  # a plotly figure, needs the plot extra
 open_in_browser(trajectory.plot())  # the same, full screen in a browser tab
+
+# The synthetic survey file that ships with the package.
+example = (
+    files("geodetic_engine.welltrajectory") / "example_data" / "synthetic_well.csv"
+)
+TrajectoryInput.from_csv(example).compute()
 ```
 
-`MinimumCurvature` works on its own, without a CRS, for offsets, dogleg
-severity and interpolation. `from_payload()`, in
-`geodetic_engine.welltrajectory.utils`, takes the same inputs as a single JSON
-request body (`trajectoryCRS`, `azimuthReference`, `referencePoint`,
-`inputStations`, `method`, `MD_i`, ...), and returns the trajectory, the points
-`MD_i` asks for, and the local CRS as a persistableReference.
+`compute_trajectory()` does the same from a `Survey`, a `Wellhead` and a CRS
+given separately. `MinimumCurvature` works on its own, without a CRS, for
+offsets, dogleg severity and interpolation.
 
 Plotting needs the `plot` extra: `pip install 'geodetic-engine[plot]'`, which
 brings plotly and kaleido. `plot_trajectory()`, or `WellTrajectory.plot()`,
 builds a 3D figure with every axis at one scale, to rotate, pan, zoom and hover
-for MD, angles, TVD and dogleg severity. A notebook shows it in place, at a
+for MD, angles, TVD and dogleg severity. The survey stations are marked on each
+path, to show it passing through them; `stations=False` leaves the markers
+out, and `projections=False` the shadows. A notebook shows it in place, at a
 fixed size; `open_in_browser()` serves it from a local web server on
 `127.0.0.1` and opens it in a browser tab, which in a dev container is the
 host's browser through VS Code's port forwarding. `figure.write_html(path)`
 keeps it as a self-contained file, and `figure.write_image(path)` as a still
 PNG, SVG or PDF; kaleido renders those with Chromium or Chrome, which the dev
 container installs.
+
+## Building the input
+
+`TrajectoryInput` holds everything a trajectory is computed from. Four
+settings are required: the survey, the wellhead, the CRS and
+`north_reference`. The others have the defaults shown above. Everything that
+can be checked without the CRS is checked when the input is made; the CRS is
+resolved by `compute()`. An input is frozen: `dataclasses.replace(well,
+method="LMP")` gives a checked copy with a setting changed.
+
+| Constructor | The survey as |
+| --- | --- |
+| `from_arrays(md, inclination, azimuth, ...)` | One numpy array, list or Series per quantity. |
+| `from_records(rows, ...)` | One row per station: `(md, inclination, azimuth)` tuples or lists, or mappings with those keys. |
+| `from_dataframe(frame, md_column=..., ...)` | A pandas DataFrame, with any column names; other columns are ignored. |
+| `from_csv(path, ...)` | A survey file in the format below. Keyword arguments fill in or override its header. |
+| `from_osdu_payload(body)` | An OSDU `convertTrajectory` request body, as a mapping or JSON text. `MD_i.md_i` maps onto `md_points` and `MD_i.md_interval` onto `md_step`. |
+
+`to_csv(path)` writes an input in the survey file format, every setting
+included, and `to_dataframe()` gives its stations.
+
+### The survey file format
+
+```text
+# Synthetic survey. A line starting with # that is not "# key: value" is a comment.
+# name: Synthetic-1
+# crs: EPSG:23031
+# wellhead_x: 455000.0
+# wellhead_y: 6785000.0
+# wellhead_z: 32.0
+# north_reference: GN
+# md_unit: m
+md,inclination,azimuth
+0.0,0.0,0.0
+30.0,0.31,210.01
+...
+```
+
+- UTF-8 text; a byte order mark is skipped.
+- Header lines first. `# key: value` states a setting; the key is one word,
+  in any case: `crs`, `wellhead_x` and `wellhead_y` and `north_reference` are
+  required, unless given as arguments; `wellhead_z`, `md_unit`, `angle_unit`,
+  `z_unit`, `method`, `md_step`, `md_points` (comma separated) and `name` are
+  optional. An unknown key is refused, so a misspelt one is not skipped.
+- Then the table: a line naming the columns `md`, `inclination` and,
+  unless the survey has none, `azimuth`, in any order and case; no other
+  column. Then one line per station, plain numbers with `.` as the decimal
+  point. Blank lines are skipped.
+- Errors name the line at fault.
+
+## Package layout
+
+| Module | Holds |
+| --- | --- |
+| `datamodels/trajectory_input.py` | `TrajectoryInput`, the input, and its constructors. |
+| `datamodels/well_trajectory.py` | `WellTrajectory`, the result. |
+| `trajectory.py` | `compute_trajectory()`. |
+| `survey.py` | `Survey`, `Wellhead`, `NorthReference` and the unit resolution. |
+| `minimum_curvature.py` | `MinimumCurvature`. |
+| `methods/` | The four georeferencing methods, one module each. |
+| `plot.py` | The 3D view. |
+| `example_data/` | `synthetic_well.csv`, a synthetic survey file. |
 
 ## Conventions
 
@@ -69,7 +145,7 @@ container installs.
 | Coordinate values | `xy` order, as everywhere in this package: easting then northing, longitude then latitude, in the CRS's own units. |
 | Inclination $I$ | From vertical: 0 is straight down, 90 horizontal. |
 | Azimuth $A$ | Clockwise from north, against grid north (`GN`) or true north (`TN`). |
-| Grid convergence | $\gamma$ from true north to grid north, clockwise positive: $A_{grid} = A_{true} - \gamma$. See [Projection factors](../../README.md#projection-factors). |
+| Grid convergence | $\gamma$ from true north to grid north, clockwise positive: $A_{grid} = A_{true} - \gamma$. See [Projection factors](../../docs/user-guide/projection-factors/index.md). |
 | Offsets | `east`, `north`, `tvd` from the wellhead, against true north, TVD positive down, in `z_unit`. |
 | Elevation | $z = z_0 - \mathrm{TVD}$, with $z_0$ the wellhead elevation. The same for every method. |
 | Dogleg severity | Degrees per 30 m of MD, or per 100 ft for a survey in feet; `dls(per_length)` for any other length. |

@@ -64,13 +64,57 @@ def test_each_well_has_its_path_markers_and_hover(trajectory: WellTrajectory) ->
     assert "MD" in paths[0].hovertemplate
     assert paths[0].customdata.shape == (len(paths[0].x), 5)
     markers = [trace.name for trace in figure.data if trace.mode == "markers"]
-    assert markers == ["Wellhead", "TD", "Wellhead", "TD"]
+    assert markers == ["Survey stations", "Wellhead", "TD"] * 2
     assert [note.text for note in figure.layout.scene.annotations] == ["A", "B"]
 
 
-def test_projections_can_be_left_out(trajectory: WellTrajectory) -> None:
-    assert len(plot_trajectory(trajectory).data) == 6
-    assert len(plot_trajectory(trajectory, projections=False).data) == 3
+def test_a_named_well_is_labelled_by_its_name(trajectory: WellTrajectory) -> None:
+    named = compute_trajectory(
+        SURVEY, (500400.0, 6600300.0, 30.0), "EPSG:32631", name="Named"
+    )
+
+    figure = plot_trajectory(trajectory, named, color_by=None)
+
+    notes = [note.text for note in figure.layout.scene.annotations]
+    assert notes == ["Well 1", "Named"]
+
+
+def test_projections_and_stations_can_be_left_out(trajectory: WellTrajectory) -> None:
+    assert len(plot_trajectory(trajectory).data) == 7
+    assert len(plot_trajectory(trajectory, projections=False).data) == 4
+    assert len(plot_trajectory(trajectory, stations=False).data) == 6
+
+
+def test_the_survey_stations_are_marked_on_the_path() -> None:
+    """Points added between the stations are drawn in the path, not marked."""
+    trajectory = compute_trajectory(
+        SURVEY, (500000.0, 6600000.0, 30.0), "EPSG:32631", md_step=100
+    )
+
+    figure = plot_trajectory(trajectory, projections=False)
+
+    path = next(trace for trace in figure.data if trace.mode == "lines")
+    marked = next(trace for trace in figure.data if trace.name == "Survey stations")
+    surveyed = trajectory.is_survey_station
+    assert len(marked.x) == len(SURVEY.md) < len(trajectory)
+    assert marked.x == pytest.approx(trajectory.x[surveyed])
+    assert marked.z == pytest.approx(trajectory.z[surveyed])
+    vertices = np.column_stack([path.x, path.y, path.z])
+    for station in np.column_stack([marked.x, marked.y, marked.z]):
+        assert np.linalg.norm(vertices - station, axis=1).min() < 1e-6
+    assert marked.customdata[:, 0] == pytest.approx(SURVEY.md)
+
+
+def test_one_legend_entry_toggles_the_stations_of_every_well(
+    trajectory: WellTrajectory,
+) -> None:
+    other = compute_trajectory(SURVEY, (500400.0, 6600300.0, 30.0), "EPSG:32631")
+
+    figure = plot_trajectory(trajectory, other)
+
+    marked = [trace for trace in figure.data if trace.name == "Survey stations"]
+    assert [trace.showlegend for trace in marked] == [True, False]
+    assert {trace.legendgroup for trace in marked} == {"Survey stations"}
 
 
 def test_the_browser_is_given_a_page_it_can_load(

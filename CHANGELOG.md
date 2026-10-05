@@ -7,6 +7,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `geodetic_engine.geodesy.projection_factors`: grid convergence, point scale
+  factor, meridional and areal scale and angular distortion at any point of a
+  projected CRS, with the sign convention stated, and helpers that turn
+  azimuths between grid and true north. Documented in a user guide section of
+  its own.
+- `geodetic_engine.welltrajectory`: well trajectories from directional
+  surveys, by minimum curvature, georeferenced in a CRS on its own datum by
+  one of four methods, with dogleg severity, interpolation along the arcs and
+  3D plots. The input is a `TrajectoryInput`, built from arrays, rows, a
+  pandas DataFrame, a survey file in a documented CSV format, or an OSDU
+  `convertTrajectory` request body, and the result a `WellTrajectory`. A
+  synthetic survey file ships in `example_data`. Documented in a user guide
+  section of its own, the API reference and an example notebook.
 - Documentation site built with Sphinx and published to GitHub Pages: getting
   started, a user guide for every module, executed examples, a generated API
   and command-line reference, background, and a list of known issues and
