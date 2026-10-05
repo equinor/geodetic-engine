@@ -302,6 +302,29 @@ def test_an_unbound_crs_of_another_datum_has_no_wgs84_corners() -> None:
     )
 
 
+def test_a_grid_across_the_antimeridian_has_a_wgs84_outline_round_itself() -> None:
+    """WGS 84 / UTM zone 60N at 60 degrees north: 180 degrees east is some 167 km
+    east of the zone's meridian, and this 40 km grid straddles it.
+    """
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=650000.0, origin_northing=6650000.0,
+        bin_width_i=25.0, bin_width_j=25.0, bearing_j=0.0, handedness=Handedness.RIGHT,
+    )  # fmt: skip
+    corners = corners_from_p6(grid, inline_range=(1, 1601), crossline_range=(1, 1601))
+
+    result = convert_bin_grid(corners, "EPSG:32660")
+
+    assert result.wgs84_corners is not None
+    assert result.wgs84_outline is not None
+    a, b, c, d = result.wgs84_corners
+    assert a[0] > 179.0
+    assert c[0] < -179.0  # as PROJ gives it
+    assert result.wgs84_outline.labels == ("A", "C", "D", "B", "A")
+    assert result.wgs84_outline.coordinates == tuple(
+        (lon % 360.0, lat) for lon, lat in (a, c, d, b, a)
+    )
+
+
 def test_an_operation_without_a_target_is_a_mistake() -> None:
     with pytest.raises(ValueError, match="target_crs"):
         convert_bin_grid(ACCEPTANCE, "EPSG:32615", operation="EPSG:15851")

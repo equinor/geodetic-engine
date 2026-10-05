@@ -61,7 +61,10 @@ class BinGridResult:
         outline: Outline of the squared corners in :attr:`crs`.
         wgs84_corners: Longitude and latitude of the squared corners, in order
             A, B, C, D; None when WGS 84 coordinates were not asked for.
-        wgs84_outline: Outline of :attr:`wgs84_corners`, or None.
+        wgs84_outline: Outline of :attr:`wgs84_corners`, or None. Across the
+            antimeridian its longitudes continue past 180 (-179.9 becomes
+            180.1), so that the ring goes round the grid rather than round
+            the rest of the world.
         conversion: The conversion to :attr:`crs`, or None.
         wgs84_conversion: The conversion to WGS 84, or None.
     """
@@ -255,7 +258,7 @@ def convert_bin_grid(
         wgs84_corners = tuple(
             (point[0], point[1]) for point in wgs84_conversion.coordinates
         )
-        wgs84_outline = outline_of(wgs84_corners)
+        wgs84_outline = outline_of(_unwrapped(wgs84_corners))
 
     return BinGridResult(
         source_crs=source,
@@ -343,6 +346,16 @@ def unbound_crs(crs: CoordinateReferenceSystem) -> CRS:
     """The CRS itself, without any transformation to WGS 84 it is bound with."""
     base = crs.crs.source_crs if crs.crs.is_bound else None
     return crs.crs if base is None else base
+
+
+def _unwrapped(
+    lonlat: tuple[tuple[float, float], ...],
+) -> tuple[tuple[float, float], ...]:
+    """Longitudes continued past 180 east where the points straddle the antimeridian."""
+    longitudes = [lon for lon, _ in lonlat]
+    if max(longitudes) - min(longitudes) <= 180.0:
+        return lonlat
+    return tuple((lon + 360.0 if lon < 0.0 else lon, lat) for lon, lat in lonlat)
 
 
 def _points(axis: AxisSpec, direction: str, abbreviation: str) -> bool:
