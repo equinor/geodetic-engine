@@ -536,7 +536,8 @@ class TrajectoryInput:
 
         Raises:
             InvalidInputError: If the payload is not a JSON object, a required
-                field is missing or has the wrong shape, ``interpolate`` is not
+                field is missing or has the wrong shape, ``inputKind`` is not
+                ``"MD_Incl_Azim"`` or ``"MD_Incl"``, ``interpolate`` is not
                 a boolean, ``method`` names no known method, ``MD_i`` gives both
                 ``md_i`` and ``md_interval``, ``md_interval`` is not a positive
                 length, or ``md_interval`` and ``interpolate`` ask for spacings
@@ -573,7 +574,12 @@ class TrajectoryInput:
                 f"method {method!r} is not one of {sorted(_OSDU_METHODS)}"
             )
         rows = body["inputStations"]
-        inclination_only = body.get("inputKind", "MD_Incl_Azim") == "MD_Incl"
+        kind = str(body.get("inputKind", "MD_Incl_Azim"))
+        if kind.casefold() not in ("md_incl_azim", "md_incl"):
+            raise InvalidInputError(
+                f"inputKind {kind!r} is not MD_Incl_Azim or MD_Incl"
+            )
+        inclination_only = kind.casefold() == "md_incl"
         keys = ["md", "inclination"] + ([] if inclination_only else ["azimuth"])
         if not isinstance(rows, list) or not all(
             isinstance(row, Mapping) and set(keys) <= row.keys() for row in rows
@@ -593,8 +599,10 @@ class TrajectoryInput:
             raise InvalidInputError(f"MD_i.md_i must be a list, not {listed!r}")
         if listed and interval is not None:
             raise InvalidInputError("MD_i gives both md_i and md_interval; give one")
-        if unit := body.get("unitXY"):
-            _require_crs_unit(body["trajectoryCRS"], (wellhead.x, wellhead.y), unit)
+        if "unitXY" in body:
+            _require_crs_unit(
+                body["trajectoryCRS"], (wellhead.x, wellhead.y), body["unitXY"]
+            )
         interpolate = body.get("interpolate")
         if interpolate is not None and not isinstance(interpolate, bool):
             raise InvalidInputError(
@@ -608,7 +616,7 @@ class TrajectoryInput:
             wellhead=wellhead,
             crs=body["trajectoryCRS"],
             north_reference=body["azimuthReference"],
-            md_unit=body.get("unitMD") or body["unitZ"],
+            md_unit=body["unitMD"] if "unitMD" in body else body["unitZ"],
             method=_OSDU_METHODS[method.casefold()],
             z_unit=body["unitZ"],
             md_step=_osdu_step(bool(interpolate), interval),

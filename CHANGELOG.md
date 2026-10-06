@@ -82,7 +82,9 @@ All notable changes to this project are documented here. The format follows
   provenance records it.
 - An OSDU payload's `unitXY` is checked against an angular unit for a
   geographic CRS, so `degree` with `EPSG:4326` is accepted; `MD_i.md_i` must be
-  a list.
+  a list. An unknown `inputKind` is refused, and `unitMD` falls back to `unitZ`
+  only when it is absent: an empty or null `unitMD` or `unitXY` raises
+  `UnitError`.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order

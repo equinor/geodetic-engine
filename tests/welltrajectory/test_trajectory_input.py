@@ -663,6 +663,10 @@ def test_gnl_is_grid_north_local() -> None:
         ({"inputStations": "0, 0, 0"}, InvalidInputError, "inputStations"),
         ({"interpolate": "false"}, InvalidInputError, "interpolate"),
         ({"MD_i": {"md_i": 10.0}}, InvalidInputError, "md_i"),
+        ({"inputKind": "MD_Incl_Azi"}, InvalidInputError, "inputKind"),
+        ({"unitMD": ""}, UnitError, "length unit"),
+        ({"unitMD": None}, UnitError, "length unit"),
+        ({"unitXY": ""}, UnitError, "unitXY"),
     ],
     ids=[
         "both-md-i-forms",
@@ -679,6 +683,10 @@ def test_gnl_is_grid_north_local() -> None:
         "stations-not-a-list",
         "interpolate-not-a-boolean",
         "md-i-not-a-list",
+        "unknown-input-kind",
+        "empty-md-unit",
+        "null-md-unit",
+        "empty-xy-unit",
     ],
 )
 def test_a_payload_that_cannot_be_honoured_is_refused(
