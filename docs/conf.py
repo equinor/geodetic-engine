@@ -13,7 +13,8 @@ from pyproj.database import get_database_metadata
 
 DOCS = Path(__file__).resolve().parent
 sys.path.insert(0, str(DOCS / "_ext"))
-# The kernels that execute pages inherit this; see the file for what it sets up.
+# ipykernel runs PYTHONSTARTUP at start (IPython's exec_PYTHONSTARTUP), so every
+# kernel that executes a page runs this file; see it for what it sets up.
 os.environ["PYTHONSTARTUP"] = str(DOCS / "_ext" / "kernel_startup.py")
 
 import geodetic_engine  # noqa: E402
