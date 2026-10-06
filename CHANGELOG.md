@@ -66,6 +66,11 @@ All notable changes to this project are documented here. The format follows
   trajectory plots normalize MD and vertical units to the first well's units.
 - Horizontal conversion preserves bindings inside compound CRSs. Corrected
   the trajectory README quickstart and the explanation of reversal geometry.
+- Every georeferencing method refuses a projected CRS that does not preserve
+  angles at the wellhead, not only GridNorthLocal. OSDU request bodies with a
+  malformed nested field or a zero `md_interval`, and units with a non-positive
+  scale, raise the module's own errors. `plot_trajectory` refuses an unknown
+  `color_by` instead of labelling it as dogleg severity.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order

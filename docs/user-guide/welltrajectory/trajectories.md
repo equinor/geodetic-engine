@@ -58,7 +58,7 @@ wellhead's 25 m less the true vertical depth.
 |---|---|
 | `survey` | The {class}`~geodetic_engine.welltrajectory.Survey`; see {doc}`surveys`. |
 | `wellhead` | Where MD and TVD count from: a {class}`~geodetic_engine.welltrajectory.Wellhead`, or `(x, y)` or `(x, y, z)` in the CRS, with `z` its elevation in `z_unit`. |
-| `crs` | The trajectory CRS: anything {meth}`CoordinateReferenceSystem.from_user_input <geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input>` accepts, such as an EPSG code, WKT, PROJJSON, an OSDU `persistableReference`, or a {term}`bound CRS`. Projected or geographic. |
+| `crs` | The trajectory CRS: anything {meth}`CoordinateReferenceSystem.from_user_input <geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input>` accepts, such as an EPSG code, WKT, PROJJSON, an OSDU `persistableReference`, or a {term}`bound CRS`. Geographic, or projected with a conformal projection. |
 | `north` | What the azimuths are measured from: `"GN"`, grid north, the default, or `"TN"`, true north. |
 | `method` | How the offsets are georeferenced in the CRS; see {doc}`georeferencing`. `"AzimuthalEquidistant"` by default. |
 | `z_unit` | The unit of the wellhead elevation and of every depth, elevation and offset reported. Metres by default. |

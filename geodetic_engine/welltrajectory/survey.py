@@ -188,6 +188,8 @@ def _reference_factor(payload: str, quantity: str) -> float:
             f"{reference.symbol!r} ({reference.measurement or 'no measurement'}) "
             f"is not a {quantity} unit converted by a plain scale"
         )
+    if not (math.isfinite(scale) and scale > 0):
+        raise UnitError(f"{reference.symbol!r} has a {quantity} scale of {scale!r}")
     return scale
 
 

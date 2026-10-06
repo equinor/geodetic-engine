@@ -533,10 +533,11 @@ class TrajectoryInput:
             payload: The request body, as a mapping or as JSON text.
 
         Raises:
-            InvalidInputError: If a required field is missing, ``method``
-                names no known method, ``MD_i`` gives both ``md_i`` and
-                ``md_interval``, or ``md_interval`` and ``interpolate`` ask
-                for spacings that are not multiples of each other.
+            InvalidInputError: If a required field is missing or has the wrong
+                shape, ``method`` names no known method, ``MD_i`` gives both
+                ``md_i`` and ``md_interval``, ``md_interval`` is not a positive
+                length, or ``md_interval`` and ``interpolate`` ask for spacings
+                that are not multiples of each other.
             InvalidSurveyError: If the stations cannot describe a wellbore.
             UnitError: If a unit is not recognised, or ``unitXY`` is not the
                 CRS's own unit.
@@ -564,19 +565,30 @@ class TrajectoryInput:
             )
         rows = body["inputStations"]
         inclination_only = body.get("inputKind", "MD_Incl_Azim") == "MD_Incl"
+        keys = ["md", "inclination"] + ([] if inclination_only else ["azimuth"])
+        if not isinstance(rows, list) or not all(
+            isinstance(row, Mapping) and set(keys) <= row.keys() for row in rows
+        ):
+            raise InvalidInputError(
+                f"inputStations must be a list of stations, each with {', '.join(keys)}"
+            )
         reference = body["referencePoint"]
-        wellhead = (reference["x"], reference["y"], reference.get("z", 0.0))
+        if not isinstance(reference, Mapping) or not {"x", "y"} <= reference.keys():
+            raise InvalidInputError("referencePoint must be a mapping with x and y")
+        wellhead = _wellhead((reference["x"], reference["y"], reference.get("z", 0.0)))
         requested = body.get("MD_i") or {}
+        if not isinstance(requested, Mapping):
+            raise InvalidInputError("MD_i must be a mapping")
         listed, interval = requested.get("md_i") or [], requested.get("md_interval")
-        if listed and interval:
+        if listed and interval is not None:
             raise InvalidInputError("MD_i gives both md_i and md_interval; give one")
         if unit := body.get("unitXY"):
-            _require_crs_unit(body["trajectoryCRS"], wellhead, unit)
+            _require_crs_unit(body["trajectoryCRS"], (wellhead.x, wellhead.y), unit)
 
         return cls.from_arrays(
             [row["md"] for row in rows],
             [row["inclination"] for row in rows],
-            None if inclination_only else [row.get("azimuth") for row in rows],
+            None if inclination_only else [row["azimuth"] for row in rows],
             wellhead=wellhead,
             crs=body["trajectoryCRS"],
             north_reference=body["azimuthReference"],
@@ -593,8 +605,8 @@ class TrajectoryInput:
         Raises:
             UnresolvableCRSError: If the CRS cannot be resolved.
             UnsupportedCRSError: If the CRS has no geographic or projected
-                horizontal part, or grid azimuths are given in a geographic
-                CRS.
+                horizontal part, its projection does not preserve angles at
+                the wellhead, or grid azimuths are given in a geographic CRS.
             DegenerateSurveyError: If two consecutive stations point in
                 opposite directions.
         """
@@ -728,7 +740,7 @@ def _wellhead(value: object) -> Wellhead:
     return value if isinstance(value, Wellhead) else Wellhead(*numbers)
 
 
-def _step(value: object) -> float | None:
+def _step(value: object, setting: str = "md_step") -> float | None:
     if value is None:
         return None
     try:
@@ -736,7 +748,7 @@ def _step(value: object) -> float | None:
     except (TypeError, ValueError):
         step = math.nan
     if not (math.isfinite(step) and step > 0):
-        raise InvalidInputError(f"md_step must be a positive length, not {value!r}")
+        raise InvalidInputError(f"{setting} must be a positive length, not {value!r}")
     return step
 
 
@@ -779,17 +791,17 @@ def _columns_of(
     return columns[0], columns[1], columns[2] if widths == {3} else None
 
 
-def _osdu_step(interpolate: bool, interval: float | None) -> float | None:
+def _osdu_step(interpolate: bool, interval: object) -> float | None:
     """One MD step covering both ``interpolate`` and ``MD_i.md_interval``."""
-    steps = sorted(
-        float(step) for step in (interval, _OSDU_STEP if interpolate else None) if step
-    )
+    stated = _step(interval, "MD_i.md_interval")
+    implied = _OSDU_STEP if interpolate else None
+    steps = sorted(step for step in (stated, implied) if step is not None)
     if len(steps) == 2 and not math.isclose(
         steps[1] / steps[0], round(steps[1] / steps[0]), rel_tol=1e-9
     ):
         raise InvalidInputError(
             f"interpolate asks for a point every {_OSDU_STEP:g} of MD and "
-            f"MD_i.md_interval every {interval:g}; neither is a multiple of the "
+            f"MD_i.md_interval every {stated:g}; neither is a multiple of the "
             "other, so no single spacing gives both"
         )
     return steps[0] if steps else None

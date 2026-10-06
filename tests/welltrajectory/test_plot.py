@@ -117,6 +117,11 @@ def test_a_named_well_is_labelled_by_its_name(trajectory: WellTrajectory) -> Non
     assert notes == ["Well 1", "Named"]
 
 
+def test_an_unknown_colouring_is_refused(trajectory: WellTrajectory) -> None:
+    with pytest.raises(ValueError, match="color_by"):
+        plot_trajectory(trajectory, color_by="tvd")  # type: ignore[arg-type]
+
+
 def test_projections_and_stations_can_be_left_out(trajectory: WellTrajectory) -> None:
     assert len(plot_trajectory(trajectory).data) == 7
     assert len(plot_trajectory(trajectory, projections=False).data) == 4

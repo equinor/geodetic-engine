@@ -28,10 +28,15 @@ horizontally.
 
 | Method | Model | CRS |
 |---|---|---|
-| `AzimuthalEquidistant` (default) | The offsets are coordinates of an azimuthal equidistant projection centred on the wellhead. | Projected or geographic |
-| `GridNorthLocal` | The offsets turned by the grid convergence and scaled by the point scale factor, both taken at the wellhead. | Projected |
-| `ENU` | The offsets are a local tangent plane at the wellhead, through geocentric coordinates. | Projected or geographic |
-| `LMP` | Each step laid on the ellipsoid with the radii of curvature at its own latitude and elevation. | Projected or geographic |
+| `AzimuthalEquidistant` (default) | The offsets are coordinates of an azimuthal equidistant projection centred on the wellhead. | Geographic or conformal projected |
+| `GridNorthLocal` | The offsets turned by the grid convergence and scaled by the point scale factor, both taken at the wellhead. | Conformal projected |
+| `ENU` | The offsets are a local tangent plane at the wellhead, through geocentric coordinates. | Geographic or conformal projected |
+| `LMP` | Each step laid on the ellipsoid with the radii of curvature at its own latitude and elevation. | Geographic or conformal projected |
+
+A projected CRS must be conformal, preserving angles, for every method: each
+trajectory reports grid azimuths, and turning true azimuths onto the grid with
+the grid convergence alone needs a conformal projection. Other projections are
+refused with {class}`~geodetic_engine.geodesy.UnsupportedCRSError`.
 
 Choose with `method=` on any
 {class}`~geodetic_engine.welltrajectory.TrajectoryInput` constructor or on
@@ -78,9 +83,8 @@ This is $\alpha_{grid} = \alpha_{true} - \gamma$ and $d_{grid} = k\, d_{ground}$
 vector form; see {doc}`/user-guide/geodesy/projection-factors`.
 Holding $\gamma$ and $k$ constant over the whole well is the approximation:
 exact at the wellhead, and off further out by how much they change across the
-reach. The CRS must have a conformal projection, one that preserves angles,
-so that one scale factor applies in every direction. Other projections are
-refused. Axis order, directions and units are respected.
+reach. The scale factor applies in every direction because the projection is
+conformal. Axis order, directions and units are respected.
 
 ## `ENU`
 

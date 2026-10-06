@@ -113,9 +113,12 @@ def plot_trajectory(
 
     Raises:
         ImportError: If plotly is not installed.
-        ValueError: If no trajectory is given, they are in different CRSs, or
-            the labels do not match them one for one.
+        ValueError: If no trajectory is given, they are in different CRSs,
+            the labels do not match them one for one, or ``color_by`` is not
+            ``"dls"``, ``"md"`` or None.
     """
+    if color_by not in ("dls", "md", None):
+        raise ValueError(f"color_by must be 'dls', 'md' or None, not {color_by!r}")
     _validate(trajectories, labels)
     go = _plotly()
     trajectories = tuple(_in_units(item, trajectories[0]) for item in trajectories)

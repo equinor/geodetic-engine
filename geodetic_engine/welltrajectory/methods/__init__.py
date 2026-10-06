@@ -40,7 +40,8 @@ class Method(StrEnum):
 
     AZIMUTHAL_EQUIDISTANT = "AzimuthalEquidistant"
     """The default. The offsets are coordinates of an azimuthal equidistant
-    projection centred on the wellhead, converted to the CRS. Any CRS."""
+    projection centred on the wellhead, converted to the CRS. A geographic or
+    conformal projected CRS."""
 
     GRID_NORTH_LOCAL = "GridNorthLocal"
     """The offsets turned by the grid convergence and scaled by the point scale
@@ -48,11 +49,11 @@ class Method(StrEnum):
 
     ENU = "ENU"
     """The offsets are a local east-north-up plane at the wellhead, taken
-    through geocentric coordinates. Any CRS."""
+    through geocentric coordinates. A geographic or conformal projected CRS."""
 
     LMP = "LMP"
     """Each step laid on the ellipsoid with the radii of curvature at its own
-    latitude and elevation. Any CRS."""
+    latitude and elevation. A geographic or conformal projected CRS."""
 
 
 PLACEMENTS: dict[Method, Place] = {

@@ -232,3 +232,19 @@ def test_grid_north_local_refuses_angular_distortion(crs: str) -> None:
 
     with pytest.raises(UnsupportedCRSError, match="conformal"):
         PLACEMENTS[Method.GRID_NORTH_LOCAL](np.zeros((2, 3)), frame)
+
+
+@pytest.mark.parametrize("method", list(Method))
+def test_every_method_refuses_a_projection_that_distorts_angles(
+    method: Method,
+) -> None:
+    from pyproj import CRS, Transformer
+
+    projected = CRS("EPSG:3035")
+    wellhead = Transformer.from_crs(
+        projected.geodetic_crs, projected, always_xy=True
+    ).transform(20.0, 60.0)
+    survey = Survey([0, 1000], [0, 30], [45, 45])
+
+    with pytest.raises(UnsupportedCRSError, match="conformal"):
+        compute_trajectory(survey, wellhead, projected, north="TN", method=method)

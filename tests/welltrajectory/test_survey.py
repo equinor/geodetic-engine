@@ -53,8 +53,18 @@ def test_length_units_resolve(unit: str, metres: float) -> None:
         _unit_payload("deg/30m", 5.81776417331443e-4, "Rotation_Per_Length"),
         '{"scaleOffset":{"scale":1.0,"offset":273.15},"symbol":"degC",'
         '"baseMeasurement":{"ancestry":"Length","type":"UM"},"type":"USO"}',
+        _unit_payload("m0", 0.0, "Length"),
+        _unit_payload("-ft", -0.3048, "Length"),
     ],
-    ids=["unknown", "an-angle", "empty", "a-rate-per-length", "with-offset"],
+    ids=[
+        "unknown",
+        "an-angle",
+        "empty",
+        "a-rate-per-length",
+        "with-offset",
+        "zero-scale",
+        "negative-scale",
+    ],
 )
 def test_anything_that_is_not_a_plain_length_is_refused(unit: str) -> None:
     """A rate per length names a length in its ancestry, and is still not one."""

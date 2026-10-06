@@ -22,6 +22,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from geodetic_engine.geodesy import UnsupportedCRSError
+from geodetic_engine.geodesy.factors import _require_conformal
 from geodetic_engine.welltrajectory.datamodels.well_trajectory import (
     WellTrajectory,
     _describe,
@@ -98,6 +99,9 @@ def compute_trajectory(
     north = NorthReference(north)
     method = Method(method)
     frame = LocalFrame.at(crs, point.x, point.y, point.z * length_factor(z_unit))
+    if frame.factors.projected:
+        # Grid azimuths are reported for every method, and need a conformal grid.
+        _require_conformal(frame.factors)
     if north is NorthReference.GRID and not frame.factors.projected:
         raise UnsupportedCRSError(
             f"azimuths are given against grid north, but {frame.crs.name} is "

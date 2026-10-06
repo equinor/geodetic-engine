@@ -650,6 +650,17 @@ def test_gnl_is_grid_north_local() -> None:
         ),
         ({"unitXY": "ft"}, UnitError, "unitXY"),
         ({"method": "Tangential"}, InvalidInputError, "Tangential"),
+        ({"MD_i": {"md_interval": 0}}, InvalidInputError, "md_interval"),
+        ({"MD_i": [10.0]}, InvalidInputError, "MD_i"),
+        ({"referencePoint": {}}, InvalidInputError, "referencePoint"),
+        ({"referencePoint": {"x": "east", "y": 0}}, InvalidInputError, "wellhead"),
+        ({"inputStations": [{"md": 0.0}]}, InvalidInputError, "inputStations"),
+        (
+            {"inputStations": [{"md": 0.0, "inclination": 0.0}]},
+            InvalidInputError,
+            "azimuth",
+        ),
+        ({"inputStations": "0, 0, 0"}, InvalidInputError, "inputStations"),
     ],
     ids=[
         "both-md-i-forms",
@@ -657,6 +668,13 @@ def test_gnl_is_grid_north_local() -> None:
         "spacings-apart",
         "foreign-xy-unit",
         "unknown-method",
+        "zero-md-interval",
+        "md-i-not-a-mapping",
+        "empty-reference-point",
+        "non-numeric-reference-point",
+        "station-without-inclination",
+        "station-without-azimuth",
+        "stations-not-a-list",
     ],
 )
 def test_a_payload_that_cannot_be_honoured_is_refused(
