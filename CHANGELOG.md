@@ -10,8 +10,7 @@ All notable changes to this project are documented here. The format follows
 - `geodetic_engine.geodesy.projection_factors`: grid convergence, point scale
   factor, meridional and areal scale and angular distortion at any point of a
   projected CRS, with the sign convention stated, and helpers that turn
-  azimuths between grid and true north. Documented in a user guide section of
-  its own.
+  azimuths between grid and true north. Documented in the geodesy user guide.
 - `geodetic_engine.welltrajectory`: well trajectories from directional
   surveys, by minimum curvature, georeferenced in a CRS on its own datum by
   one of four methods, with dogleg severity, interpolation along the arcs and
