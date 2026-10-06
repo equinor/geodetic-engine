@@ -24,6 +24,7 @@ import tempfile
 import threading
 import webbrowser
 from collections.abc import Sequence
+from dataclasses import replace
 from functools import cache, partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -94,7 +95,9 @@ def plot_trajectory(
     Shown in place by a notebook, or in the browser by :func:`open_in_browser`.
 
     Args:
-        trajectories: One or more trajectories, all in the same CRS.
+        trajectories: One or more trajectories, all in the same CRS. Vertical
+            values, MD and dogleg severity are displayed in the first
+            trajectory's units; the input trajectories are not modified.
         color_by: Colour each path by dogleg severity or by measured depth;
             with None each well gets a colour of its own.
         labels: A name per trajectory, for the legend and the hover box;
@@ -115,6 +118,7 @@ def plot_trajectory(
     """
     _validate(trajectories, labels)
     go = _plotly()
+    trajectories = tuple(_in_units(item, trajectories[0]) for item in trajectories)
     smooth = [_smoothed(trajectory) for trajectory in trajectories]
     first = smooth[0]
     paths = [np.column_stack([t.x, t.y, t.z]) for t in smooth]
@@ -436,6 +440,24 @@ def _validate(
         raise ValueError("every trajectory must be in the same CRS to share axes")
     if labels is not None and len(labels) != len(trajectories):
         raise ValueError("give one label per trajectory")
+
+
+def _in_units(trajectory: WellTrajectory, reference: WellTrajectory) -> WellTrajectory:
+    """Copy displayed quantities into the units of the shared axes and scale."""
+    if (trajectory.md_unit, trajectory.z_unit) == (reference.md_unit, reference.z_unit):
+        return trajectory
+    measured = length_factor(trajectory.md_unit) / length_factor(reference.md_unit)
+    vertical = length_factor(trajectory.z_unit) / length_factor(reference.z_unit)
+    return replace(
+        trajectory,
+        md=trajectory.md * measured,
+        east=trajectory.east * vertical,
+        north=trajectory.north * vertical,
+        tvd=trajectory.tvd * vertical,
+        z=trajectory.z * vertical,
+        md_unit=reference.md_unit,
+        z_unit=reference.z_unit,
+    )
 
 
 def _smoothed(trajectory: WellTrajectory) -> WellTrajectory:

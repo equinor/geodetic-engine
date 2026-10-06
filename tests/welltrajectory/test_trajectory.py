@@ -5,9 +5,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from pyproj import CRS
-from pyproj.crs import BoundCRS, CoordinateOperation
+from pyproj.crs import BoundCRS, CompoundCRS, CoordinateOperation
 
-from geodetic_engine.geodesy import AmbiguousOperationError, UnsupportedCRSError
+from geodetic_engine.geodesy import (
+    AmbiguousOperationError,
+    TransformationFailedError,
+    UnsupportedCRSError,
+)
 from geodetic_engine.persistablereference import to_persistable_reference
 from geodetic_engine.welltrajectory import (
     Method,
@@ -45,6 +49,24 @@ def test_grid_azimuths_in_a_geographic_crs_are_refused() -> None:
         compute_trajectory(SURVEY, (4.0, 58.0), "EPSG:4326", north="GN")
 
 
+@pytest.mark.parametrize(
+    "method", [Method.AZIMUTHAL_EQUIDISTANT, Method.ENU, Method.LMP]
+)
+def test_an_out_of_range_geographic_wellhead_is_refused(method: Method) -> None:
+    well = TrajectoryInput.from_arrays(
+        [0, 100],
+        [90, 90],
+        [0, 0],
+        wellhead=(6, 95),
+        crs="EPSG:4326",
+        north_reference="TN",
+        method=method,
+    )
+
+    with pytest.raises(TransformationFailedError, match="range"):
+        well.compute()
+
+
 def test_depths_are_reported_below_the_wellhead_elevation() -> None:
     trajectory = compute_trajectory(SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N)
 
@@ -78,9 +100,14 @@ def test_md_in_metres_can_report_depths_in_feet() -> None:
     assert feet.z[0] == pytest.approx(30.0)
 
 
-def test_resampling_and_interpolating_stay_on_the_trajectory() -> None:
-    trajectory = compute_trajectory(SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N, md_step=100)
-    survey_only = compute_trajectory(SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N)
+@pytest.mark.parametrize("method", list(Method))
+def test_resampling_and_interpolating_stay_on_the_trajectory(method: Method) -> None:
+    trajectory = compute_trajectory(
+        SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N, method=method, md_step=100
+    )
+    survey_only = compute_trajectory(
+        SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N, method=method
+    )
 
     assert len(trajectory) == 26
     kept = trajectory.is_survey_station
@@ -91,6 +118,30 @@ def test_resampling_and_interpolating_stay_on_the_trajectory() -> None:
     assert points.x[0] == pytest.approx(survey_only.x[2], abs=1e-9)
     assert points.x[1] == pytest.approx(trajectory.x[trajectory.md == 700][0], abs=1e-9)
     assert "interpolated 2 points on the minimum curvature arcs" in points.operations
+
+    listed = compute_trajectory(
+        SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N, method=method, md_points=[700]
+    )
+    assert listed.x[listed.is_survey_station] == pytest.approx(survey_only.x, abs=1e-9)
+    assert listed.y[listed.is_survey_station] == pytest.approx(survey_only.y, abs=1e-9)
+    assert listed.x[~listed.is_survey_station] == pytest.approx(points.x[1], abs=1e-9)
+
+
+@pytest.mark.parametrize("method", list(Method))
+@pytest.mark.parametrize("depths", [[2500.0], [2500.0, 0.0, 1500.0, 2500.0], []])
+def test_interpolation_preserves_query_order_and_shape(
+    method: Method, depths: list[float]
+) -> None:
+    trajectory = compute_trajectory(SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N, method=method)
+
+    queried = trajectory.interpolate(depths)
+
+    indices = np.searchsorted(trajectory.md, depths)
+    assert queried.md.tolist() == depths
+    assert queried.x == pytest.approx(trajectory.x[indices], abs=1e-9)
+    assert queried.y == pytest.approx(trajectory.y[indices], abs=1e-9)
+    assert queried.z == pytest.approx(trajectory.z[indices], abs=1e-9)
+    assert len(queried.to_dataframe()) == len(depths)
 
 
 def test_the_provenance_says_what_was_done() -> None:
@@ -133,11 +184,20 @@ def test_moving_to_wgs84_needs_the_datum_shift_named() -> None:
     assert result.count == 4
 
 
-def test_a_bound_crs_names_its_own_datum_shift() -> None:
+@pytest.mark.parametrize("compound", [False, True])
+def test_a_bound_crs_names_its_own_datum_shift(compound: bool) -> None:
     bound = BoundCRS(
         CRS("EPSG:23032"), CRS("EPSG:4326"), CoordinateOperation.from_epsg(1133)
     )
-    for crs in (bound, to_persistable_reference(bound)):
+    source = (
+        CompoundCRS("Bound ED50 + height", [bound, CRS("EPSG:5776")])
+        if compound
+        else bound
+    )
+    representations = [source, source.to_wkt()]
+    if not compound:
+        representations.append(to_persistable_reference(source))
+    for crs in representations:
         trajectory = compute_trajectory(SURVEY, (500000.0, 6600000.0), crs)
 
         named = compute_trajectory(SURVEY, (500000.0, 6600000.0), "EPSG:23032")

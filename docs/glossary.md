@@ -245,9 +245,10 @@ Value order
   order.
 
 Grid convergence
-  The angle between true north and grid north at a point of a projected CRS.
-  In this package it is measured from true north to grid north, positive
-  clockwise, so a grid azimuth is the true azimuth less the convergence. See
+  The angle between true north and grid north at a point of a conformal
+  projected CRS. In this package it is measured from true north to grid north,
+  positive clockwise, so a grid azimuth is the true azimuth less the
+  convergence. See
   {doc}`/user-guide/projection-factors/index`.
 
 Point scale factor

@@ -20,7 +20,7 @@ the sign convention is shown rather than only stated.
 
 ## Turning azimuths
 
-Grid north lies $\gamma$ clockwise of true north, so
+On a conformal projection, grid north lies $\gamma$ clockwise of true north, so
 
 $$\alpha_{grid} = \alpha_{true} - \gamma, \qquad \alpha_{true} = \alpha_{grid} + \gamma.$$
 
@@ -38,6 +38,10 @@ print("true 0 on the grid:", factors.to_grid_azimuth(0.0))
 print("grid 0 is true    :", factors.to_true_azimuth(0.0))
 print("grid 90, 180, 270 :", factors.to_true_azimuth([90.0, 180.0, 270.0]))
 ```
+
+The helpers raise {class}`~geodetic_engine.geodesy.UnsupportedCRSError` where
+the projection distorts angles. Adding or subtracting convergence alone would
+give the wrong bearing there.
 
 With factors at several points, one azimuth is turned at every point, or one
 azimuth per point when as many are given:

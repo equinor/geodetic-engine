@@ -39,7 +39,7 @@ type FloatArray = NDArray[np.float64]
 # Below this dogleg the ratio factor is taken from its series, whose next term
 # 17 beta^6 / 20160 is below 1e-27 there; above it the closed form is exact.
 _SMALL_DOGLEG = 1e-4
-# Closer than this to a U-turn the arc's radius, and so its chord, is unbounded.
+# Near a U-turn the arc plane is ill-conditioned; at a U-turn it is undetermined.
 _REVERSAL = 1e-6
 
 
@@ -125,7 +125,8 @@ class MinimumCurvature:
         if np.any(np.pi - dogleg < _REVERSAL):
             at = md[1:][np.pi - dogleg < _REVERSAL][0]
             raise DegenerateSurveyError(
-                f"the hole reverses direction at MD {at:g}, which no arc can join"
+                f"the hole reverses direction at MD {at:g}, which does not "
+                "determine a unique arc plane"
             )
         steps = _chord(np.diff(md), dogleg, tangents[:-1], tangents[1:])
         offsets = np.vstack([np.zeros(3), np.cumsum(steps, axis=0)])

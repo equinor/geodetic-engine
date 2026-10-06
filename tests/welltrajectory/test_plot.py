@@ -54,6 +54,44 @@ def test_a_geographic_trajectory_is_drawn_in_degrees() -> None:
     assert scene.yaxis.title.text == "Lat [°]"
 
 
+@pytest.mark.parametrize("color_by", ["md", "dls", None])
+@pytest.mark.parametrize("first_unit", ["m", "ft"])
+def test_mixed_units_plot_the_same_geometry_and_values(
+    color_by: str | None, first_unit: str
+) -> None:
+    metric = compute_trajectory(SURVEY, (500000, 6600000, 30), "EPSG:32631")
+    imperial = compute_trajectory(
+        Survey(SURVEY.md / 0.3048, SURVEY.inclination, SURVEY.azimuth, md_unit="ft"),
+        (500000, 6600000, 30 / 0.3048),
+        "EPSG:32631",
+        z_unit="ft",
+    )
+    originals = imperial.md.copy(), imperial.z.copy()
+    wells = (metric, imperial) if first_unit == "m" else (imperial, metric)
+
+    figure = plot_trajectory(
+        *wells, labels=["A", "B"], color_by=color_by, projections=False
+    )
+
+    paths = [trace for trace in figure.data if trace.mode == "lines"]
+    for axis in ("x", "y", "z"):
+        assert np.asarray(getattr(paths[0], axis)) == pytest.approx(
+            np.asarray(getattr(paths[1], axis)), abs=1e-8
+        )
+    assert paths[0].customdata == pytest.approx(paths[1].customdata, abs=1e-8)
+    if color_by is not None:
+        assert np.asarray(paths[0].line.color) == pytest.approx(
+            np.asarray(paths[1].line.color), abs=1e-8
+        )
+        assert first_unit in paths[0].line.colorbar.title.text
+    markers = [trace for trace in figure.data if trace.name == "Survey stations"]
+    assert np.asarray(markers[0].z) == pytest.approx(np.asarray(markers[1].z), abs=1e-8)
+    assert markers[0].customdata == pytest.approx(markers[1].customdata, abs=1e-8)
+    assert first_unit in figure.layout.scene.zaxis.title.text
+    assert np.array_equal(imperial.md, originals[0])
+    assert np.array_equal(imperial.z, originals[1])
+
+
 def test_each_well_has_its_path_markers_and_hover(trajectory: WellTrajectory) -> None:
     other = compute_trajectory(SURVEY, (500400.0, 6600300.0, 30.0), "EPSG:32631")
 
@@ -137,7 +175,7 @@ def test_the_browser_is_given_a_page_it_can_load(
 
 @pytest.mark.skipif(
     importlib.util.find_spec("kaleido") is None
-    or not any(shutil.which(name) for name in ("chromium", "google-chrome")),
+    or not any(shutil.which(name) for name in ("chromium", "google-chrome", "chrome")),
     reason="still images need kaleido and Chromium or Chrome",
 )
 def test_a_figure_is_written_as_a_still_image(
@@ -145,9 +183,17 @@ def test_a_figure_is_written_as_a_still_image(
 ) -> None:
     path = tmp_path / "trajectory.png"
 
-    trajectory.plot().write_image(path, width=480, height=320)
+    trajectory.plot(color_by=None, projections=False, stations=False).write_image(
+        path, width=480, height=320
+    )
 
     assert path.read_bytes().startswith(b"\x89PNG")
+    image_module = pytest.importorskip("PIL.Image")
+    with image_module.open(path) as image:
+        assert image.size == (480, 320)
+        pixels = np.asarray(image.convert("RGB"), dtype=np.int16)[80:300, 160:360]
+    coloured = pixels.max(axis=2) - pixels.min(axis=2) > 80
+    assert np.count_nonzero(coloured) > 50
 
 
 def test_what_cannot_be_drawn_is_refused(trajectory: WellTrajectory) -> None:

@@ -101,6 +101,26 @@ def test_mercator_scale_matches_the_closed_form() -> None:
     assert factors.angular_distortion[0] == pytest.approx(0.0, abs=1e-9)
 
 
+@pytest.mark.parametrize("latitude", [0.0, 30.0, 60.0, -70.0])
+def test_web_mercator_factors_use_the_wgs84_ellipsoid(latitude: float) -> None:
+    flattening = 1 / 298.257223563
+    eccentricity_squared = 2 * flattening - flattening**2
+    angle = math.radians(latitude)
+    weight = math.sqrt(1 - eccentricity_squared * math.sin(angle) ** 2)
+    parallel = weight / math.cos(angle)
+    meridian = weight**3 / ((1 - eccentricity_squared) * math.cos(angle))
+    distortion = math.degrees(
+        2 * math.asin(abs(meridian - parallel) / (meridian + parallel))
+    )
+
+    factors = projection_factors("EPSG:3857", (10.0, latitude), geographic=True)
+
+    assert factors.scale_factor[0] == pytest.approx(parallel, rel=1e-8)
+    assert factors.meridional_scale[0] == pytest.approx(meridian, rel=1e-8)
+    assert factors.areal_scale[0] == pytest.approx(parallel * meridian, rel=1e-8)
+    assert factors.angular_distortion[0] == pytest.approx(distortion, abs=1e-6)
+
+
 def test_a_non_greenwich_prime_meridian_is_honoured() -> None:
     """NTF (Paris) is in grads from Paris, and PROJ reads longitude from Paris.
 
@@ -195,6 +215,56 @@ def test_a_position_proj_cannot_evaluate_is_an_error() -> None:
         projection_factors(UTM31N, (6.0, 95.0), geographic=True)
 
 
+@pytest.mark.parametrize("coordinate", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("dimension", [0, 1])
+@pytest.mark.parametrize(
+    ("crs", "geographic"),
+    [(UTM31N, False), (UTM31N, True), ("EPSG:4326", False)],
+)
+def test_nonfinite_horizontal_coordinates_are_refused(
+    coordinate: float, dimension: int, crs: str, geographic: bool
+) -> None:
+    point = [6.0, 60.0]
+    point[dimension] = coordinate
+
+    with pytest.raises(TransformationFailedError, match="finite"):
+        projection_factors(crs, point, geographic=geographic)
+
+
+@pytest.mark.parametrize(
+    ("crs", "point", "geographic"),
+    [
+        ("EPSG:4326", (6.0, 95.0), False),
+        ("EPSG:4326", (361.0, 60.0), False),
+        ("EPSG:4807", (2.6, 100.01), False),
+        ("EPSG:4807", (400.01, 52.0), False),
+        ("EPSG:27572", (2.6, -100.01), True),
+        (UTM31N, (6.0, -95.0), True),
+    ],
+)
+def test_geographic_ranges_use_the_crs_angular_units(
+    crs: str, point: tuple[float, float], geographic: bool
+) -> None:
+    with pytest.raises(TransformationFailedError, match="range"):
+        projection_factors(crs, point, geographic=geographic)
+
+
+def test_geographic_range_endpoints_are_valid_and_height_is_ignored() -> None:
+    factors = projection_factors("EPSG:4326", [(180, 90), (-180, -90)])
+    assert factors.scale_factor.tolist() == [1.0, 1.0]
+    assert projection_factors(
+        "EPSG:4326", [(360, 0), (-360, 0)]
+    ).longitude.tolist() == [360, -360]
+    assert projection_factors(UTM31N, (500000, 6600000, float("nan"))).scale_factor[
+        0
+    ] == pytest.approx(0.9996)
+
+
+def test_projected_factors_at_the_pole_are_explicitly_undefined() -> None:
+    with pytest.raises(TransformationFailedError, match="poles"):
+        projection_factors("EPSG:32661", (0, 90), geographic=True)
+
+
 def test_azimuths_turn_between_grid_and_true_north() -> None:
     factors = projection_factors(UTM31N, (6.0, 60.0), geographic=True)
     gamma = float(factors.grid_convergence[0])
@@ -219,3 +289,36 @@ def test_the_json_form_is_serialisable_and_states_its_convention() -> None:
         [600000.0, 6700000.0],
     ]
     assert isinstance(factors, ProjectionFactors)
+
+
+@pytest.mark.parametrize("crs", ["EPSG:32631", "EPSG:3395"])
+@pytest.mark.parametrize("azimuth", [0.0, 25.0, 45.0, 123.0, 270.0, 359.0])
+def test_azimuth_conversion_agrees_with_projected_geodesic_bearings(
+    crs: str, azimuth: float
+) -> None:
+    projected = CRS(crs)
+    longitude, latitude = 10.0, 60.0
+    geodesic = projected.get_geod()
+    before = geodesic.fwd(longitude, latitude, azimuth + 180, 0.5)
+    after = geodesic.fwd(longitude, latitude, azimuth, 0.5)
+    to_grid = Transformer.from_crs(projected.geodetic_crs, projected, always_xy=True)
+    start = np.array(to_grid.transform(*before[:2]))
+    finish = np.array(to_grid.transform(*after[:2]))
+    east, north = finish - start
+    expected = math.degrees(math.atan2(east, north)) % 360
+
+    factors = projection_factors(projected, (longitude, latitude), geographic=True)
+    measured = float(factors.to_grid_azimuth(azimuth)[0])
+
+    assert (measured - expected + 180) % 360 - 180 == pytest.approx(0, abs=1e-5)
+    assert factors.to_true_azimuth(measured)[0] == pytest.approx(azimuth, abs=1e-9)
+
+
+@pytest.mark.parametrize("crs", ["EPSG:3857", "EPSG:6933", "EPSG:3035"])
+def test_azimuth_helpers_refuse_projections_that_distort_angles(crs: str) -> None:
+    factors = projection_factors(crs, (20.0, 60.0), geographic=True)
+
+    assert factors.angular_distortion[0] > 1e-5
+    for convert in (factors.to_true_azimuth, factors.to_grid_azimuth):
+        with pytest.raises(UnsupportedCRSError, match="conformal"):
+            convert(45.0)

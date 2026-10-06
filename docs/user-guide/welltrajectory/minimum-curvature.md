@@ -83,9 +83,11 @@ $\beta$ is undefined, so below $\beta = 10^{-4}$ rad it is taken from its series
 
 $$RF = 1 + \frac{\beta^2}{12} + \frac{\beta^4}{120} + O(\beta^6),$$
 
-whose first omitted term is below $10^{-27}$ there. As $\beta \to \pi$ the two
-tangents point opposite ways, the radius is unbounded and no arc joins them;
-that raises {class}`~geodetic_engine.welltrajectory.DegenerateSurveyError`.
+whose first omitted term is below $10^{-27}$ there. As $\beta \to \pi$, the
+radius tends to $\Delta MD / \pi$ and the chord remains finite. At an exact
+reversal the tangents leave the arc plane undetermined, so there is no unique
+arc. That, and a numerically indistinguishable near-reversal, raises
+{class}`~geodetic_engine.welltrajectory.DegenerateSurveyError`.
 
 ### Dogleg severity
 

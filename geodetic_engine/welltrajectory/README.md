@@ -48,7 +48,7 @@ trajectory = well.compute()
 
 trajectory.to_dataframe()  # md, angles, offsets, x, y, z, dls
 trajectory.interpolate([1234.5, 2000])  # on the arcs, not linearly
-trajectory.to_geographic(operation="EPSG:1133")  # a datum change must be named
+trajectory.to_geographic()  # WGS 84 / UTM to WGS 84 needs no datum change
 trajectory.plot(color_by="dls")  # a plotly figure, needs the plot extra
 open_in_browser(trajectory.plot())  # the same, full screen in a browser tab
 
@@ -75,6 +75,10 @@ host's browser through VS Code's port forwarding. `figure.write_html(path)`
 keeps it as a self-contained file, and `figure.write_image(path)` as a still
 PNG, SVG or PDF; kaleido renders those with Chromium or Chrome, which the dev
 container installs.
+
+When wells use different MD or vertical units, all plotted values, including
+hover text and colour scales, use the first well's units. The input data is
+not changed.
 
 ## Building the input
 
@@ -140,6 +144,8 @@ md,inclination,azimuth
   one line per station, plain numbers with `.` as the decimal point. Blank
   lines are skipped.
 - Errors name the line at fault.
+- Unsupported units in column names or unit rows raise `UnitError`, including
+  misspellings and units of the wrong quantity; they never become defaults.
 
 ## Package layout
 
@@ -162,15 +168,17 @@ md,inclination,azimuth
 | Coordinate values | `xy` order, as everywhere in this package: easting then northing, longitude then latitude, in the CRS's own units. |
 | Inclination $I$ | From vertical: 0 is straight down, 90 horizontal. |
 | Azimuth $\alpha$ | Clockwise from north, against grid north (`GN`) or true north (`TN`). |
-| Grid convergence | $\gamma$ from true north to grid north, clockwise positive: $\alpha_{grid} = \alpha_{true} - \gamma$. See [Projection factors](../../docs/user-guide/projection-factors/index.md). |
+| Grid convergence | $\gamma$ from true north to grid north, clockwise positive: $\alpha_{grid} = \alpha_{true} - \gamma$. This needs a conformal projection. See [Projection factors](../../docs/user-guide/projection-factors/index.md). |
 | Offsets | `east`, `north`, `tvd` from the wellhead, against true north, TVD positive down, in `z_unit`. |
 | Elevation | $z = z_0 - \mathrm{TVD}$, with $z_0$ the wellhead elevation. The same for every method. |
 | Dogleg severity | Degrees per 30 m of MD, or per 100 ft for a survey in feet; `dls(per_length)` for any other length. |
 | Units | Symbols (`m`, `ft`, `ftUS`), OSDU unit ids, or OSDU unit persistableReferences. An unknown unit raises `UnitError`; nothing defaults. |
 
 Grid azimuths are turned onto true north with the convergence at the wellhead,
-so they assume it does not change across the well. Grid azimuths in a
-geographic CRS are refused, since there is no grid.
+so they assume it does not change across the well. Projected trajectory CRSs
+must preserve angles at the wellhead; grid convergence alone is not enough
+when the projection distorts them. Grid azimuths in a geographic CRS are
+refused, since there is no grid.
 
 ## Minimum curvature
 
@@ -204,9 +212,10 @@ $$\Delta p = R \tan\frac{\beta}{2}\,(t_1 + t_2) = \frac{\Delta MD}{2}\, RF\,(t_1
 The ratio factor $RF$ is 1 on a straight segment, where the division by
 $\beta$ is undefined, so below $\beta = 10^{-4}$ rad it is taken from its
 series $RF = 1 + \beta^2/12 + \beta^4/120 + O(\beta^6)$, whose first omitted
-term is below $10^{-27}$ there. As $\beta \to \pi$ the two tangents point
-opposite ways, the radius is unbounded and no arc joins them; that raises
-`DegenerateSurveyError`.
+term is below $10^{-27}$ there. As $\beta \to \pi$ the radius tends to
+$\Delta MD / \pi$ and the chord stays finite. At an exact reversal the two
+tangents do not determine a unique arc plane; that raises
+`DegenerateSurveyError`, as does a numerically indistinguishable near-reversal.
 
 The dogleg severity at a station is the curvature of the arc ending there,
 $\beta / \Delta MD$, stated in degrees per 30 m or per 100 ft. It is zero at the
@@ -250,8 +259,8 @@ scaled by the point scale factor $k$, both taken at the wellhead:
 
 $$E_{grid} = k\,(E\cos\gamma - N\sin\gamma), \qquad N_{grid} = k\,(E\sin\gamma + N\cos\gamma).$$
 
-This is $\alpha_{grid} = \alpha_{true} - \gamma$ and $d_{grid} = k\, d_{ground}$ in vector
-form. Projected CRSs only.
+This needs a conformal projected CRS, so that one scale factor applies in
+every direction. Axis order, directions and units are respected.
 
 **`ENU`**. The offsets are coordinates in the topocentric frame at the
 wellhead, with $U = -\mathrm{TVD}$. With the wellhead at $(\varphi_0, \lambda_0, h_0)$
@@ -284,6 +293,10 @@ iteration; each pass shrinks the error by the reach over the earth's radius,
 and three passes are far more than enough. Each step's azimuth is thereby
 counted from the meridian where it was drilled, not the wellhead's.
 
+The original survey stations remain the integration anchors. Each interpolated
+point is evaluated from its preceding survey station; changing the query
+order, adding points or resampling never moves an existing station.
+
 ## How the methods differ
 
 All four agree to centimetres near the wellhead. Further out they differ by
@@ -297,6 +310,13 @@ amounts that follow from their geometry, which the tests pin:
 
 Moving a result to another datum is `to_geographic()`, which goes through
 `Transformation` and so needs the operation named, or a bound trajectory CRS.
+Bindings in the horizontal component of a compound CRS are preserved too.
+
+## Example data
+
+The Volve F-1 report is from the [Volve field data set](https://www.equinor.com/energy/volve-data-sharing),
+provided by Equinor and the Volve licence partners under the Equinor Open Data
+Licence. The synthetic survey is generated example data, not an observed well.
 
 ## Not covered
 

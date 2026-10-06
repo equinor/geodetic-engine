@@ -517,6 +517,33 @@ def test_the_unit_after_a_column_name_gives_way_to_an_argument() -> None:
 
 
 @pytest.mark.parametrize(
+    "heading",
+    [
+        "MD (furlong),Inc (deg),Azimuth",
+        "MD (ftt),Inc (deg),Azimuth",
+        "MD (deg),Inc (deg),Azimuth",
+        "MD (m),Inc (m),Azimuth",
+        "MD (m),Inc (radd),Azimuth",
+        "MD (m),Inc (deg),Azimuth (m)",
+    ],
+)
+def test_unsupported_annotated_units_never_default(heading: str) -> None:
+    with pytest.raises(UnitError, match="line 4"):
+        _csv(HEADER + heading + "\n0,0,0\n100,1,0\n", north_reference="TN")
+
+
+@pytest.mark.parametrize(
+    "units", ["furlong,deg,deg", "deg,deg,deg", "m,m,deg", "m,deg,m"]
+)
+def test_unit_rows_refuse_unknown_units_and_wrong_quantities(units: str) -> None:
+    with pytest.raises(UnitError, match="line 5"):
+        _csv(
+            HEADER + "MD,Inc,Azimuth\n" + units + "\n0,0,0\n100,1,0\n",
+            north_reference="TN",
+        )
+
+
+@pytest.mark.parametrize(
     ("table", "delimiter"),
     [
         ("md;inclination;azimuth\n0;0;10\n500;20;30\n", None),

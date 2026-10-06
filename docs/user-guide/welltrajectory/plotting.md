@@ -46,8 +46,8 @@ coloured by dogleg severity, with faint shadows on the floor and two walls to
 make depth readable. Each surveyed station is marked on its path with a small
 bead in the path's colour, so you can see the arcs pass through the stations
 they were computed from; hover one for its MD, angles, TVD and DLS. All three
-axes are at one scale, in metres on the ground, so a vertical well is drawn
-vertical and a 45° build looks like 45°. An axis the well barely spans is
+axes account for coordinate units at one scale; projection distortion itself
+is not removed. An axis the well barely spans is
 widened around it rather than stretched.
 
 | Action | Control |
@@ -83,6 +83,10 @@ plot_trajectory(
     title="Three wells from one wellhead",
 )
 ```
+
+If the wells use different MD or vertical units, all plotted quantities,
+including station markers, hover values and colour scales, are converted to
+the first well's units. The original trajectories are not changed.
 
 ## Options
 

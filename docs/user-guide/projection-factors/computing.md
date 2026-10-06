@@ -179,6 +179,10 @@ print("grid convergence   :", paris.grid_convergence)
 The grid convergence and the angular distortion are in degrees whatever the
 CRS's unit.
 
+Factors always use the base CRS's ellipsoid. In particular, Web Mercator
+(`EPSG:3857`) has unequal meridional and parallel scales on WGS 84 and nonzero
+angular distortion, even though its auxiliary-sphere formula is conformal.
+
 ## A projection that is not conformal
 
 Away from its origin, the Lambert azimuthal equal-area projection of
@@ -245,3 +249,6 @@ A point PROJ cannot evaluate raises
 
 projection_factors("EPSG:32631", (6.0, 95.0), geographic=True)
 ```
+
+The same range check applies to geographic CRSs. Non-finite horizontal values
+are refused in every input mode; projected factors at the poles are undefined.

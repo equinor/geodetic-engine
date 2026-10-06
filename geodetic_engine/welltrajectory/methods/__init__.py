@@ -44,7 +44,7 @@ class Method(StrEnum):
 
     GRID_NORTH_LOCAL = "GridNorthLocal"
     """The offsets turned by the grid convergence and scaled by the point scale
-    factor, both taken at the wellhead. A projected CRS only."""
+    factor, both taken at the wellhead. A conformal projected CRS only."""
 
     ENU = "ENU"
     """The offsets are a local east-north-up plane at the wellhead, taken

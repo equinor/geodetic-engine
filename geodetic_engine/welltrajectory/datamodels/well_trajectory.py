@@ -16,7 +16,7 @@ from geodetic_engine.geodesy import (
     TransformationResult,
     projection_factors,
 )
-from geodetic_engine.welltrajectory.methods import PLACEMENTS, LocalFrame, Method
+from geodetic_engine.welltrajectory.methods import PLACEMENTS, LocalFrame, Method, lmp
 from geodetic_engine.welltrajectory.minimum_curvature import (
     MinimumCurvature,
     Stations,
@@ -114,6 +114,8 @@ class WellTrajectory:
 
         Args:
             md: Depths in :attr:`md_unit`, within the surveyed interval.
+                Their order and duplicates are preserved. LMP queries are
+                anchored to the original survey, not to other query points.
 
         Raises:
             InvalidSurveyError: If a depth is outside the surveyed interval.
@@ -148,7 +150,7 @@ class WellTrajectory:
         A datum change needs ``operation`` named, or a bound trajectory CRS,
         exactly as for :class:`~geodetic_engine.geodesy.Transformation`.
         """
-        source = self.crs if self.crs.crs.is_bound else self.frame.horizontal_crs
+        source = self.crs.crs.to_2d()
         transformation = Transformation(source, target, operation=operation)
         return transformation.transform(np.column_stack([self.x, self.y]))
 
@@ -208,7 +210,11 @@ def _georeferenced(
     name: str | None,
 ) -> WellTrajectory:
     """Georeference stations with ``method`` and state them in the caller's units."""
-    placement = PLACEMENTS[method](stations.offsets, frame)
+    placement = (
+        lmp.interpolate(stations, model.stations, frame)
+        if method is Method.LMP
+        else PLACEMENTS[method](stations.offsets, frame)
+    )
     z_factor = length_factor(z_unit)
     azimuth = np.degrees(stations.azimuth)
     return WellTrajectory(

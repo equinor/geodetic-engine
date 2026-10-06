@@ -173,7 +173,8 @@ list(NorthReference), NorthReference("GN")
 ```
 
 Grid azimuths are turned onto true north with the grid convergence at the
-wellhead before minimum curvature is run; see {doc}`trajectories`.
+wellhead before minimum curvature is run; see {doc}`trajectories`. This needs
+a conformal projection, one that preserves angles.
 
 ## Surveys that describe no wellbore
 
@@ -196,8 +197,8 @@ compute_trajectory(
 )
 ```
 
-Two consecutive stations pointing in opposite directions have no arc between
-them, which raises
+Two consecutive stations pointing in opposite directions do not determine
+a unique arc plane, which raises
 {class}`~geodetic_engine.welltrajectory.DegenerateSurveyError`:
 
 ```{code-cell} python

@@ -86,8 +86,6 @@ class LocalFrame:
                 np.asarray(latitude, dtype=np.float64) / to_degrees[1],
             ]
         )
-        if self.horizontal_crs.crs.is_geographic:
-            return values
         conversion = Transformation(self.geographic_crs, self.horizontal_crs)
         return conversion.transform(values).coordinates.to_numpy()
 

@@ -162,9 +162,22 @@ def test_a_survey_that_describes_no_wellbore_is_refused(
         MinimumCurvature(md, inclination, np.zeros(len(md)))
 
 
-def test_a_reversal_has_no_arc() -> None:
+def test_a_reversal_does_not_determine_a_unique_arc() -> None:
     with pytest.raises(DegenerateSurveyError, match="reverses"):
         MinimumCurvature([0, 100], [0, np.pi], [0, 0])
+
+
+@pytest.mark.parametrize("gap", [1e-3, 1e-5])
+def test_near_reversal_arcs_have_finite_radius_and_chord(gap: float) -> None:
+    length = 1000.0
+    dogleg = np.pi - gap
+    radius = length / dogleg
+
+    model = MinimumCurvature([0, length], [0, dogleg], [0, 0])
+
+    chord = np.linalg.norm(model.stations.offsets[-1])
+    assert chord == pytest.approx(2 * radius * np.sin(dogleg / 2), rel=1e-10)
+    assert np.all(np.isfinite(model.interpolate([length / 2]).offsets))
 
 
 _EXPECTED = legacy("expected_interpolated_trajectory")["rows"]

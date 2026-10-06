@@ -9,13 +9,12 @@ grid, and a ground distance has to be scaled onto it.
 Convention, used throughout this package:
 
 * ``grid_convergence`` (gamma) is the angle from true north to grid north,
-  positive clockwise, so positive where grid north lies east of true north.
-  Hence ``grid azimuth = true azimuth - gamma``. PROJ's
-  ``meridian_convergence`` already follows it; ``tests/geodesy/test_factors.py``
-  pins that against the closed form and against a transformed grid bearing.
-* ``scale_factor`` (k) is the parallel scale: ``grid distance = k *
-  ellipsoidal distance``. For a conformal projection it equals the meridional
-  scale, and it is the value surveying calls the scale factor.
+  positive clockwise. For a conformal projection,
+  ``grid azimuth = true azimuth - gamma``. The azimuth helpers refuse angular
+  distortion, where this simple conversion would give the wrong bearing.
+* ``scale_factor`` (k) is grid distance divided by ellipsoidal distance along
+  the parallel. For a conformal projection it equals the scale in every
+  direction, and it is the value surveying calls the scale factor.
 
 Everything is computed on the CRS's own geodetic datum. A projected coordinate
 is unprojected onto its own base CRS, which is a conversion rather than a
@@ -40,9 +39,10 @@ from geodetic_engine.geodesy.errors import (
 from geodetic_engine.geodesy.transformation import Transformation
 
 CONVENTION = (
-    "grid_convergence is the angle from true north to grid north, positive "
-    "clockwise; grid azimuth = true azimuth - grid_convergence. scale_factor "
-    "is the parallel scale k; grid distance = k * ellipsoidal distance."
+    "grid_convergence is the clockwise angle from true north to grid north "
+    "for a conformal projection; grid azimuth = true azimuth - grid_convergence. "
+    "scale_factor is the parallel scale k; grid distance = k * ellipsoidal "
+    "distance along the parallel, or in every direction for conformal projections."
 )
 
 # PROJ's name for each factor this module reports, by the name it reports it.
@@ -96,14 +96,24 @@ class ProjectionFactors:
     angular_distortion: FloatArray
 
     def to_true_azimuth(self, grid_azimuth: ArrayLike) -> FloatArray:
-        """Grid azimuths in degrees, turned onto true north, in ``[0, 360)``."""
-        grid = np.asarray(grid_azimuth, dtype=np.float64)
-        return np.mod(grid + self.grid_convergence, 360.0)
+        """Grid azimuths plus convergence, in degrees in ``[0, 360)``.
+
+        Raises:
+            UnsupportedCRSError: If the projection does not preserve angles.
+            ValueError: If an azimuth is not finite.
+        """
+        _require_conformal(self)
+        return np.mod(_azimuths(grid_azimuth) + self.grid_convergence, 360.0)
 
     def to_grid_azimuth(self, true_azimuth: ArrayLike) -> FloatArray:
-        """True azimuths in degrees, turned onto grid north, in ``[0, 360)``."""
-        true = np.asarray(true_azimuth, dtype=np.float64)
-        return np.mod(true - self.grid_convergence, 360.0)
+        """True azimuths minus convergence, in degrees in ``[0, 360)``.
+
+        Raises:
+            UnsupportedCRSError: If the projection does not preserve angles.
+            ValueError: If an azimuth is not finite.
+        """
+        _require_conformal(self)
+        return np.mod(_azimuths(true_azimuth) - self.grid_convergence, 360.0)
 
     def to_json_dict(self) -> dict[str, Any]:
         """Render the factors as plain data, one entry per point."""
@@ -151,7 +161,9 @@ def projection_factors(
         UnsupportedCRSError: If the CRS has no projected or geographic
             horizontal part: geocentric, engineering or vertical.
         ValueError: If the points are not two or three values each.
-        TransformationFailedError: If PROJ cannot evaluate a point.
+        TransformationFailedError: If a horizontal coordinate is not finite,
+            a geographic coordinate is out of range, or PROJ cannot evaluate
+            finite factors. Projected factors are undefined at the poles.
 
     Example:
         >>> factors = projection_factors("EPSG:32631", (500000.0, 6600000.0))
@@ -174,6 +186,19 @@ def projection_factors(
         # Same datum at both ends, so this is only the projection's inverse.
         transformation = Transformation(horizontal, geographic_crs)
         lonlat = transformation.transform(points).coordinates.to_numpy()
+
+    angular_units = np.array(
+        [
+            geographic_crs.axes[index].unit_conversion_factor
+            for index in geographic_crs.value_axis_order[:2]
+        ]
+    )
+    if np.any(
+        np.abs(lonlat * angular_units) > np.array([2 * np.pi, np.pi / 2]) + 1e-12
+    ):
+        raise TransformationFailedError(
+            f"longitude or latitude is outside the range of {geographic_crs.name}"
+        )
 
     count = len(points)
     if horizontal.is_projected:
@@ -202,25 +227,106 @@ def _proj_factors(
     described: CoordinateReferenceSystem,
 ) -> dict[str, FloatArray]:
     """Evaluate PROJ's factors at points given in the base CRS's own values."""
-    # PROJ reads longitude relative to the CRS's own prime meridian, which is
-    # what the unprojection produced, but only ever in degrees.
-    degrees = [
-        np.degrees(geographic_crs.axes[index].unit_conversion_factor)
-        for index in geographic_crs.value_axis_order[:2]
-    ]
+    units = np.array(
+        [
+            geographic_crs.axes[index].unit_conversion_factor
+            for index in geographic_crs.value_axis_order[:2]
+        ]
+    )
+    position = lonlat * units
+    if np.any(np.abs(position[:, 1]) >= np.pi / 2):
+        raise TransformationFailedError("projection factors are undefined at the poles")
     try:
         factors = Proj(projected).get_factors(
-            lonlat[:, 0] * degrees[0], lonlat[:, 1] * degrees[1], errcheck=True
+            lonlat[:, 0] * np.degrees(units[0]),
+            lonlat[:, 1] * np.degrees(units[1]),
+            errcheck=True,
         )
     except ProjError as error:
         raise TransformationFailedError(
             f"PROJ could not evaluate projection factors in {_identify(described)}: "
             f"{error}"
         ) from error
-    return {
+    values = {
         name: np.asarray(getattr(factors, proj_name), dtype=np.float64).reshape(-1)
         for name, proj_name in _PROJ_NAMES.items()
     }
+    operation = projected.coordinate_operation
+    if operation is not None and operation.method_code == "1024":
+        _web_mercator_scales(values, geographic_crs, position[:, 1])
+    if not all(np.all(np.isfinite(value)) for value in values.values()):
+        raise TransformationFailedError(
+            f"PROJ produced non-finite projection factors in {_identify(described)}"
+        )
+    return values
+
+
+def _web_mercator_scales(
+    values: dict[str, FloatArray],
+    geographic_crs: CoordinateReferenceSystem,
+    latitude: FloatArray,
+) -> None:
+    """Correct PROJ's spherical Web Mercator scales to the base ellipsoid."""
+    ellipsoid = geographic_crs.crs.ellipsoid
+    if ellipsoid is None:
+        raise UnsupportedCRSError(f"{geographic_crs.name} has no ellipsoid")
+    eccentricity = 1 - (ellipsoid.semi_minor_metre / ellipsoid.semi_major_metre) ** 2
+    weight = np.sqrt(1 - eccentricity * np.sin(latitude) ** 2)
+    parallel = values["scale_factor"] * weight
+    meridian = values["meridional_scale"] * weight**3 / (1 - eccentricity)
+    values["scale_factor"] = parallel
+    values["meridional_scale"] = meridian
+    values["areal_scale"] = parallel * meridian
+    values["angular_distortion"] = np.degrees(
+        2
+        * np.arcsin(np.clip(np.abs(meridian - parallel) / (meridian + parallel), 0, 1))
+    )
+
+
+def _require_conformal(factors: ProjectionFactors) -> None:
+    if np.any(factors.angular_distortion > 1e-5):
+        raise UnsupportedCRSError(
+            f"{factors.horizontal_crs.name} does not preserve angles here; "
+            "scale factor and grid convergence need a conformal projection"
+        )
+
+
+def _grid_axes(crs: CoordinateReferenceSystem) -> FloatArray:
+    """Map native horizontal axis directions onto grid east and north."""
+    axes = [crs.axes[index] for index in crs.value_axis_order[:2]]
+    east = next(
+        (
+            index
+            for index, axis in enumerate(axes)
+            if axis.direction in ("east", "west")
+        ),
+        None,
+    )
+    north = next(
+        (
+            index
+            for index, axis in enumerate(axes)
+            if axis.direction in ("north", "south")
+        ),
+        None,
+    )
+    if east is not None and north is not None and east != north:
+        result = np.zeros((2, 2))
+        result[0, east] = 1 if axes[east].direction == "east" else -1
+        result[1, north] = 1 if axes[north].direction == "north" else -1
+        return result
+    if [axis.abbrev.upper() for axis in axes] == ["E", "N"]:
+        return np.eye(2)
+    raise UnsupportedCRSError(
+        f"{crs.name} has no identifiable grid east and north axes"
+    )
+
+
+def _azimuths(azimuth: ArrayLike) -> FloatArray:
+    angles = np.asarray(azimuth, dtype=np.float64)
+    if not np.all(np.isfinite(angles)):
+        raise ValueError("azimuths must be finite")
+    return angles
 
 
 def _horizontal(crs: CRS) -> CRS:
@@ -242,6 +348,8 @@ def _points(coordinates: ArrayLike) -> FloatArray:
             "give one point as (x, y) or one row of (x, y[, z]) per point, "
             f"not an array of shape {np.shape(coordinates)}"
         )
+    if not np.all(np.isfinite(points[:, :2])):
+        raise TransformationFailedError("horizontal coordinates must be finite")
     return points[:, :2].copy()
 
 

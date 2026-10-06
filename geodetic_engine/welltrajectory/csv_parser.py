@@ -456,7 +456,10 @@ def _column_unit(
     """A column's unit, with the line giving it: in brackets after its name, or
     in the line of units below the names."""
     name = table.names[index]
-    in_name = _unit_in_name(name, factor)
+    try:
+        in_name = _unit_in_name(name, factor)
+    except UnitError as error:
+        raise UnitError(f"{table.names_at}: {error}") from error
     cell = table.units[index].strip("()[] ") if index < len(table.units) else ""
     if not cell:
         return (in_name, table.names_at) if in_name else None
@@ -532,9 +535,10 @@ def _bare(name: str) -> str:
 
 
 def _unit_in_name(name: str, factor: Callable[[str], float]) -> str | None:
-    """The unit in brackets after a column's name, if ``factor`` knows it."""
-    if not (match := _UNIT_IN_NAME.fullmatch(name)) or not _is_unit(match[2], factor):
+    """The annotated unit, refusing an unknown unit or the wrong quantity."""
+    if not (match := _UNIT_IN_NAME.fullmatch(name)):
         return None
+    factor(match[2])
     return match[2]
 
 

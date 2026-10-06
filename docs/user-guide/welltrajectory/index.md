@@ -28,7 +28,7 @@ method.
 ```mermaid
 flowchart LR
     Input["TrajectoryInput<br/>survey, wellhead, CRS,<br/>north reference, settings"] --> North{"Azimuths<br/>against?"}
-    North -- "grid north" --> Turn["Turned onto true north<br/>by the grid convergence<br/>at the wellhead"]
+   North -- "grid north" --> Turn["Turned onto true north<br/>by the grid convergence<br/>at the wellhead"]
     North -- "true north" --> MC
     Turn --> MC["Minimum curvature<br/>offsets east, north, TVD<br/>from the wellhead"]
     MC --> Georeference["Georeferencing method<br/>AzimuthalEquidistant, GridNorthLocal,<br/>ENU or LMP"]
@@ -59,7 +59,7 @@ flowchart LR
 | Coordinate values | `xy` order, as everywhere in this package: easting then northing, or longitude then latitude, in the CRS's own units. |
 | Inclination $I$ | From vertical: 0 is straight down, 90 is horizontal. |
 | Azimuth $\alpha$ | Clockwise from north, against grid north (`"GN"`) or true north (`"TN"`). |
-| Grid convergence | $\gamma$, from true north to grid north, clockwise positive: $\alpha_{grid} = \alpha_{true} - \gamma$. See {doc}`/user-guide/projection-factors/index`. |
+| Grid convergence | $\gamma$, from true north to grid north, clockwise positive: $\alpha_{grid} = \alpha_{true} - \gamma$. This needs a conformal projection. See {doc}`/user-guide/projection-factors/index`. |
 | Offsets | `east`, `north` and `tvd` from the wellhead, against true north, TVD positive down, in `z_unit`. |
 | Elevation | $z = z_0 - \mathrm{TVD}$, with $z_0$ the wellhead elevation. The same for every method. |
 | Dogleg severity | Degrees per 30 m of MD, or per 100 ft for a survey in feet. Any other length on request. |
@@ -77,6 +77,8 @@ flowchart LR
    named, or come with a {term}`bound CRS`, as for any other datum change.
 3. **Grid azimuths need a grid.** Azimuths against grid north in a geographic
    CRS raise {class}`~geodetic_engine.geodesy.UnsupportedCRSError`.
+   A projected trajectory CRS must preserve angles at the wellhead, since
+   grid convergence alone cannot account for angular distortion.
 4. **Points between stations lie on the arcs.** Interpolation follows the same
    circular arcs as the stations, never straight lines between them.
 5. **A survey that cannot describe a wellbore is refused**, with

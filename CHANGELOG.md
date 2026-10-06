@@ -57,6 +57,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Web Mercator scale factors are corrected from the sphere to the base
+  ellipsoid. GridNorthLocal retains scale factor and grid convergence, with
+  native axis order and directions respected. Angular distortion that these
+  calculations cannot handle is refused, as are non-finite and out-of-range inputs.
+- LMP interpolation and resampling retain the original survey anchors;
+  query order and extra points no longer change surveyed positions.
+- CSV unit annotations no longer silently default when unsupported. Shared
+  trajectory plots normalize MD and vertical units to the first well's units.
+- Horizontal conversion preserves bindings inside compound CRSs. Corrected
+  the trajectory README quickstart and the explanation of reversal geometry.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order

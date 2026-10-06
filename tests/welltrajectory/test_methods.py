@@ -188,3 +188,47 @@ def test_the_azimuthal_projection_is_reported_as_the_local_crs() -> None:
     assert trajectory.local_crs is not None
     assert trajectory.local_crs.crs.datum == trajectory.frame.geographic_crs.crs.datum
     assert "Azimuthal Equidistant" in trajectory.local_crs.name
+
+
+@pytest.mark.parametrize(
+    ("crs", "longitude", "latitude"),
+    [
+        ("EPSG:2046", 15.2, -30.0),
+        ("EPSG:5513", 15.0, 50.0),
+        ("EPSG:32661", 20.0, 85.0),
+    ],
+)
+@pytest.mark.parametrize("azimuth", [0.0, 45.0, 90.0])
+def test_grid_north_local_respects_native_axes(
+    crs: str, longitude: float, latitude: float, azimuth: float
+) -> None:
+    from pyproj import CRS, Transformer
+
+    projected = CRS(crs)
+    conversion = Transformer.from_crs(projected.geodetic_crs, projected, always_xy=True)
+    wellhead = conversion.transform(longitude, latitude)
+    finish = projected.get_geod().fwd(longitude, latitude, azimuth, 1.0)
+    expected = conversion.transform(*finish[:2])
+    survey = Survey([0, 1], [90, 90], [azimuth, azimuth])
+
+    trajectory = compute_trajectory(
+        survey, wellhead, projected, north="TN", method="GridNorthLocal"
+    )
+
+    assert np.array([trajectory.x[-1], trajectory.y[-1]]) == pytest.approx(
+        expected, abs=1e-6
+    )
+
+
+@pytest.mark.parametrize("crs", ["EPSG:6933", "EPSG:3857", "EPSG:3035"])
+def test_grid_north_local_refuses_angular_distortion(crs: str) -> None:
+    from pyproj import CRS, Transformer
+
+    projected = CRS(crs)
+    wellhead = Transformer.from_crs(
+        projected.geodetic_crs, projected, always_xy=True
+    ).transform(20.0, 60.0)
+    frame = LocalFrame.at(projected, *wellhead, 0.0)
+
+    with pytest.raises(UnsupportedCRSError, match="conformal"):
+        PLACEMENTS[Method.GRID_NORTH_LOCAL](np.zeros((2, 3)), frame)

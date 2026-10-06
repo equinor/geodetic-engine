@@ -191,6 +191,8 @@ pd.DataFrame(
 ```
 
 The convergence is taken at the wellhead and held for the whole well.
+This calculation needs a projection that preserves angles at the wellhead;
+otherwise it raises {class}`~geodetic_engine.geodesy.UnsupportedCRSError`.
 {meth}`~geodetic_engine.welltrajectory.WellTrajectory.projection_factors`
 shows how much it changes along the well:
 
@@ -260,3 +262,5 @@ print(in_bound.to_geographic().operation.name)
 The positions in the bound CRS are the same as in its base, ED50 / UTM zone
 31N: the binding only matters when the positions leave the CRS. See
 {doc}`/user-guide/geodesy/results` for what a transformation result records.
+The same applies when the horizontal component of a compound CRS is bound:
+demotion to horizontal coordinates preserves its datum operation.

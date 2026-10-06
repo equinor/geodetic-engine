@@ -78,7 +78,9 @@ This is $\alpha_{grid} = \alpha_{true} - \gamma$ and $d_{grid} = k\, d_{ground}$
 vector form; see {doc}`/user-guide/projection-factors/azimuths-and-distances`.
 Holding $\gamma$ and $k$ constant over the whole well is the approximation:
 exact at the wellhead, and off further out by how much they change across the
-reach. A geographic CRS has no grid, so the method needs a projected one.
+reach. The CRS must have a conformal projection, one that preserves angles,
+so that one scale factor applies in every direction. Other projections are
+refused. Axis order, directions and units are respected.
 
 ## `ENU`
 
@@ -118,6 +120,11 @@ $\bar\varphi$, so they are solved for the whole well at once by fixed-point
 iteration. Each pass shrinks the error by the reach over the earth's radius,
 and three passes are far more than enough. Each step's azimuth is thereby
 counted from the meridian where it was drilled, not the wellhead's.
+
+Integration is anchored to the original survey stations. An interpolated
+point is evaluated from the preceding original station, regardless of other
+requested points. Resampling, adding points or changing their order does not
+move any surveyed station.
 
 ## How the methods differ
 

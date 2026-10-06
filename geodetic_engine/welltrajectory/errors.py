@@ -20,7 +20,7 @@ class InvalidSurveyError(WellTrajectoryError):
 
 
 class DegenerateSurveyError(InvalidSurveyError):
-    """Two stations point in opposite directions, so no arc joins them."""
+    """Two stations point in opposite directions, leaving the arc plane undefined."""
 
 
 class InvalidInputError(WellTrajectoryError):

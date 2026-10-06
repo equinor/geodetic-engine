@@ -45,8 +45,8 @@ the wellhead to convert survey azimuths between grid north and true north.
 
 | Quantity | Convention |
 |---|---|
-| Grid convergence $\gamma$ | The angle from true north to grid north, in degrees, positive clockwise: positive where grid north lies east of true north. So $\alpha_{grid} = \alpha_{true} - \gamma$. |
-| Point scale factor $k$ | The scale along the parallel: grid distance $= k \times$ ellipsoidal distance. For a conformal projection it is the same in every direction, and it is the number surveying calls *the* scale factor. |
+| Grid convergence $\gamma$ | The angle from true north to grid north, in degrees, positive clockwise. For a conformal projection, $\alpha_{grid} = \alpha_{true} - \gamma$. The azimuth helpers refuse projections that distort angles. |
+| Point scale factor $k$ | Grid distance divided by ellipsoidal distance along the parallel. For a conformal projection it is the same in every direction, and it is the number surveying calls *the* scale factor. |
 | Meridional scale $h$ | The scale along the meridian. Equal to $k$ for a conformal projection. |
 | Areal scale | Area on the grid over area on the ellipsoid. 1 for an equal-area projection. |
 | Angular distortion | The largest amount by which the projection changes an angle, in degrees. 0 for a conformal projection. |
@@ -67,9 +67,11 @@ the wellhead to convert survey azimuths between grid north and true north.
 4. **Longitude is read as PROJ reads it**: from the CRS's own prime meridian
    and in its own unit, so a CRS such as NTF (Paris), in grads from Paris, gets
    the right factors.
-5. **A point PROJ cannot evaluate is an error**,
-   {class}`~geodetic_engine.geodesy.TransformationFailedError`, rather than a
-   number.
+5. **Invalid coordinates and unevaluable factors are errors**,
+   {class}`~geodetic_engine.geodesy.TransformationFailedError`, rather than
+   numbers. Horizontal inputs and factors must be finite. Geographic
+   longitudes must be within one full turn and latitudes within a quarter
+   turn, in their own angular unit. Projected factors at a pole are undefined.
 
 ## Pages in this section
 
