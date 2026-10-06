@@ -248,13 +248,12 @@ Grid convergence
   The angle between true north and grid north at a point of a conformal
   projected CRS. In this package it is measured from true north to grid north,
   positive clockwise, so a grid azimuth is the true azimuth less the
-  convergence. See
-  {doc}`/user-guide/projection-factors/index`.
+  convergence. See {doc}`/user-guide/geodesy/projection-factors`.
 
 Point scale factor
   The ratio of a short distance on the grid to the same distance on the
   ellipsoid, at a point of a projected CRS. For a conformal projection it is
-  the same in every direction. See {doc}`/user-guide/projection-factors/index`.
+  the same in every direction. See {doc}`/user-guide/geodesy/projection-factors`.
 
 Measured depth (MD)
   The length along the wellbore from its reference point, as drilled. It is

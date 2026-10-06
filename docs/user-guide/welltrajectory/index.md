@@ -59,7 +59,7 @@ flowchart LR
 | Coordinate values | `xy` order, as everywhere in this package: easting then northing, or longitude then latitude, in the CRS's own units. |
 | Inclination $I$ | From vertical: 0 is straight down, 90 is horizontal. |
 | Azimuth $\alpha$ | Clockwise from north, against grid north (`"GN"`) or true north (`"TN"`). |
-| Grid convergence | $\gamma$, from true north to grid north, clockwise positive: $\alpha_{grid} = \alpha_{true} - \gamma$. This needs a conformal projection. See {doc}`/user-guide/projection-factors/index`. |
+| Grid convergence | $\gamma$, from true north to grid north, clockwise positive: $\alpha_{grid} = \alpha_{true} - \gamma$. This needs a conformal projection. See {doc}`/user-guide/geodesy/projection-factors`. |
 | Offsets | `east`, `north` and `tvd` from the wellhead, against true north, TVD positive down, in `z_unit`. |
 | Elevation | $z = z_0 - \mathrm{TVD}$, with $z_0$ the wellhead elevation. The same for every method. |
 | Dogleg severity | Degrees per 30 m of MD, or per 100 ft for a survey in feet. Any other length on request. |

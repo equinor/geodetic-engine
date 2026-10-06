@@ -75,7 +75,7 @@ scaled by the point scale factor $k$, both taken at the wellhead:
 $$E_{grid} = k\,(E\cos\gamma - N\sin\gamma), \qquad N_{grid} = k\,(E\sin\gamma + N\cos\gamma).$$
 
 This is $\alpha_{grid} = \alpha_{true} - \gamma$ and $d_{grid} = k\, d_{ground}$ in
-vector form; see {doc}`/user-guide/projection-factors/azimuths-and-distances`.
+vector form; see {doc}`/user-guide/geodesy/projection-factors`.
 Holding $\gamma$ and $k$ constant over the whole well is the approximation:
 exact at the wellhead, and off further out by how much they change across the
 reach. The CRS must have a conformal projection, one that preserves angles,

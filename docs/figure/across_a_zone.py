@@ -1,4 +1,4 @@
-"""Draw the figures of docs/user-guide/projection-factors/across-a-zone.md.
+"""Draw the figures of docs/user-guide/geodesy/projection-factors.md.
 
 Run from the repository root with the dev extra installed::
 

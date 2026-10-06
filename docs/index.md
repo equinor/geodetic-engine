@@ -140,7 +140,7 @@ each workaround can be removed.
 | Transform coordinates between two CRSs | {doc}`user-guide/geodesy/transformations` |
 | Find out which operations exist between two CRSs | {doc}`user-guide/geodesy/choosing-operations` |
 | Understand why my transformation was refused | {doc}`user-guide/geodesy/errors` |
-| Turn an azimuth between true and grid north, or scale a distance onto the grid | {doc}`user-guide/projection-factors/azimuths-and-distances` |
+| Turn an azimuth between true and grid north, or scale a distance onto the grid | {doc}`user-guide/geodesy/projection-factors` |
 | Position a well from its directional survey | {doc}`user-guide/welltrajectory/input` |
 | Read or write an OSDU `persistableReference` | {doc}`user-guide/persistable-reference` |
 | Add my organisation's CRSs and transformations to PROJ | {doc}`user-guide/custom-database` |
@@ -160,7 +160,6 @@ getting-started/index
 :maxdepth: 2
 
 user-guide/geodesy/index
-user-guide/projection-factors/index
 user-guide/welltrajectory/index
 user-guide/persistable-reference
 user-guide/georepository

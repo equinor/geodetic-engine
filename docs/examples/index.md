@@ -57,10 +57,8 @@ examples:
 | Provenance | {doc}`/user-guide/geodesy/results` | Applied operation, route, pipeline replay in plain pyproj, database fingerprints, JSON |
 | Refusals | {doc}`/user-guide/geodesy/errors` | Triggering every `GeodesyError` subclass, including a simulated missing grid |
 | Helmert algebra | {doc}`/user-guide/geodesy/helmert` | Reading, composing and collapsing Helmerts; restating ppb scales |
+| Projection factors | {doc}`/user-guide/geodesy/projection-factors` | Grid convergence and scale factor at one point and many, turning azimuths, scaling distances, figures across a UTM zone, a non-conformal projection |
 | OSDU payloads | {doc}`/user-guide/persistable-reference` | All six payload kinds, transforming with payloads, stated operations, units, writing payloads, method support tables |
-| Projection factors | {doc}`/user-guide/projection-factors/computing` | One point and many, from longitude and latitude, bound and compound CRSs, units and prime meridians, a non-conformal projection, JSON |
-| Projection factors across a zone | {doc}`/user-guide/projection-factors/across-a-zone` | Figures of the grid convergence and the point scale factor over a UTM zone, and of how the angles relate |
-| Azimuths and distances | {doc}`/user-guide/projection-factors/azimuths-and-distances` | Grid and true azimuths, the sign checked against transformed points, the scale factor checked against a geodesic |
 | Building the input | {doc}`/user-guide/welltrajectory/input` | A trajectory input from arrays, rows, a DataFrame, a survey file and an OSDU request body; the survey file format; checks; changing and saving an input |
 | Surveys | {doc}`/user-guide/welltrajectory/surveys` | Stations, units in every accepted form, inclination-only surveys, the wellhead, malformed surveys |
 | Trajectories | {doc}`/user-guide/welltrajectory/trajectories` | Results and their units, dogleg severity, interpolation, grid azimuths, a geographic CRS, moving to WGS 84 |

@@ -15,16 +15,8 @@ is for, when to use it, and when not to.
 :link-type: doc
 
 `geodetic_engine.geodesy`: resolve CRSs, list and choose operations, transform
-coordinates, and read provenance. The module most users need.
-:::
-
-:::{grid-item-card} Projection factors
-:link: projection-factors/index
-:link-type: doc
-
-`geodetic_engine.geodesy.projection_factors`: grid convergence, point scale
-factor and distortion at any point of a projected CRS, to turn azimuths and
-scale distances between the ground and the grid.
+coordinates, read provenance, and get the grid convergence and scale factor.
+The module most users need.
 :::
 
 :::{grid-item-card} Well trajectories
