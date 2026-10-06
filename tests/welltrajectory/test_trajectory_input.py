@@ -326,15 +326,24 @@ def test_a_byte_order_mark_is_skipped(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("text", "match"),
     [
-        (HEADER + "# colour: red\n" + TABLE, "line 4: 'colour' is not a header key"),
+        (
+            HEADER + "# md_unti: ft\n" + TABLE,
+            "line 4: 'md_unti' .* did you mean md_unit",
+        ),
         (HEADER + "# crs: EPSG:4326\n" + TABLE, "line 4: crs is stated twice"),
+        (HEADER + "# Easting: 1\n" + TABLE, "line 4: wellhead_x is stated twice"),
         ("# wellhead_x: 1\n# wellhead_y: 2\n" + TABLE, "states no crs"),
         ("# crs: EPSG:32631\n# wellhead_x: 1\n" + TABLE, "only one of"),
+        ("# crs: EPSG:32631\n# wellhead: 1\n" + TABLE, "not 1 values"),
+        (HEADER + "# origin: 1, 2\n" + TABLE, "wellhead twice"),
         (HEADER + "# wellhead_z: high\n" + TABLE, "'high' in wellhead_z"),
-        (HEADER + "md,inclination,azimuth,tvd\n0,0,0,0\n", "names its columns"),
-        (HEADER + "0,0,0\n100,10,45\n", "names its columns"),
-        (HEADER + "inclination,azimuth\n0,0\n", "no md column"),
+        (HEADER + "0,0,0\n100,10,45\n", "line 4: the table has no md column"),
+        (HEADER + "inclination,azimuth\n0,0\n", "no md column among"),
         (HEADER + "md,md,inclination\n0,0,0\n", "named twice"),
+        (HEADER + "md,inc,azim_gn,azim_tn\n0,0,0,0\n", "could each be the azimuth"),
+        (HEADER + "md inc azi\n0 0 0\n", "delimiter"),
+        (HEADER + "# md_unit: m\nMD (ft),inc\n0,0\n", "states md_unit 'm'.*'ft'"),
+        (HEADER + "md,Inc (deg),Azi (rad)\n0,0,0\n", "one angle unit"),
         (HEADER + TABLE + "2000,abc,45\n", "line 8: 'abc' in inclination"),
         (HEADER + TABLE + "2000,60\n", "line 8: 2 values for 3 columns"),
         (HEADER + TABLE + "# end\n", "line 8: header and comment lines"),
@@ -342,15 +351,21 @@ def test_a_byte_order_mark_is_skipped(tmp_path: Path) -> None:
         (HEADER + "md,inclination,azimuth\n", "has no stations"),
     ],
     ids=[
-        "unknown-key",
+        "misspelt-key",
         "key-twice",
+        "synonym-twice",
         "no-crs",
         "half-a-wellhead",
+        "wellhead-one-value",
+        "wellhead-twice",
         "header-not-a-number",
-        "extra-column",
         "no-column-names",
         "no-md",
         "column-twice",
+        "two-azimuths",
+        "other-delimiter",
+        "unit-differs",
+        "two-angle-units",
         "not-a-number",
         "short-row",
         "comment-in-table",
@@ -372,6 +387,109 @@ def test_comments_are_skipped() -> None:
     )
 
     assert len(well.survey.md) == 3
+
+
+def test_a_file_from_other_software_is_read_as_it_is() -> None:
+    well = _csv(
+        "# Exported by: SurveyTool 4.2\n"
+        "# Well name: A-10\n"
+        "# Coordinate system: EPSG:32631\n"
+        "# Easting: 500000\n"
+        "# Northing: 6600000\n"
+        "# RKB: 25\n"
+        "# Azimuth reference: Grid north\n"
+        "Measured Depth (ft);Inc [deg];Azimuth;TVD;Comment\n"
+        "0;0;10;0;tie-in\n"
+        "500;20;30;490;\n"
+        "1500;60;45;1200;TD\n"
+    )
+
+    assert well.name == "A-10"
+    assert well.crs == "EPSG:32631"
+    assert well.wellhead == Wellhead(500000.0, 6600000.0, 25.0)
+    assert well.north_reference is NorthReference.GRID
+    assert (well.survey.md_unit, well.survey.angle_unit) == ("ft", "deg")
+    assert well.survey.md.tolist() == [0.0, 500.0, 1500.0]
+    assert well.survey.azimuth is not None
+    assert well.survey.azimuth.tolist() == [10.0, 30.0, 45.0]
+
+
+@pytest.mark.parametrize(
+    ("lines", "wellhead"),
+    [
+        ("# wellhead: 500000, 6600000, 25", Wellhead(500000.0, 6600000.0, 25.0)),
+        ("# Origin: 500000 6600000", Wellhead(500000.0, 6600000.0, 0.0)),
+        ("# x: 500000\n# y: 6600000\n# z: 25", Wellhead(500000.0, 6600000.0, 25.0)),
+        ("# Wellhead X: 500000\n# WellheadY: 6600000", Wellhead(500000.0, 6600000.0)),
+    ],
+    ids=["one-line", "origin", "xyz", "spaced-and-joined"],
+)
+def test_the_wellhead_may_be_stated_several_ways(
+    lines: str, wellhead: Wellhead
+) -> None:
+    well = _csv(f"# crs: EPSG:32631\n{lines}\n" + TABLE, north_reference="GN")
+
+    assert well.wellhead == wellhead
+
+
+def test_columns_are_found_by_their_usual_names_or_named() -> None:
+    text = HEADER + "DEPTH_M,I,A,MD_PLAN\n0,0,10,0\n500,20,30,0\n"
+
+    with pytest.raises(InvalidInputError, match="no inclination column"):
+        _csv(text, md_column="depth_m", north_reference="GN")
+    with pytest.raises(InvalidInputError, match=r"no column 'B'.*'DEPTH_M', 'I'"):
+        _csv(text, md_column="DEPTH_M", inclination_column="B", north_reference="GN")
+    named = _csv(
+        text,
+        md_column="depth_m",
+        inclination_column="I",
+        azimuth_column="A",
+        north_reference="GN",
+    )
+    usual = _csv(
+        HEADER + "MD (m),INCL,AZIM_GN\n0,0,10\n500,20,30\n", north_reference="GN"
+    )
+    without_unit = _csv(
+        HEADER + "MD (m),INCL,AZIM_GN\n0,0,10\n500,20,30\n",
+        md_column="MD",
+        north_reference="GN",
+    )
+
+    for well in (named, usual, without_unit):
+        assert well.survey.md.tolist() == [0.0, 500.0]
+        assert well.survey.inclination.tolist() == [0.0, 20.0]
+        assert well.survey.azimuth is not None
+        assert well.survey.azimuth.tolist() == [10.0, 30.0]
+
+
+def test_the_unit_after_a_column_name_gives_way_to_an_argument() -> None:
+    text = HEADER + "MD (ft),Inc (deg),Azi\n0,0,0\n500,20,30\n"
+
+    assert _csv(text, north_reference="GN").survey.md_unit == "ft"
+    assert _csv(text, north_reference="GN", md_unit="m").survey.md_unit == "m"
+    assert _csv("# md_unit: ft\n" + text, north_reference="GN").survey.md_unit == "ft"
+
+
+@pytest.mark.parametrize(
+    ("table", "delimiter"),
+    [
+        ("md;inclination;azimuth\n0;0;10\n500;20;30\n", None),
+        ("md\tinclination\tazimuth\n0\t0\t10\n500\t20\t30\n", None),
+        ("md  inclination  azimuth\n0  0  10\n500 20   30\n", " "),
+        ("md|inclination|azimuth\n0|0|10\n500|20|30\n", "|"),
+    ],
+    ids=["semicolons", "tabs", "spaces", "named"],
+)
+def test_the_delimiter_is_found_or_named(table: str, delimiter: str | None) -> None:
+    well = _csv(HEADER + table, north_reference="GN", delimiter=delimiter)
+
+    assert well.survey.azimuth is not None
+    assert well.survey.azimuth.tolist() == [10.0, 30.0]
+
+
+def test_a_delimiter_is_one_character() -> None:
+    with pytest.raises(InvalidInputError, match="one character"):
+        _csv(HEADER + TABLE, north_reference="GN", delimiter=";;")
 
 
 # -- OSDU request bodies -------------------------------------------------------

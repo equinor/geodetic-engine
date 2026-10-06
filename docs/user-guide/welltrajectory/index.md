@@ -103,6 +103,6 @@ plotting
 ```
 
 The {doc}`well trajectory example notebook
-</examples/notebooks/welltrajectory_examples>` runs the module on the
-synthetic survey file that ships with the package, and on the OSDU request
-bodies and survey tables in the test suite.
+</examples/notebooks/welltrajectory_examples>` reads the synthetic survey file,
+computes, interpolates, converts and plots its trajectory, then shows each
+other way to build the input.

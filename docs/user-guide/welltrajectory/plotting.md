@@ -44,11 +44,11 @@ well.plot(color_by="dls", labels=["Example well"])
 Paths are drawn along their arcs rather than as chords between the stations,
 coloured by dogleg severity, with faint shadows on the floor and two walls to
 make depth readable. Each surveyed station is marked on its path with a small
-ring, so you can see the arcs pass through the stations they were computed
-from; hover one for its MD, angles, TVD and DLS. All three axes are at one
-scale, in metres on the ground, so a vertical well is drawn vertical and a 45°
-build looks like 45°. An axis the well barely spans is widened around it
-rather than stretched.
+bead in the path's colour, so you can see the arcs pass through the stations
+they were computed from; hover one for its MD, angles, TVD and DLS. All three
+axes are at one scale, in metres on the ground, so a vertical well is drawn
+vertical and a 45° build looks like 45°. An axis the well barely spans is
+widened around it rather than stretched.
 
 | Action | Control |
 |---|---|

@@ -76,6 +76,8 @@ autosummary_generate = True
 autosummary_ignore_module_all = False
 autosummary_imported_members = True
 autodoc_member_order = "bysource"
+# StrEnum's __new__ would otherwise be listed among an enum's members.
+autodoc_default_options = {"exclude-members": "__new__"}
 autoclass_content = "both"
 autodoc_class_signature = "separated"
 autodoc_preserve_defaults = True

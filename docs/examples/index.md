@@ -35,12 +35,10 @@ ten OSDU `persistableReference` scenarios.
 :link: notebooks/welltrajectory_examples
 :link-type: doc
 
-The synthetic survey file that ships with the package, and the OSDU request
-bodies and survey tables of the test suite, end to end: building the input
-from a file, arrays, rows, a DataFrame or a request body, minimum curvature
-checked by hand, the four georeferencing methods compared, grid and true
-north, units and interpolation, a geographic CRS, moving to WGS 84, and 3D
-plots.
+Read the synthetic survey file, compute the trajectory, add points between the
+stations, convert to WGS 84 and plot it in 3D. Then one short example of each
+other way to build the input: arrays, rows, a DataFrame and an OSDU request
+body.
 :::
 ::::
 

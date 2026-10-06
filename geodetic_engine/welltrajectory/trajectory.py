@@ -27,7 +27,7 @@ from geodetic_engine.welltrajectory.datamodels.well_trajectory import (
     _describe,
     _georeferenced,
 )
-from geodetic_engine.welltrajectory.methods import LocalFrame, Method
+from geodetic_engine.welltrajectory.methods import LocalFrame, Method, MethodName
 from geodetic_engine.welltrajectory.minimum_curvature import MinimumCurvature
 from geodetic_engine.welltrajectory.survey import (
     NorthReference,
@@ -43,7 +43,7 @@ def compute_trajectory(
     crs: Any,
     *,
     north: NorthReference | str = NorthReference.GRID,
-    method: Method | str = Method.AZIMUTHAL_EQUIDISTANT,
+    method: Method | MethodName = Method.AZIMUTHAL_EQUIDISTANT,
     z_unit: str = "m",
     md_step: float | None = None,
     md_points: ArrayLike | None = None,
@@ -61,8 +61,10 @@ def compute_trajectory(
             :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`
             accepts, including an OSDU persistableReference or a bound CRS.
         north: What the azimuths are measured from, ``"GN"`` or ``"TN"``.
-        method: How the offsets are georeferenced in ``crs``; see
-            :class:`Method`.
+        method: How the offsets are georeferenced in ``crs``:
+            ``"AzimuthalEquidistant"``, the default, ``"GridNorthLocal"``,
+            ``"ENU"`` or ``"LMP"``, or the :class:`Method` member; see
+            :class:`Method` for what each does.
         z_unit: Unit of the wellhead elevation and of every reported depth,
             elevation and offset.
         md_step: If given, also compute a point every ``md_step`` of MD, in

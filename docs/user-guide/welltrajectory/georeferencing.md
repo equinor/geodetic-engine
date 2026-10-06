@@ -33,9 +33,13 @@ horizontally.
 | `ENU` | The offsets are a local tangent plane at the wellhead, through geocentric coordinates. | Projected or geographic |
 | `LMP` | Each step laid on the ellipsoid with the radii of curvature at its own latitude and elevation. | Projected or geographic |
 
-Choose with the `method` argument of
-{func}`~geodetic_engine.welltrajectory.compute_trajectory`, as a
-{class}`~geodetic_engine.welltrajectory.Method` or its name.
+Choose with `method=` on any
+{class}`~geodetic_engine.welltrajectory.TrajectoryInput` constructor or on
+{func}`~geodetic_engine.welltrajectory.compute_trajectory`: a
+{class}`~geodetic_engine.welltrajectory.Method` member, such as
+`Method.LMP`, or its name as text, such as `"LMP"`. The parameter is typed
+with the four names, so an editor offers them and a type checker refuses any
+other.
 
 ## `AzimuthalEquidistant`
 

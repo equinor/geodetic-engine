@@ -53,6 +53,10 @@ _UNITS = (
 _FONT = "Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
 _INK, _MUTED, _GRID, _PANE = "#1f2937", "#6b7280", "#e5e7eb", "#f8fafc"
 _PALETTE = ("#2563eb", "#ea580c", "#059669", "#dc2626", "#7c3aed", "#0891b2")
+# Paths coloured by value run from cool at low values to warm at high ones.
+_DLS_COLOURS = [[0.0, "#1d4ed8"], [0.3, "#0ea5e9"], [0.65, "#f59e0b"], [1.0, "#e11d48"]]
+_MD_COLOURS = [[0.0, "#38bdf8"], [0.5, "#6366f1"], [1.0, "#a21caf"]]
+_WELLHEAD, _TD, _BEAD_RIM = "#059669", "#e11d48", "rgba(15, 23, 42, 0.7)"
 _SHADOW = {"color": "rgba(100, 116, 139, 0.35)", "width": 2}
 _STATIONS = "Survey stations"
 # The camera looks from the south-east, above, from a distance fitting the box.
@@ -136,7 +140,7 @@ def plot_trajectory(
         else:
             line |= {
                 "color": values[index],
-                "colorscale": "Plasma" if color_by == "dls" else "Viridis",
+                "colorscale": _DLS_COLOURS if color_by == "dls" else _MD_COLOURS,
                 "cmin": float(joined.min()),
                 "cmax": float(max(joined.max(), joined.min() + 1e-9)),
                 "showscale": index == 0,
@@ -146,8 +150,8 @@ def plot_trajectory(
                         "side": "right",
                         "font": {"size": 14},
                     },
-                    "thickness": 14,
-                    "len": 0.6,
+                    "thickness": 24,
+                    "len": 0.65,
                     "outlinewidth": 0,
                     "tickformat": ",.0f" if color_by == "md" else ".1f",
                     "tickfont": {"color": _MUTED, "size": 13},
@@ -185,17 +189,24 @@ def plot_trajectory(
                 )
         surveyed = given.is_survey_station
         if stations and surveyed.any():
+            bead: dict[str, Any] = {
+                "symbol": "circle",
+                "size": 4.5,
+                "line": {"color": _BEAD_RIM, "width": 1},
+            }
+            if color_by is None:
+                bead["color"] = line["color"]
+            else:
+                shown = given.dls() if color_by == "dls" else given.md
+                bead |= {key: line[key] for key in ("colorscale", "cmin", "cmax")}
+                bead["color"] = shown[surveyed]
             figure.add_trace(
                 go.Scatter3d(
                     x=given.x[surveyed],
                     y=given.y[surveyed],
                     z=given.z[surveyed],
                     mode="markers",
-                    marker={
-                        "size": 4,
-                        "color": "white",
-                        "line": {"color": _INK, "width": 1.5},
-                    },
+                    marker=bead,
                     name=_STATIONS,
                     legendgroup=_STATIONS,
                     showlegend=not stations_in_legend,
@@ -205,9 +216,9 @@ def plot_trajectory(
                 )
             )
             stations_in_legend = True
-        for position, symbol, marker in (
-            (0, "diamond", "Wellhead"),
-            (-1, "circle", "TD"),
+        for position, symbol, size, colour, marker in (
+            (0, "diamond", 9, _WELLHEAD, "Wellhead"),
+            (-1, "square", 7, _TD, "TD"),
         ):
             figure.add_trace(
                 go.Scatter3d(
@@ -217,9 +228,9 @@ def plot_trajectory(
                     mode="markers",
                     marker={
                         "symbol": symbol,
-                        "size": 6 if marker == "Wellhead" else 5,
-                        "color": _INK,
-                        "line": {"color": "white", "width": 1},
+                        "size": size,
+                        "color": colour,
+                        "line": {"color": "white", "width": 2},
                     },
                     name=marker,
                     legendgroup=marker,

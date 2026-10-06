@@ -30,7 +30,7 @@ form your survey is in; each form has its own constructor:
 | {meth}`~geodetic_engine.welltrajectory.TrajectoryInput.from_arrays` | One array or list per quantity: numpy arrays, lists, tuples or pandas Series. |
 | {meth}`~geodetic_engine.welltrajectory.TrajectoryInput.from_records` | One row per station: tuples, lists, or mappings with the keys `md`, `inclination` and `azimuth`. |
 | {meth}`~geodetic_engine.welltrajectory.TrajectoryInput.from_dataframe` | A pandas DataFrame, with any column names. |
-| {meth}`~geodetic_engine.welltrajectory.TrajectoryInput.from_csv` | A survey file, with its settings in a header above the table; see [the format](#the-survey-file-format). |
+| {meth}`~geodetic_engine.welltrajectory.TrajectoryInput.from_csv` | A CSV survey file: settings in a header, then a table with any column names; see [the format](#the-survey-file-format). |
 | {meth}`~geodetic_engine.welltrajectory.TrajectoryInput.from_osdu_payload` | An OSDU `convertTrajectory` request body. |
 
 ## What an input holds
@@ -173,46 +173,102 @@ The file is UTF-8 text. A byte order mark, as spreadsheet programs write, is
 skipped.
 
 **Header.** Lines starting with `#`, above the table. A line `# key: value`
-states one setting. The key is one word from the table below, in any case,
-and the value runs to the end of the line, colons and all. Each key is given
-at most once.
+states one setting, and the value runs to the end of the line, colons and
+all. Keys are read in any case, with spaces, hyphens or underscores between
+their words, or none: `Wellhead X`, `wellhead-x` and `WellheadX` are all
+`wellhead_x`. A trailing `s` is dropped, so `Depth units` is `depth_unit`.
+Each setting is given at most once, under whichever name.
 
-| Key | Required | Value |
+| Key | Also | Required | Value |
+|---|---|---|---|
+| `crs` | `coordinate_system`, `coordinate_reference_system`, `trajectory_crs` | yes | The trajectory CRS, on one line: `EPSG:23031`, WKT, or an OSDU `persistableReference`. |
+| `wellhead` | `origin`, `surface_location`, `reference_point` | yes, or `wellhead_x` and `wellhead_y` | The wellhead on one line: `x, y` or `x, y, z`, separated by commas, semicolons or spaces. |
+| `wellhead_x`, `wellhead_y` | `x`, `easting`, `origin_x`, `surface_x`, `wellhead_easting`; `y`, `northing`, `origin_y`, `surface_y`, `wellhead_northing` | yes, or `wellhead` | The wellhead in the CRS, in its own units: easting and northing, or longitude and latitude. |
+| `wellhead_z` | `z`, `elevation`, `kb`, `rkb`, `kb_elevation`, `rkb_elevation`, `datum_elevation`, `origin_z`, `surface_z`, `wellhead_elevation` | no, 0 | The elevation MD counts from, in `z_unit`. |
+| `north_reference` | `north`, `north_ref`, `azimuth_reference` | yes | `GN` or `TN`; also `grid`, `grid north`, `true` or `true north`. |
+| `md_unit` | `depth_unit` | no, `m` | Unit of the measured depths. |
+| `angle_unit` | `angular_unit` | no, `degree` | Unit of the inclinations and azimuths. |
+| `z_unit` | `elevation_unit`, `vertical_unit` | no, `m` | Unit of the wellhead elevation and of every depth and elevation reported. |
+| `method` | | no, `AzimuthalEquidistant` | `AzimuthalEquidistant`, `GridNorthLocal`, `ENU` or `LMP`. |
+| `md_step` | `md_interval` | no | Also a point every this much MD. |
+| `md_points` | | no | Also a point at each of these measured depths, separated by commas. |
+| `name` | `well`, `well_name`, `wellbore`, `wellbore_name` | no | The well's name. |
+
+Any other line starting with `#` is a comment, `# Created by: Petrel`
+included. A key within a letter or two of a known one, such as `md_unti`, is
+refused as a likely misspelling rather than skipped; so is `Units`, which
+could be either unit.
+
+**Table.** The first line that does not start with `#` names the columns.
+They are separated by commas, semicolons or tabs, whichever that line uses;
+`delimiter=` names another, such as `" "` for columns lined up with spaces.
+The three the survey needs are found by their names, in any case and with
+any punctuation, or named with an argument:
+
+| Column | Found by the names | Or named with |
 |---|---|---|
-| `crs` | yes | The trajectory CRS, on one line: `EPSG:23031`, WKT, or an OSDU `persistableReference`. |
-| `wellhead_x`, `wellhead_y` | yes | The wellhead in the CRS, in its own units: easting and northing, or longitude and latitude. |
-| `wellhead_z` | no, 0 | The wellhead elevation, in `z_unit`. |
-| `north_reference` | yes | `GN` or `TN`. |
-| `md_unit` | no, `m` | Unit of the `md` column. |
-| `angle_unit` | no, `degree` | Unit of the `inclination` and `azimuth` columns. |
-| `z_unit` | no, `m` | Unit of `wellhead_z` and of every depth and elevation reported. |
-| `method` | no, `AzimuthalEquidistant` | `AzimuthalEquidistant`, `GridNorthLocal`, `ENU` or `LMP`. |
-| `md_step` | no | Also a point every this much MD. |
-| `md_points` | no | Also a point at each of these measured depths, separated by commas. |
-| `name` | no | The well's name. |
+| Measured depth | `MD`, `Measured Depth`, `Depth`, `DEPT`, `MDepth` | `md_column` |
+| Inclination | `Inclination`, `Inc`, `Incl`, `Inclin`, `DEVI`, `Deviation` | `inclination_column` |
+| Azimuth | `Azimuth`, `Azi`, `Azim`, `HAZI`, `Direction`, or any name starting `Az`, such as `AZIM_GN` | `azimuth_column` |
 
-Any other line starting with `#` is a comment. A key the format does not know
-is refused rather than skipped, so a misspelt one cannot pass unnoticed; a
-comment therefore never starts with a single word and a colon.
+A table without an azimuth column is an inclination-only survey. Other
+columns, such as TVD, coordinates or remarks, are ignored. Two columns that
+could both be one quantity, such as `AZIM_GN` and `AZIM_TN`, are refused:
+name the one to read.
 
-**Table.** The first line that does not start with `#` names the columns,
-separated by commas: `md`, `inclination` and `azimuth`, in any order and any
-case. `azimuth` is left out for an inclination-only survey. No other column is
-allowed. Every further line is one station: plain numbers, with `.` as the
-decimal point and no thousands separator. Blank lines are skipped; header and
-comment lines may not appear inside the table.
+A unit in brackets after a column's name, as in `MD (ft)` or `Inc [deg]`, is
+that column's unit, unless an argument gives another; a header stating
+another is refused.
 
-A file from other software, with more columns or other names, is read with
-{func}`pandas.read_csv` and passed to
-{meth}`~geodetic_engine.welltrajectory.TrajectoryInput.from_dataframe`.
+Every further line is one station: plain numbers, with `.` as the decimal
+point and no thousands separator. Blank lines are skipped; header and comment
+lines may not appear inside the table.
+
+### A file from other software
+
+A file exported by another program is read as it is, when its names are among
+those above:
+
+```{code-cell} python
+import io
+
+exported = io.StringIO(
+    "# Exported by: SurveyTool 4.2\n"
+    "# Well name: A-10\n"
+    "# Coordinate system: EPSG:32631\n"
+    "# Origin: 500000; 6600000; 25\n"
+    "# Azimuth reference: Grid north\n"
+    "Measured Depth (ft);INCL;AZIM_GN;TVD (ft);Remark\n"
+    "0;0;10;0;tie-in\n"
+    "1500;20;30;1469.6;\n"
+    "4500;60;45;3664.1;TD\n"
+)
+other = TrajectoryInput.from_csv(exported)
+print(other.name, "|", other.wellhead, "|", other.north_reference, "|", other.survey.md_unit)
+other.to_dataframe()
+```
+
+Columns under other names are named with `md_column`, `inclination_column`
+and `azimuth_column`, with or without the unit in brackets:
+
+```{code-cell} python
+plan = io.StringIO("DEPTH_M,I,A,X,Y\n0,0,10,500000,6600000\n500,20,30,500043,6600074\n")
+TrajectoryInput.from_csv(
+    plan,
+    md_column="DEPTH_M",
+    inclination_column="I",
+    azimuth_column="A",
+    wellhead=(500000.0, 6600000.0),
+    crs="EPSG:32631",
+    north_reference="GN",
+).to_dataframe()
+```
 
 ### Arguments fill in and take precedence
 
 Keyword arguments fill in what the header leaves out, so a bare table works:
 
 ```{code-cell} python
-import io
-
 bare = io.StringIO("md,inclination,azimuth\n0,0,10\n500,20,30\n1500,60,45\n")
 TrajectoryInput.from_csv(
     bare, wellhead=(500000.0, 6600000.0), crs="EPSG:32631", north_reference="GN"
@@ -227,28 +283,30 @@ lmp = TrajectoryInput.from_csv(EXAMPLE, method="LMP", z_unit="ft")
 lmp.method, lmp.z_unit, lmp.wellhead
 ```
 
-`wellhead=` replaces all of `wellhead_x`, `wellhead_y` and `wellhead_z`.
+`wellhead=` replaces the header's wellhead, however it is stated.
 
 ### Files out of format
 
-A file that does not follow the format is refused, with the line at fault:
+A key that looks misspelt is refused, with the line at fault:
 
 ```{code-cell} python
 :tags: [raises-exception]
 
 TrajectoryInput.from_csv(
     io.StringIO(
-        "# crs: EPSG:32631\n# wellhead_x: 500000\n# wellhead_y: 6600000\n"
-        "# north_ref: GN\nmd,inclination,azimuth\n0,0,0\n500,20,30\n"
+        "# crs: EPSG:32631\n# wellhead: 500000, 6600000\n"
+        "# north_refrence: GN\nmd,inclination,azimuth\n0,0,0\n500,20,30\n"
     )
 )
 ```
+
+and so is a table in which two columns could be the azimuths:
 
 ```{code-cell} python
 :tags: [raises-exception]
 
 TrajectoryInput.from_csv(
-    io.StringIO("md,inclination,azimuth,tvd\n0,0,0,0\n500,20,30,491.5\n"),
+    io.StringIO("MD,INCL,AZIM_GN,AZIM_TN\n0,0,0,0\n500,20,30,29.2\n"),
     wellhead=(500000.0, 6600000.0),
     crs="EPSG:32631",
     north_reference="GN",

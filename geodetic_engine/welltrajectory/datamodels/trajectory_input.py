@@ -8,11 +8,9 @@ usually comes in, and every one of them ends in the same checks.
 
 from __future__ import annotations
 
-import csv
 import json
 import math
 import os
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -24,14 +22,17 @@ import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike, NDArray
 
-from geodetic_engine.geodesy import CoordinateReferenceSystem
+from geodetic_engine.welltrajectory.csv_parser import (
+    format_survey_file,
+    read_survey_file,
+)
 from geodetic_engine.welltrajectory.datamodels.well_trajectory import WellTrajectory
 from geodetic_engine.welltrajectory.errors import (
     InvalidInputError,
     InvalidSurveyError,
     UnitError,
 )
-from geodetic_engine.welltrajectory.methods import LocalFrame, Method
+from geodetic_engine.welltrajectory.methods import LocalFrame, Method, MethodName
 from geodetic_engine.welltrajectory.minimum_curvature import _validated
 from geodetic_engine.welltrajectory.survey import (
     NorthReference,
@@ -46,25 +47,6 @@ type FloatArray = NDArray[np.float64]
 _OPTIONS = frozenset(
     ("md_unit", "angle_unit", "method", "z_unit", "md_step", "md_points", "name")
 )
-# Survey file header keys, in the order to_csv writes them.
-_HEADER_KEYS = (
-    "name",
-    "crs",
-    "wellhead_x",
-    "wellhead_y",
-    "wellhead_z",
-    "north_reference",
-    "md_unit",
-    "angle_unit",
-    "z_unit",
-    "method",
-    "md_step",
-    "md_points",
-)
-_NUMERIC_KEYS = frozenset(("wellhead_x", "wellhead_y", "wellhead_z", "md_step"))
-_COLUMNS = ("md", "inclination", "azimuth")
-# "# key: value", the key one word; any other line starting with # is a comment.
-_HEADER_LINE = re.compile(r"#\s*([A-Za-z_]\w*)\s*:(.*)")
 
 # OSDU method names, casefolded.
 _OSDU_METHODS = {
@@ -87,8 +69,10 @@ class TrajectoryOptions(TypedDict, total=False):
     Attributes:
         md_unit: Unit of the measured depths. ``"m"``.
         angle_unit: Unit of the inclinations and azimuths. ``"degree"``.
-        method: How the offsets are georeferenced in the CRS; see
-            :class:`Method`. ``"AzimuthalEquidistant"``.
+        method: How the offsets are georeferenced in the CRS:
+            ``"AzimuthalEquidistant"``, the default, ``"GridNorthLocal"``,
+            ``"ENU"`` or ``"LMP"``, or the :class:`Method` member; see
+            :class:`Method` for what each does.
         z_unit: Unit of the wellhead elevation and of every depth, elevation
             and offset reported. ``"m"``.
         md_step: Also a point every ``md_step`` of MD between the stations, in
@@ -100,7 +84,7 @@ class TrajectoryOptions(TypedDict, total=False):
 
     md_unit: str
     angle_unit: str
-    method: Method | str
+    method: Method | MethodName
     z_unit: str
     md_step: float | None
     md_points: ArrayLike | None
@@ -118,7 +102,8 @@ class TrajectoryInput:
     * :meth:`from_arrays`: one array or list per quantity.
     * :meth:`from_records`: one row per station, as tuples, lists or mappings.
     * :meth:`from_dataframe`: a pandas DataFrame, with any column names.
-    * :meth:`from_csv`: a survey file, with its settings in a header.
+    * :meth:`from_csv`: a CSV survey file, its settings in a header and its
+      columns under any names.
     * :meth:`from_osdu_payload`: an OSDU ``convertTrajectory`` request body.
 
     or directly, from a :class:`Survey` and a :class:`Wellhead`. Then
@@ -141,8 +126,9 @@ class TrajectoryInput:
             ``persistableReference`` or a bound CRS.
         north_reference: What the azimuths are measured from: grid north,
             ``"GN"``, or true north, ``"TN"``.
-        method: How the offsets are georeferenced in the CRS; see
-            :class:`Method`.
+        method: How the offsets are georeferenced in the CRS, a
+            :class:`Method`: ``AZIMUTHAL_EQUIDISTANT``, the default,
+            ``GRID_NORTH_LOCAL``, ``ENU`` or ``LMP``.
         z_unit: Unit of the wellhead elevation and of every depth, elevation
             and offset reported.
         md_step: Also a point every ``md_step`` of MD between the stations, in
@@ -382,49 +368,68 @@ class TrajectoryInput:
         wellhead: Wellhead | Sequence[float] | None = None,
         crs: Any = None,
         north_reference: NorthReference | str | None = None,
+        md_column: str | None = None,
+        inclination_column: str | None = None,
+        azimuth_column: str | None = None,
+        delimiter: str | None = None,
         **options: Unpack[TrajectoryOptions],
     ) -> TrajectoryInput:
-        """An input from a survey file: a header of settings, then a table.
+        """An input from a CSV survey file: settings in a header, then a table.
 
-        The file is UTF-8 text, and reads::
+        The file is UTF-8 text, and reads, for instance::
 
             # A synthetic well, not a real one. This line is a comment.
             # name: Synthetic-1
             # crs: EPSG:23031
-            # wellhead_x: 455000.0
-            # wellhead_y: 6785000.0
-            # wellhead_z: 32.0
+            # wellhead: 455000.0, 6785000.0, 32.0
             # north_reference: GN
-            # md_unit: m
-            md,inclination,azimuth
-            0.0,0.0,0.0
-            30.0,0.31,210.01
+            MD (m),Inclination,Azimuth,TVD
+            0.0,0.0,0.0,0.0
+            30.0,0.31,210.01,30.0
             ...
 
         **Header.** Above the table, lines starting with ``#``. A line
-        ``# key: value`` states a setting: the key is one word from the list
-        below, in any case, and the value runs to the end of the line, colons
-        and all. Every other line starting with ``#`` is a comment. A key the
-        format does not know is refused, so that a misspelt one cannot pass
-        unnoticed; a comment therefore never starts with one word and a colon.
+        ``# key: value`` states a setting, and the value runs to the end of the
+        line, colons and all. Keys are read in any case, with spaces, hyphens
+        or underscores between their words: ``Wellhead X`` is ``wellhead_x``,
+        and a trailing ``s`` is dropped.
 
         * ``crs``, required: the trajectory CRS, as for :attr:`crs`, on one
-          line.
-        * ``wellhead_x`` and ``wellhead_y``, required: the wellhead in the
-          CRS, in its own units.
-        * ``wellhead_z``: the wellhead elevation in ``z_unit``; 0 if left out.
-        * ``north_reference``, required: ``GN`` or ``TN``.
+          line. Also ``coordinate_system``.
+        * The wellhead, required, in the CRS's own units, either on one line,
+          ``wellhead: x, y`` or ``wellhead: x, y, z`` (also ``origin``), or
+          one value a line: ``wellhead_x`` (also ``x``, ``easting``,
+          ``origin_x``), ``wellhead_y`` (also ``y``, ``northing``,
+          ``origin_y``) and ``wellhead_z`` (also ``z``, ``elevation``,
+          ``kb``, ``rkb``), the elevation in ``z_unit``, 0 if left out.
+        * ``north_reference``, required: ``GN`` or ``TN``, or ``grid`` or
+          ``true north``. Also ``north`` and ``azimuth_reference``.
         * ``md_unit``, ``angle_unit``, ``z_unit``, ``method``, ``md_step`` and
           ``name``: the optional settings of :class:`TrajectoryOptions`, with
-          the same defaults.
+          the same defaults. Also ``depth_unit`` for ``md_unit`` and
+          ``well`` or ``well_name`` for ``name``.
         * ``md_points``: depths separated by commas.
 
+        Any other line starting with ``#`` is a comment, such as
+        ``# Created by: Petrel``, unless its key is so close to a known one
+        that it is likely misspelt, as ``md_unti`` is: that is refused.
+
         **Table.** The first line that does not start with ``#`` names the
-        columns, separated by commas: ``md``, ``inclination`` and ``azimuth``,
-        in any order and any case. ``azimuth`` is left out for an
-        inclination-only survey; no other column is allowed. Every further line
-        is one station: plain numbers, with ``.`` as the decimal point and no
-        thousands separator. Blank lines are skipped.
+        columns, separated by commas, semicolons or tabs, whichever the line
+        uses; ``delimiter`` names another. The measured depth, inclination and
+        azimuth columns are found by their usual names, in any case: ``MD``,
+        ``Measured Depth`` or ``Depth``; ``Inclination``, ``Inc`` or ``Incl``;
+        ``Azimuth``, ``Azi`` or any name starting ``Az``. ``md_column``,
+        ``inclination_column`` and ``azimuth_column`` name them instead. A
+        table without an azimuth column is an inclination-only survey. Other
+        columns are ignored.
+
+        A unit in brackets after a column's name, as in ``MD (ft)`` or
+        ``Inc [deg]``, is its unit, unless the arguments say otherwise; a
+        header stating a different one is refused.
+
+        Every further line is one station: plain numbers, with ``.`` as the
+        decimal point and no thousands separator. Blank lines are skipped.
 
         The keyword arguments fill in what the header leaves out, and take
         precedence over what it states, so one file can be computed with
@@ -432,58 +437,48 @@ class TrajectoryInput:
 
         Args:
             source: The file: a path, or an open text stream.
-            wellhead: The wellhead, replacing ``wellhead_x``, ``wellhead_y``
-                and ``wellhead_z``.
+            wellhead: The wellhead, replacing the header's.
             crs: The trajectory CRS, replacing ``crs``.
             north_reference: ``"GN"`` or ``"TN"``, replacing
                 ``north_reference``.
+            md_column: The column holding measured depths, by its name in
+                the file, with or without the unit; found by its usual names
+                if left out.
+            inclination_column: The column holding inclinations, likewise.
+            azimuth_column: The column holding azimuths, likewise.
+            delimiter: The character separating the values; found from the
+                line naming the columns if left out.
             options: The optional settings, each replacing the header's; see
                 :class:`TrajectoryOptions`.
 
         Raises:
-            InvalidInputError: If the file does not follow the format, or a
-                required setting is in neither the header nor the arguments.
-                The message names the line at fault.
+            InvalidInputError: If the file does not follow the format, a
+                column cannot be found or is found twice, or a required
+                setting is in neither the header nor the arguments. The message
+                names the line at fault.
             InvalidSurveyError: If the stations cannot describe a wellbore.
             UnitError: If a unit is not recognised.
             OSError: If the file cannot be read.
         """
-        where, text = _read(source)
-        header, table = _parse_survey_file(text, where)
-        stated = _header_values(header, where)
-        if wellhead is None and ("wellhead_x" in stated or "wellhead_y" in stated):
-            if "wellhead_x" not in stated or "wellhead_y" not in stated:
-                raise InvalidInputError(
-                    f"{where} states only one of wellhead_x and wellhead_y"
-                )
-            wellhead = (
-                stated["wellhead_x"],
-                stated["wellhead_y"],
-                stated.get("wellhead_z", 0.0),
-            )
-        crs = stated.get("crs") if crs is None else crs
-        if north_reference is None:
-            north_reference = stated.get("north_reference")
-        required = {
-            "crs": crs,
-            "wellhead_x and wellhead_y": wellhead,
-            "north_reference": north_reference,
-        }
-        if missing := [key for key, value in required.items() if value is None]:
-            raise InvalidInputError(
-                f"{where} states no {', '.join(missing)}: add each to the "
-                "header, as in '# crs: EPSG:23031', or pass it as an argument"
-            )
-        merged: dict[str, Any] = {key: stated[key] for key in _OPTIONS & stated.keys()}
-        merged.update(options)
+        stated = read_survey_file(
+            source,
+            wellhead=wellhead,
+            crs=crs,
+            north_reference=north_reference,
+            md_column=md_column,
+            inclination_column=inclination_column,
+            azimuth_column=azimuth_column,
+            delimiter=delimiter,
+            options=options,
+        )
         return cls._assemble(
-            table["md"],
-            table["inclination"],
-            table.get("azimuth"),
-            wellhead,
-            crs,
-            north_reference,
-            merged,
+            stated.md,
+            stated.inclination,
+            stated.azimuth,
+            stated.wellhead,
+            stated.crs,
+            stated.north_reference,
+            stated.options,
         )
 
     @classmethod
@@ -623,29 +618,23 @@ class TrajectoryInput:
             InvalidInputError: If the name or a unit runs over more than one
                 line.
         """
-        header = {
-            "name": self.name,
-            "crs": _one_line_crs(self.crs),
-            "wellhead_x": _number(self.wellhead.x),
-            "wellhead_y": _number(self.wellhead.y),
-            "wellhead_z": _number(self.wellhead.z),
-            "north_reference": self.north_reference.value,
-            "md_unit": self.survey.md_unit,
-            "angle_unit": self.survey.angle_unit,
-            "z_unit": self.z_unit,
-            "method": self.method.value,
-            "md_step": None if self.md_step is None else _number(self.md_step),
-            "md_points": ", ".join(map(_number, self.md_points)) or None,
-        }
-        lines = [
-            f"# {key}: {_one_line(value, key)}"
-            for key, value in header.items()
-            if value is not None
-        ]
-        frame = self.to_dataframe()
-        lines.append(",".join(frame.columns))
-        lines += [",".join(map(_number, row)) for row in frame.to_numpy()]
-        text = "\n".join(lines) + "\n"
+        text = format_survey_file(
+            {
+                "name": self.name,
+                "crs": self.crs,
+                "wellhead_x": self.wellhead.x,
+                "wellhead_y": self.wellhead.y,
+                "wellhead_z": self.wellhead.z,
+                "north_reference": self.north_reference,
+                "md_unit": self.survey.md_unit,
+                "angle_unit": self.survey.angle_unit,
+                "z_unit": self.z_unit,
+                "method": self.method,
+                "md_step": self.md_step,
+                "md_points": self.md_points,
+            },
+            self.to_dataframe(),
+        )
         if target is None:
             return text
         Path(target).write_text(text, encoding="utf-8")
@@ -745,7 +734,7 @@ def _columns_of(
     if all(isinstance(row, Mapping) for row in rows):
         mappings = [row for row in rows if isinstance(row, Mapping)]
         for index, row in enumerate(mappings):
-            if absent := [key for key in _COLUMNS[:2] if key not in row]:
+            if absent := [key for key in ("md", "inclination") if key not in row]:
                 raise InvalidInputError(f"station {index} has no {absent[0]!r}")
         stated = {"azimuth" in row for row in mappings}
         if len(stated) > 1:
@@ -765,129 +754,6 @@ def _columns_of(
         )
     columns = [list(column) for column in zip(*rows, strict=True)]
     return columns[0], columns[1], columns[2] if widths == {3} else None
-
-
-def _read(
-    source: str | os.PathLike[str] | Traversable | TextIO,
-) -> tuple[str, str]:
-    """A name for messages, and the text, of a survey file."""
-    if isinstance(source, str | os.PathLike):
-        source = Path(source)
-    if isinstance(source, Traversable):
-        return source.name, source.read_text(encoding="utf-8-sig")
-    return str(getattr(source, "name", "the survey file")), source.read()
-
-
-def _parse_survey_file(
-    text: str, where: str
-) -> tuple[dict[str, str], dict[str, list[float]]]:
-    """The header settings, as text, and the table's columns, of a survey file."""
-    header: dict[str, str] = {}
-    names: list[str] | None = None
-    rows: list[list[float]] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        at = f"{where}, line {number}"
-        if stripped.startswith("#"):
-            if names is not None:
-                raise InvalidInputError(
-                    f"{at}: header and comment lines go above the table"
-                )
-            if match := _HEADER_LINE.fullmatch(stripped):
-                key = match[1].casefold()
-                if key not in _HEADER_KEYS:
-                    raise InvalidInputError(
-                        f"{at}: {match[1]!r} is not a header key; the keys are "
-                        f"{', '.join(_HEADER_KEYS)}"
-                    )
-                if key in header:
-                    raise InvalidInputError(f"{at}: {key} is stated twice")
-                header[key] = match[2].strip()
-            continue
-        cells = [cell.strip() for cell in next(csv.reader([stripped]))]
-        if names is None:
-            names = _column_names(cells, at)
-        elif len(cells) != len(names):
-            raise InvalidInputError(
-                f"{at}: {len(cells)} values for {len(names)} columns"
-            )
-        else:
-            rows.append(
-                [
-                    _float(cell, name, at)
-                    for cell, name in zip(cells, names, strict=True)
-                ]
-            )
-    if names is None:
-        raise InvalidInputError(
-            f"{where} has no table: below the header, a line naming the columns "
-            "md, inclination and azimuth, then one line per station"
-        )
-    if not rows:
-        raise InvalidInputError(f"{where} has no stations below its column names")
-    return header, {
-        name: [row[index] for row in rows] for index, name in enumerate(names)
-    }
-
-
-def _column_names(cells: list[str], at: str) -> list[str]:
-    names = [cell.casefold() for cell in cells]
-    if unknown := [cell for cell in cells if cell.casefold() not in _COLUMNS]:
-        raise InvalidInputError(
-            f"{at}: the first line of the table names its columns, md, "
-            f"inclination and azimuth, not {', '.join(map(repr, unknown))}"
-        )
-    if len(set(names)) != len(names):
-        raise InvalidInputError(f"{at}: a column is named twice")
-    if absent := [name for name in _COLUMNS[:2] if name not in names]:
-        raise InvalidInputError(f"{at}: the table has no {absent[0]} column")
-    return names
-
-
-def _header_values(header: Mapping[str, str], where: str) -> dict[str, Any]:
-    """The header's settings, with numbers read as numbers."""
-    values: dict[str, Any] = {}
-    for key, text in header.items():
-        at = f"{where}, header {key}"
-        if key in _NUMERIC_KEYS:
-            values[key] = _float(text, key, at)
-        elif key == "md_points":
-            values[key] = [
-                _float(depth, key, at) for depth in re.split(r"[,\s]+", text) if depth
-            ]
-        else:
-            values[key] = text
-    return values
-
-
-def _float(text: str, column: str, at: str) -> float:
-    try:
-        value = float(text)
-    except ValueError:
-        value = math.nan
-    if not math.isfinite(value):
-        raise InvalidInputError(f"{at}: {text!r} in {column} is not a finite number")
-    return value
-
-
-def _number(value: float) -> str:
-    """A float written so that reading it back gives the same float."""
-    return repr(float(value))
-
-
-def _one_line(value: str, key: str) -> str:
-    if len(value.splitlines()) > 1:
-        raise InvalidInputError(f"the {key} {value!r} runs over more than one line")
-    return value.strip()
-
-
-def _one_line_crs(crs: Any) -> str:
-    """The CRS as given, if it is one line of text, or else as WKT."""
-    if isinstance(crs, str) and len(crs.strip().splitlines()) == 1:
-        return crs.strip()
-    return CoordinateReferenceSystem.from_user_input(crs).crs.to_wkt()
 
 
 def _osdu_step(interpolate: bool, interval: float | None) -> float | None:

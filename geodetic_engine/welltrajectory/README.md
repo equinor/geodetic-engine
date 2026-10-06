@@ -38,7 +38,7 @@ well = TrajectoryInput.from_arrays(
     north_reference="GN",  # azimuths against grid north; "TN" for true north
     md_unit="m",  # optional from here on, defaults shown
     angle_unit="degree",
-    method="AzimuthalEquidistant",
+    method="AzimuthalEquidistant",  # or "GridNorthLocal", "ENU", "LMP"; see Method
     z_unit="m",
     md_step=None,  # e.g. 30: also a point every 30 m of MD, on the arcs
     md_points=None,  # e.g. [1234.5]: also a point at these MDs
@@ -90,7 +90,7 @@ method="LMP")` gives a checked copy with a setting changed.
 | `from_arrays(md, inclination, azimuth, ...)` | One numpy array, list or Series per quantity. |
 | `from_records(rows, ...)` | One row per station: `(md, inclination, azimuth)` tuples or lists, or mappings with those keys. |
 | `from_dataframe(frame, md_column=..., ...)` | A pandas DataFrame, with any column names; other columns are ignored. |
-| `from_csv(path, ...)` | A survey file in the format below. Keyword arguments fill in or override its header. |
+| `from_csv(path, ...)` | A CSV survey file in the format below. Keyword arguments fill in or override its header; `md_column`, `inclination_column` and `azimuth_column` name columns it does not recognise, and `delimiter` the separator. |
 | `from_osdu_payload(body)` | An OSDU `convertTrajectory` request body, as a mapping or JSON text. `MD_i.md_i` maps onto `md_points` and `MD_i.md_interval` onto `md_step`. |
 
 `to_csv(path)` writes an input in the survey file format, every setting
@@ -114,15 +114,25 @@ md,inclination,azimuth
 ```
 
 - UTF-8 text; a byte order mark is skipped.
-- Header lines first. `# key: value` states a setting; the key is one word,
-  in any case: `crs`, `wellhead_x` and `wellhead_y` and `north_reference` are
-  required, unless given as arguments; `wellhead_z`, `md_unit`, `angle_unit`,
+- Header lines first. `# key: value` states a setting. Keys are read in any
+  case, with or without spaces, hyphens or underscores between their words,
+  and under other usual names: `Coordinate system` for `crs`, `Easting` and
+  `Northing` for `wellhead_x` and `wellhead_y`, `KB` or `Elevation` for
+  `wellhead_z`, `Well name` for `name`, and so on. `crs`, the wellhead and
+  `north_reference` are required, unless given as arguments. The wellhead is
+  `wellhead_x`, `wellhead_y` and optionally `wellhead_z`, or one line
+  `# wellhead: x, y, z` (also `# origin: ...`). `md_unit`, `angle_unit`,
   `z_unit`, `method`, `md_step`, `md_points` (comma separated) and `name` are
-  optional. An unknown key is refused, so a misspelt one is not skipped.
-- Then the table: a line naming the columns `md`, `inclination` and,
-  unless the survey has none, `azimuth`, in any order and case; no other
-  column. Then one line per station, plain numbers with `.` as the decimal
-  point. Blank lines are skipped.
+  optional. Any other `#` line is a comment, unless its key is a likely
+  misspelling of a known one, which is refused.
+- Then the table: a line naming the columns, separated by commas, semicolons
+  or tabs. Measured depth, inclination and azimuth are found by their usual
+  names (`MD`, `Measured Depth`, `Inc`, `Incl`, `Azi`, `AZIM_GN`, ...) in any
+  case, or named with `md_column`, `inclination_column` and `azimuth_column`.
+  Other columns are ignored; without an azimuth column the survey is
+  inclination-only. A unit in brackets, `MD (ft)`, is the column's unit. Then
+  one line per station, plain numbers with `.` as the decimal point. Blank
+  lines are skipped.
 - Errors name the line at fault.
 
 ## Package layout
@@ -133,6 +143,7 @@ md,inclination,azimuth
 | `datamodels/well_trajectory.py` | `WellTrajectory`, the result. |
 | `trajectory.py` | `compute_trajectory()`. |
 | `survey.py` | `Survey`, `Wellhead`, `NorthReference` and the unit resolution. |
+| `csv_parser.py` | The CSV survey file format: read for `from_csv`, written for `to_csv`. |
 | `minimum_curvature.py` | `MinimumCurvature`. |
 | `methods/` | The four georeferencing methods, one module each. |
 | `plot.py` | The 3D view. |

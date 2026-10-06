@@ -9,6 +9,8 @@ distinguishes a model from a mistake.
 
 from __future__ import annotations
 
+from typing import get_args
+
 import numpy as np
 import pytest
 
@@ -19,12 +21,17 @@ from geodetic_engine.welltrajectory import (
     Survey,
     compute_trajectory,
 )
-from geodetic_engine.welltrajectory.methods import PLACEMENTS
+from geodetic_engine.welltrajectory.methods import PLACEMENTS, MethodName
 
 UTM31N = "EPSG:32631"
 ON_CENTRAL_MERIDIAN = (500000.0, 6650000.0)  # 3 E, about 60 N
 OFF_CENTRAL_MERIDIAN = (666000.0, 6660000.0)
 EARTH_RADIUS = 6.39e6  # prime vertical radius near 60 N, good to 0.5 %
+
+
+def test_the_names_editors_offer_are_the_methods() -> None:
+    assert get_args(MethodName.__value__) == tuple(method.value for method in Method)
+    assert set(PLACEMENTS) == set(Method)
 
 
 def _xy(
