@@ -40,7 +40,7 @@ Four settings are required. The others have defaults.
 | Setting | Required | Default | Meaning |
 |---|---|---|---|
 | `survey` | yes | | The stations: measured depth, inclination and azimuth, with their units. A {class}`~geodetic_engine.welltrajectory.Survey`, which every constructor builds for you. |
-| `wellhead` | yes | | Where MD and TVD count from: `(x, y)` or `(x, y, z)` in the CRS, or a {class}`~geodetic_engine.welltrajectory.Wellhead`. `z` is the elevation, in `z_unit`, 0 if left out. |
+| `wellhead` | yes | | The position of the first station, which TVD and the offsets count from: `(x, y)` or `(x, y, z)` in the CRS, or a {class}`~geodetic_engine.welltrajectory.Wellhead`. `z` is the elevation, in `z_unit`, 0 if left out. |
 | `crs` | yes | | The trajectory CRS: an EPSG code, WKT, PROJJSON, an OSDU `persistableReference` or a {term}`bound CRS`. Resolved when the trajectory is computed. |
 | `north_reference` | yes | | What the azimuths are measured from: `"GN"`, grid north, or `"TN"`, true north. |
 | `md_unit` | | `"m"` | Unit of the measured depths. |
@@ -185,7 +185,7 @@ Each setting is given at most once, under whichever name.
 | `crs` | `coordinate_system`, `coordinate_reference_system`, `trajectory_crs` | yes | The trajectory CRS, on one line: `EPSG:23031`, WKT, or an OSDU `persistableReference`. |
 | `wellhead` | `origin`, `surface_location`, `reference_point` | yes, or `wellhead_x` and `wellhead_y` | The wellhead on one line: `x, y` or `x, y, z`, separated by commas, semicolons or spaces. |
 | `wellhead_x`, `wellhead_y` | `x`, `easting`, `origin_x`, `surface_x`, `wellhead_easting`; `y`, `northing`, `origin_y`, `surface_y`, `wellhead_northing` | yes, or `wellhead` | The wellhead in the CRS, in its own units: easting and northing, or longitude and latitude. |
-| `wellhead_z` | `z`, `elevation`, `kb`, `rkb`, `kb_elevation`, `rkb_elevation`, `datum_elevation`, `origin_z`, `surface_z`, `wellhead_elevation` | no, 0 | The elevation MD counts from, in `z_unit`. |
+| `wellhead_z` | `z`, `elevation`, `kb`, `rkb`, `kb_elevation`, `rkb_elevation`, `datum_elevation`, `origin_z`, `surface_z`, `wellhead_elevation` | no, 0 | The wellhead's elevation, in `z_unit`. |
 | `north_reference` | `north`, `north_ref`, `azimuth_reference` | yes | `GN` or `TN`; also `grid`, `grid north`, `true` or `true north`. |
 | `md_unit` | `depth_unit` | no, `m` | Unit of the measured depths. |
 | `angle_unit` | `angular_unit` | no, `degree` | Unit of the inclinations and azimuths. |

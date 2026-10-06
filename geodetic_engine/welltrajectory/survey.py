@@ -65,13 +65,17 @@ class NorthReference(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Wellhead:
-    """Where the survey starts: the reference point MD and TVD count from.
+    """Where the survey starts: the position of its first station.
+
+    True vertical depth and the offsets count from here. Measured depth is kept
+    as surveyed, so for a survey whose first station is not at MD 0 the
+    wellhead is that tie-in point, such as the seabed.
 
     Attributes:
         x: First coordinate value in the trajectory CRS, in ``xy`` order:
             longitude for a geographic CRS, easting for a projected one.
         y: Second coordinate value: latitude or northing.
-        z: Elevation of the reference point, positive up, in the trajectory's
+        z: Elevation of the first station, positive up, in the trajectory's
             vertical unit. Positions are reported as ``z - TVD``.
     """
 

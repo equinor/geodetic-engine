@@ -264,8 +264,10 @@ True vertical depth (TVD)
   positive down.
 
 Wellhead
-  The reference point of a well's survey, from which measured depth and true
-  vertical depth count: its position in the trajectory CRS and its elevation.
+  Where a well's survey starts: the position of its first station, from which
+  true vertical depth and the offsets count, in the trajectory CRS, with its
+  elevation. For a survey that does not start at measured depth 0, it is the
+  tie-in point.
 
 Inclination
   The angle of the wellbore from vertical at a survey station: 0 is straight

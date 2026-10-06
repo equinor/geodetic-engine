@@ -185,6 +185,23 @@ def test_a_wellhead_that_is_not_finite_is_refused() -> None:
         compute_trajectory(SURVEY, (666000.0, 6660000.0, float("nan")), UTM31N)
 
 
+def test_a_survey_tied_in_below_md_0_starts_at_the_wellhead() -> None:
+    tied_in = Survey([100, 200, 300], [0, 0, 10], [0, 0, 0])
+
+    trajectory = compute_trajectory(tied_in, OFF_CENTRAL_MERIDIAN, UTM31N)
+
+    assert trajectory.md[0] == 100.0
+    assert trajectory.tvd[:2] == pytest.approx([0.0, 100.0])
+    assert trajectory.z[0] == 30.0
+    note = "the first station, at MD 100 m, is the wellhead"
+    assert any(step.startswith(note) for step in trajectory.operations)
+    assert any(
+        step.startswith(note) for step in trajectory.interpolate([150]).operations
+    )
+    from_zero = compute_trajectory(SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N)
+    assert not any("tie-in" in step for step in from_zero.operations)
+
+
 def test_a_table_and_the_factors_at_every_point() -> None:
     trajectory = compute_trajectory(SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N)
 

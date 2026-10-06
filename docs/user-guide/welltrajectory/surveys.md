@@ -144,7 +144,10 @@ print(*trajectory.operations, sep="\n")
 
 ## The wellhead
 
-The wellhead is the point measured depth and true vertical depth count from.
+The wellhead is where the survey starts: the position of its first station,
+which true vertical depth and the offsets count from. Measured depth is kept
+as surveyed, so for a survey whose first station is not at MD 0 the wellhead
+is that tie-in point, such as the seabed, and the provenance says so.
 It is given in the trajectory CRS, in `xy` order, with its elevation:
 
 ```{code-cell} python
@@ -155,7 +158,7 @@ Wellhead(500000.0, 6600000.0, 25.0)
 
 `x` and `y` are in the CRS's own units: easting and northing for a projected
 CRS, longitude and latitude for a geographic one. `z` is the elevation of the
-reference point, positive up, in the trajectory's `z_unit`. Every position is
+first station, positive up, in the trajectory's `z_unit`. Every position is
 reported at elevation $z - \mathrm{TVD}$. A plain tuple, `(x, y)` or
 `(x, y, z)`, works anywhere a {class}`~geodetic_engine.welltrajectory.Wellhead`
 does, with the elevation 0 when left out.

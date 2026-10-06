@@ -77,6 +77,9 @@ All notable changes to this project are documented here. The format follows
   Interpolated and resampled trajectories keep the provenance of their model.
   `ProjectionFactors.to_json_dict()` names the CRS of its coordinates. The
   `docs` extra installs plotly.
+- A survey whose first station is not at MD 0 is placed with that station at
+  the wellhead, as a tie-in point; the documentation now says so and the
+  provenance records it.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order

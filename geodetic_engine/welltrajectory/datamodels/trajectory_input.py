@@ -118,7 +118,8 @@ class TrajectoryInput:
     Attributes:
         survey: The stations: measured depth, inclination and azimuth, with
             the units they are stated in.
-        wellhead: Where MD and TVD count from: ``x`` and ``y`` in the CRS, and
+        wellhead: The position of the first station, which TVD and the
+            offsets count from: ``x`` and ``y`` in the CRS, and
             ``z``, its elevation, in :attr:`z_unit`.
         crs: The trajectory CRS: anything
             :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`

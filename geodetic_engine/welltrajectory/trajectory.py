@@ -57,7 +57,7 @@ def compute_trajectory(
 
     Args:
         survey: The survey stations.
-        wellhead: Where MD and TVD count from: ``(x, y)`` or ``(x, y, z)`` in
+         wellhead: Where MD and TVD count from: ``(x, y)`` or ``(x, y, z)`` in
             ``crs``, with ``z`` its elevation in ``z_unit``.
         crs: The trajectory CRS: anything
             :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`
