@@ -57,8 +57,9 @@ def compute_trajectory(
 
     Args:
         survey: The survey stations.
-         wellhead: Where MD and TVD count from: ``(x, y)`` or ``(x, y, z)`` in
-            ``crs``, with ``z`` its elevation in ``z_unit``.
+        wellhead: The position of the first station, which TVD and the
+            offsets count from: ``(x, y)`` or ``(x, y, z)`` in ``crs``, with
+            ``z`` its elevation in ``z_unit``.
         crs: The trajectory CRS: anything
             :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`
             accepts, including an OSDU persistableReference or a bound CRS.
@@ -120,6 +121,11 @@ def compute_trajectory(
     operations = [*_describe(frame, north, z_unit)]
     if survey.azimuth is None:
         operations.append("the survey states no azimuth; taken as 0 throughout")
+    if survey.md[0] != 0:
+        operations.append(
+            f"the first station, at MD {survey.md[0]:g} {survey.md_unit}, is the "
+            "wellhead: a tie-in point that TVD and the offsets count from"
+        )
     operations.append(_model_step(model))
     to_metres = length_factor(survey.md_unit)
     stations = model.stations

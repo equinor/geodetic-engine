@@ -662,6 +662,7 @@ def test_gnl_is_grid_north_local() -> None:
         ),
         ({"inputStations": "0, 0, 0"}, InvalidInputError, "inputStations"),
         ({"interpolate": "false"}, InvalidInputError, "interpolate"),
+        ({"MD_i": {"md_i": 10.0}}, InvalidInputError, "md_i"),
     ],
     ids=[
         "both-md-i-forms",
@@ -677,6 +678,7 @@ def test_gnl_is_grid_north_local() -> None:
         "station-without-azimuth",
         "stations-not-a-list",
         "interpolate-not-a-boolean",
+        "md-i-not-a-list",
     ],
 )
 def test_a_payload_that_cannot_be_honoured_is_refused(
@@ -708,6 +710,14 @@ def test_the_crs_own_xy_unit_is_accepted() -> None:
     well = TrajectoryInput.from_osdu_payload(body)
 
     assert len(well.survey.md) == len(body["inputStations"])
+
+
+def test_a_geographic_crs_takes_its_angular_xy_unit() -> None:
+    body = request(EXAMPLES / "05_geographic_lmp_method.json")
+
+    assert TrajectoryInput.from_osdu_payload(body | {"unitXY": "degree"})
+    with pytest.raises(UnitError, match="unitXY"):
+        TrajectoryInput.from_osdu_payload(body | {"unitXY": "m"})
 
 
 def test_an_inclination_only_payload_ignores_any_azimuth() -> None:

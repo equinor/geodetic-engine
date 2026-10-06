@@ -38,6 +38,7 @@ from geodetic_engine.welltrajectory.survey import (
     NorthReference,
     Survey,
     Wellhead,
+    angle_factor,
     length_factor,
 )
 from geodetic_engine.welltrajectory.trajectory import compute_trajectory
@@ -588,6 +589,8 @@ class TrajectoryInput:
         if not isinstance(requested, Mapping):
             raise InvalidInputError("MD_i must be a mapping")
         listed, interval = requested.get("md_i") or [], requested.get("md_interval")
+        if not isinstance(listed, list):
+            raise InvalidInputError(f"MD_i.md_i must be a list, not {listed!r}")
         if listed and interval is not None:
             raise InvalidInputError("MD_i gives both md_i and md_interval; give one")
         if unit := body.get("unitXY"):
@@ -823,9 +826,12 @@ def _osdu_step(interpolate: bool, interval: object) -> float | None:
 def _require_crs_unit(crs: Any, wellhead: Sequence[float], unit: str) -> None:
     """Refuse a horizontal unit other than the CRS's, rather than rescale."""
     frame = LocalFrame.at(crs, float(wellhead[0]), float(wellhead[1]), 0.0)
-    if not frame.factors.projected or not math.isclose(
-        length_factor(unit), frame.horizontal_unit, rel_tol=1e-9
-    ):
+    factor = length_factor if frame.factors.projected else angle_factor
+    try:
+        same = math.isclose(factor(unit), frame.horizontal_unit, rel_tol=1e-9)
+    except UnitError:
+        same = False
+    if not same:
         raise UnitError(
             f"unitXY {unit!r} is not the unit of {frame.crs.name}'s horizontal "
             "axes; the wellhead is read in the CRS's own unit"

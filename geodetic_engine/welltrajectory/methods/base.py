@@ -73,7 +73,7 @@ class LocalFrame:
 
     @property
     def horizontal_unit(self) -> float:
-        """Metres per unit of the CRS's first horizontal axis."""
+        """Metres, or radians if geographic, per unit of the first horizontal axis."""
         axes = self.horizontal_crs.axes
         return axes[self.horizontal_crs.value_axis_order[0]].unit_conversion_factor
 

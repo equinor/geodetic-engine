@@ -80,6 +80,9 @@ All notable changes to this project are documented here. The format follows
 - A survey whose first station is not at MD 0 is placed with that station at
   the wellhead, as a tie-in point; the documentation now says so and the
   provenance records it.
+- An OSDU payload's `unitXY` is checked against an angular unit for a
+  geographic CRS, so `degree` with `EPSG:4326` is accepted; `MD_i.md_i` must be
+  a list.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order
