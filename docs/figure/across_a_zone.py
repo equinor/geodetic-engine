@@ -148,8 +148,8 @@ def angles() -> None:
 
 def zone_map(
     name,
-    longitudes,
-    latitudes,
+    lons,
+    lats,
     values,
     title,
     colour_label,
@@ -163,8 +163,8 @@ def zone_map(
     figure, ax = plt.subplots(figsize=(8.0, 6.6))
     # Lines rather than fills keep the map readable on either theme.
     lines = ax.contour(
-        longitudes,
-        latitudes,
+        lons,
+        lats,
         values,
         levels=levels,
         cmap=colour_map,
@@ -190,18 +190,18 @@ def zone_map(
 
 
 def zone_maps() -> None:
-    longitudes = np.linspace(0.0, 6.0, 61)
-    latitudes = np.linspace(0.0, 84.0, 85)
-    grid_longitude, grid_latitude = np.meshgrid(longitudes, latitudes)
-    points = np.column_stack([grid_longitude.ravel(), grid_latitude.ravel()])
+    lons = np.linspace(0.0, 6.0, 61)
+    lats = np.linspace(0.0, 84.0, 85)
+    grid_lon, grid_lat = np.meshgrid(lons, lats)
+    points = np.column_stack([grid_lon.ravel(), grid_lat.ravel()])
     zone = projection_factors(CRS, points, geographic=True)
-    convergence = zone.grid_convergence.reshape(grid_latitude.shape)
-    scale = zone.scale_factor.reshape(grid_latitude.shape)
+    convergence = zone.grid_convergence.reshape(grid_lat.shape)
+    scale = zone.scale_factor.reshape(grid_lat.shape)
 
     zone_map(
         "grid-convergence-map",
-        longitudes,
-        latitudes,
+        lons,
+        lats,
         convergence,
         r"Grid convergence $\gamma$ across UTM zone 31N",
         r"$\gamma$ [$^\circ$]",
@@ -213,8 +213,8 @@ def zone_maps() -> None:
     )
     zone_map(
         "scale-factor-map",
-        longitudes,
-        latitudes,
+        lons,
+        lats,
         scale,
         r"Point scale factor $k$ across UTM zone 31N",
         r"$k$",
@@ -224,33 +224,33 @@ def zone_maps() -> None:
         np.linspace(0.9998, 1.001, 7),
         4,
     )
-    edge = np.interp(1.0, scale[::-1, -1], latitudes[::-1])
+    edge = np.interp(1.0, scale[::-1, -1], lats[::-1])
     print(f"{len(points)} points")
     print(f"grid convergence from {convergence.min():.3f} to {convergence.max():.3f}")
     print(f"scale factor from {scale.min():.6f} to {scale.max():.6f}")
     print(f"k = 1 at the zone's edge at {edge:.1f}°N")
 
 
-def profile() -> None:
+def scale_curve() -> None:
     to_grid = Transformation("EPSG:4326", CRS)
     # Along each parallel, from one edge of the zone to the other.
-    longitudes = np.linspace(0.0, 6.0, 241)
-    profiles = {}
-    for latitude in (0.0, 30.0, 60.0):
-        points = np.column_stack([longitudes, np.full(len(longitudes), latitude)])
+    lons = np.linspace(0.0, 6.0, 241)
+    curves = {}
+    for lat in (0.0, 30.0, 60.0):
+        points = np.column_stack([lons, np.full(len(lons), lat)])
         easting = np.asarray(to_grid.transform(points).coordinates)[:, 0]
         k = projection_factors(CRS, points, geographic=True).scale_factor
-        profiles[latitude] = (easting - 500000.0) / 1000.0, k
+        curves[lat] = (easting - 500000.0) / 1000.0, k
         edge = easting.max() / 1000.0 - 500.0
-        print(f"{latitude:.0f}°N: the zone's edge {edge:.1f} km out, k {k.max():.6f}")
-    distance, k = profiles[0.0]
+        print(f"{lat:.0f}°N: the zone's edge {edge:.1f} km out, k {k.max():.6f}")
+    distance, k = curves[0.0]
     east = distance > 0
     crossing = np.interp(1.0, k[east], distance[east])
     print(f"k = 1 at {crossing:.1f} km either side of the central meridian")
-    for latitude in (30.0, 60.0):
-        other_distance, other_k = profiles[latitude]
+    for lat in (30.0, 60.0):
+        other_distance, other_k = curves[lat]
         difference = np.abs(other_k - np.interp(other_distance, distance, k)).max()
-        print(f"{latitude:.0f}°N: k differs from the equator's by {difference:.1e}")
+        print(f"{lat:.0f}°N: k differs from the equator's by {difference:.1e}")
 
     # Only the equator: at the same distance the others differ too little to see.
     figure, ax = plt.subplots(figsize=(8.0, 4.4))
@@ -271,4 +271,4 @@ def profile() -> None:
 if __name__ == "__main__":
     angles()
     zone_maps()
-    profile()
+    scale_curve()
