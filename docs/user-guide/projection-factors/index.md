@@ -1,22 +1,35 @@
 # Projection factors
 
-{func}`~geodetic_engine.geodesy.projection_factors` reports how a map
-projection distorts at a point: how far grid north is turned from true north,
-the {term}`grid convergence`, and how much a short distance is stretched, the
-{term}`point scale factor`, with the meridional scale, the areal scale and the
-angular distortion beside them. PROJ evaluates them. This function decides
-which part of the CRS they describe, reads the points in the CRS's own units,
-and returns the sign convention with the numbers.
+{func}`~geodetic_engine.geodesy.projection_factors` calculates how a map
+projection distorts directions, distances, shapes, and areas at a given
+location. It reports:
 
-**Use it when** a measurement made on the ground has to be put on the grid, or
-the reverse: an azimuth measured against true north, from a gyro or an
-astronomic observation, turned onto grid north, or a ground distance scaled
-onto the grid. {doc}`/user-guide/welltrajectory/index` uses it to turn a
-survey's grid azimuths onto true north at the wellhead.
+- {term}`grid convergence`, the angle between grid north and true north;
+- {term}`point scale factor`, the local scale applied to a short distance;
+- meridional and parallel scale factors;
+- areal scale; and
+- angular distortion.
 
-**It is not a transformation.** The factors describe one CRS's map projection,
-so nothing changes datum and no operation has to be named. To move coordinates
-into another CRS, see {doc}`/user-guide/geodesy/transformations`.
+The factors are evaluated by PROJ for the map projection associated with the
+CRS. The function determines which component of the CRS contains the
+projection, interprets input coordinates in the units and axis order expected
+by the CRS, and reports the sign convention used for angular values.
+
+## When to use it
+
+Use projection factors when converting directions or distances between the
+ground and the projected grid. Typical uses include:
+
+- converting an azimuth referenced to true north, such as one obtained from a
+  gyro or astronomical observation, to a grid azimuth;
+- converting a grid azimuth to an azimuth referenced to true north;
+- reducing a ground distance to the grid; or
+- converting a grid distance back to an approximate ground distance.
+
+For example, {doc}`/user-guide/welltrajectory/index` uses projection factors at
+the wellhead to convert survey azimuths between grid north and true north.
+
+
 
 ## The API in one table
 
@@ -32,7 +45,7 @@ into another CRS, see {doc}`/user-guide/geodesy/transformations`.
 
 | Quantity | Convention |
 |---|---|
-| Grid convergence $\gamma$ | The angle from true north to grid north, in degrees, positive clockwise: positive where grid north lies east of true north. So $A_{grid} = A_{true} - \gamma$. |
+| Grid convergence $\gamma$ | The angle from true north to grid north, in degrees, positive clockwise: positive where grid north lies east of true north. So $\alpha_{grid} = \alpha_{true} - \gamma$. |
 | Point scale factor $k$ | The scale along the parallel: grid distance $= k \times$ ellipsoidal distance. For a conformal projection it is the same in every direction, and it is the number surveying calls *the* scale factor. |
 | Meridional scale $h$ | The scale along the meridian. Equal to $k$ for a conformal projection. |
 | Areal scale | Area on the grid over area on the ellipsoid. 1 for an equal-area projection. |

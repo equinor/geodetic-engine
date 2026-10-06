@@ -42,8 +42,8 @@ Choose with the `method` argument of
 An azimuthal equidistant projection centred on the wellhead keeps every
 distance and azimuth *from the wellhead* true, which is exactly what the
 offsets are. A station is placed at the geodesic distance
-$\rho = \sqrt{E^2 + N^2}$ from the wellhead, leaving it at azimuth $A$ with
-$\tan A = E / N$, and the result is converted to the CRS. The projection is
+$\rho = \sqrt{E^2 + N^2}$ from the wellhead, leaving it at azimuth $\alpha$ with
+$\tan\alpha = E / N$, and the result is converted to the CRS. The projection is
 built on the CRS's own datum, so the conversion is a change of projection only.
 
 This is the default. The target projection's own scale factor and convergence
@@ -70,7 +70,7 @@ scaled by the point scale factor $k$, both taken at the wellhead:
 
 $$E_{grid} = k\,(E\cos\gamma - N\sin\gamma), \qquad N_{grid} = k\,(E\sin\gamma + N\cos\gamma).$$
 
-This is $A_{grid} = A_{true} - \gamma$ and $d_{grid} = k\, d_{ground}$ in
+This is $\alpha_{grid} = \alpha_{true} - \gamma$ and $d_{grid} = k\, d_{ground}$ in
 vector form; see {doc}`/user-guide/projection-factors/azimuths-and-distances`.
 Holding $\gamma$ and $k$ constant over the whole well is the approximation:
 exact at the wellhead, and off further out by how much they change across the

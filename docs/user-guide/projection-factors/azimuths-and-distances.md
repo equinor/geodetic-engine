@@ -22,7 +22,7 @@ the sign convention is shown rather than only stated.
 
 Grid north lies $\gamma$ clockwise of true north, so
 
-$$A_{grid} = A_{true} - \gamma, \qquad A_{true} = A_{grid} + \gamma.$$
+$$\alpha_{grid} = \alpha_{true} - \gamma, \qquad \alpha_{true} = \alpha_{grid} + \gamma.$$
 
 {meth}`~geodetic_engine.geodesy.ProjectionFactors.to_grid_azimuth` and
 {meth}`~geodetic_engine.geodesy.ProjectionFactors.to_true_azimuth` apply this,
@@ -139,7 +139,7 @@ pd.DataFrame(
         "grid_convergence": line.grid_convergence,
         "scale_factor": line.scale_factor,
     }
-).round(7)
+).style.hide(axis="index").format(precision=7).format("{:.0f}", subset="easting")
 ```
 
 The {doc}`grid north local </user-guide/welltrajectory/georeferencing>`

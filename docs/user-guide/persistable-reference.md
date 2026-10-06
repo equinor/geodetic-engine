@@ -293,13 +293,15 @@ import pandas as pd
 
 from geodetic_engine.persistablereference import methods
 
+LEFT = [{"selector": cell, "props": "text-align: left;"} for cell in ("th", "td")]
+
 supported = pd.DataFrame(
     [
         {"ESRI method": name, "EPSG code": m.code, "EPSG method": m.name, "parameters": ", ".join(m.parameters)}
         for name, m in methods.METHODS.items()
     ]
 )
-supported.style.hide(axis="index")
+supported.style.hide(axis="index").set_table_styles(LEFT)
 ```
 
 Grid methods (`NADCON`, `NTv2`, `HARN`) are also supported. The grid file's
@@ -313,7 +315,7 @@ operation.
 
 pd.DataFrame(
     [{"refused ESRI method": name, "why": why} for name, why in methods.REFUSED.items()]
-).style.hide(axis="index")
+).style.hide(axis="index").set_table_styles(LEFT)
 ```
 
 A refused method raises

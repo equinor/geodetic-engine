@@ -55,7 +55,7 @@ gives it true azimuths.
 Each station's direction is its unit tangent, in a local (east, north, down)
 frame:
 
-$$t = (\sin I \sin A,\ \sin I \cos A,\ \cos I).$$
+$$t = (\sin I \sin\alpha,\ \sin I \cos\alpha,\ \cos I).$$
 
 All the intervals are computed at once, as arrays, and each station's position
 is the running sum of the steps before it.
@@ -64,7 +64,7 @@ is the running sum of the steps before it.
 
 The arc turns through the dogleg $\beta$, the angle between the two tangents:
 
-$$\cos\beta = t_1 \cdot t_2 = \cos(I_2 - I_1) - \sin I_1 \sin I_2\,\bigl(1 - \cos(A_2 - A_1)\bigr),
+$$\cos\beta = t_1 \cdot t_2 = \cos(I_2 - I_1) - \sin I_1 \sin I_2\,\bigl(1 - \cos(\alpha_2 - \alpha_1)\bigr),
 \qquad \sin\beta = \lVert t_1 \times t_2 \rVert.$$
 
 $\beta$ is recovered from both its sine and its cosine. The cosine alone is
@@ -107,7 +107,7 @@ $\tau\,\Delta MD$ and dogleg $\tau\beta$:
 $$p(\tau) = p_1 + \frac{\tau\,\Delta MD}{2}\, RF(\tau\beta)\,\bigl(t_1 + t(\tau)\bigr).$$
 
 Its inclination and azimuth are read back from $t(\tau)$, with
-$\cos I = t_{down}$ and $\tan A = t_{east} / t_{north}$. A depth equal to a
+$\cos I = t_{down}$ and $\tan\alpha = t_{east} / t_{north}$. A depth equal to a
 station's returns that station exactly.
 
 ## Checking it

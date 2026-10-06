@@ -10,11 +10,21 @@ def _setup() -> None:
     import os
     from typing import Any
 
+    import pandas as pd
     import plotly.io as pio
     from plotly.io.base_renderers import MimetypeRenderer
 
     # open_in_browser() would otherwise open a tab on the machine building the docs.
     os.environ["BROWSER"] = "true"
+
+    def float_text(value: float) -> str:
+        # pandas prints a whole column as 6.6612e+06 once one value passes 1e6.
+        if value != 0 and abs(value) < 1e-6:
+            return f"{value:.3e}"
+        text = f"{value:.6f}".rstrip("0").rstrip(".")
+        return "0" if text == "-0" else text
+
+    pd.set_option("display.float_format", float_text)
     # plotly copies the renderer for every figure, so this state lives outside it.
     plotly_js_sent: list[bool] = []
     # plotly sizes a figure while the page is still being laid out; refit it after.
@@ -30,7 +40,7 @@ def _setup() -> None:
         """Figures as HTML a static page can show, plotly.js with the first.
 
         plotly's own HTML renderers load MathJax 2 from a CDN, which breaks the
-        MathJax 3 that Sphinx renders a page's equations with.
+        MathJax that Sphinx renders a page's equations with.
         """
 
         def to_mimebundle(self, fig_dict: dict[str, Any]) -> dict[str, str]:

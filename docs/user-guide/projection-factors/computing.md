@@ -77,7 +77,7 @@ pd.DataFrame(
         "grid_convergence": across.grid_convergence,
         "scale_factor": across.scale_factor,
     }
-).round(6)
+).style.hide(axis="index").format(precision=6).format("{:.0f}", subset="easting")
 ```
 
 Across the zone the convergence changes sign at the central meridian, and the
@@ -201,7 +201,7 @@ pd.DataFrame(
             "angular_distortion",
         )
     }
-)
+).style.hide(axis="index").format(precision=6)
 ```
 
 ## As JSON
@@ -215,6 +215,9 @@ import json
 
 print(json.dumps(factors.to_json_dict(), indent=2))
 ```
+
+The Python result also has `horizontal_crs`; `to_json_dict()` does not include
+that attribute. Read it from `factors.horizontal_crs` when needed.
 
 ## What is refused
 

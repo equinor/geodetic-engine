@@ -36,6 +36,7 @@ dev = [
     "plotly>=6.1",
     "nbformat>=5.10",
     "kaleido>=1.0",
+    "matplotlib>=3.9",
 ]
 plot = [
     "kaleido>=1.0",

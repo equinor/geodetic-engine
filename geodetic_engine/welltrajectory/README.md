@@ -144,8 +144,8 @@ md,inclination,azimuth
 | --- | --- |
 | Coordinate values | `xy` order, as everywhere in this package: easting then northing, longitude then latitude, in the CRS's own units. |
 | Inclination $I$ | From vertical: 0 is straight down, 90 horizontal. |
-| Azimuth $A$ | Clockwise from north, against grid north (`GN`) or true north (`TN`). |
-| Grid convergence | $\gamma$ from true north to grid north, clockwise positive: $A_{grid} = A_{true} - \gamma$. See [Projection factors](../../docs/user-guide/projection-factors/index.md). |
+| Azimuth $\alpha$ | Clockwise from north, against grid north (`GN`) or true north (`TN`). |
+| Grid convergence | $\gamma$ from true north to grid north, clockwise positive: $\alpha_{grid} = \alpha_{true} - \gamma$. See [Projection factors](../../docs/user-guide/projection-factors/index.md). |
 | Offsets | `east`, `north`, `tvd` from the wellhead, against true north, TVD positive down, in `z_unit`. |
 | Elevation | $z = z_0 - \mathrm{TVD}$, with $z_0$ the wellhead elevation. The same for every method. |
 | Dogleg severity | Degrees per 30 m of MD, or per 100 ft for a survey in feet; `dls(per_length)` for any other length. |
@@ -160,7 +160,7 @@ geographic CRS are refused, since there is no grid.
 Each station's direction is its unit tangent, in a local (east, north, down)
 frame at the wellhead:
 
-$$t = (\sin I \sin A,\ \sin I \cos A,\ \cos I).$$
+$$t = (\sin I \sin\alpha,\ \sin I \cos\alpha,\ \cos I).$$
 
 Between two stations the hole is taken to follow the one circular arc that is
 tangent to both. All intervals are computed at once as arrays, and each
@@ -170,7 +170,7 @@ station's position is the running sum of the steps before it.
 
 The arc turns through the dogleg $\beta$, the angle between the two tangents:
 
-$$\cos\beta = t_1 \cdot t_2 = \cos(I_2 - I_1) - \sin I_1 \sin I_2\,\bigl(1 - \cos(A_2 - A_1)\bigr),
+$$\cos\beta = t_1 \cdot t_2 = \cos(I_2 - I_1) - \sin I_1 \sin I_2\,\bigl(1 - \cos(\alpha_2 - \alpha_1)\bigr),
 \qquad \sin\beta = \lVert t_1 \times t_2 \rVert.$$
 
 $\beta$ is recovered from both its sine and its cosine. The cosine alone is
@@ -209,7 +209,7 @@ $\tau\,\Delta MD$ and dogleg $\tau\beta$:
 $$p(\tau) = p_1 + \frac{\tau\,\Delta MD}{2}\, RF(\tau\beta)\,\bigl(t_1 + t(\tau)\bigr).$$
 
 Its inclination and azimuth are read back from $t(\tau)$, with
-$\cos I = t_{down}$ and $\tan A = t_{east} / t_{north}$. Because every point is
+$\cos I = t_{down}$ and $\tan\alpha = t_{east} / t_{north}$. Because every point is
 on the arcs, a survey resampled this way and fed back through the method lands
 on the same positions, to $10^{-9}$ m. Linear interpolation of positions or
 angles leaves the arcs and does not have this property.
@@ -224,7 +224,7 @@ curved earth; all four stay on the CRS's own ellipsoid.
 centred on the wellhead keeps every distance and azimuth *from the wellhead*
 true, which is exactly what the offsets are. A station is placed at the
 geodesic distance $\rho = \sqrt{E^2 + N^2}$ from the wellhead, leaving it at
-azimuth $A$ with $\tan A = E / N$, and the result is converted to the CRS. The
+azimuth $\alpha$ with $\tan\alpha = E / N$, and the result is converted to the CRS. The
 target projection's own scale factor and convergence then apply exactly at
 every station, not only at the wellhead.
 
@@ -233,7 +233,7 @@ scaled by the point scale factor $k$, both taken at the wellhead:
 
 $$E_{grid} = k\,(E\cos\gamma - N\sin\gamma), \qquad N_{grid} = k\,(E\sin\gamma + N\cos\gamma).$$
 
-This is $A_{grid} = A_{true} - \gamma$ and $d_{grid} = k\, d_{ground}$ in vector
+This is $\alpha_{grid} = \alpha_{true} - \gamma$ and $d_{grid} = k\, d_{ground}$ in vector
 form. Projected CRSs only.
 
 **`ENU`**. The offsets are coordinates in the topocentric frame at the

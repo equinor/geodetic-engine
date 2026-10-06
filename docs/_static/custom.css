@@ -314,6 +314,52 @@ div.cell_output .output.traceback pre {
   color: var(--color-problematic);
 }
 
+/* DataFrame output. pandas draws a border round every cell (border="1"); use
+   a header rule and row banding in the theme's colours instead. Values are
+   right-aligned as in Jupyter, row labels left-aligned. */
+div.cell_output .text_html:has(table) {
+  overflow-x: auto;
+}
+
+div.cell_output .text_html table {
+  border: none;
+  border-collapse: collapse;
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+div.cell_output .text_html :is(th, td) {
+  border: none;
+  padding: 0.4rem 0.9rem;
+  text-align: right;
+  vertical-align: top;
+}
+
+div.cell_output .text_html thead th {
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--color-foreground-border);
+}
+
+div.cell_output .text_html tbody th {
+  font-weight: 500;
+  text-align: left;
+  color: var(--color-foreground-secondary);
+}
+
+div.cell_output .text_html tbody tr:nth-child(even) {
+  background: var(--color-background-secondary);
+}
+
+div.cell_output .text_html tbody tr:hover {
+  background: var(--color-background-hover);
+}
+
+div.cell_output .text_html tbody tr:last-child :is(th, td) {
+  border-bottom: 1px solid var(--color-background-border);
+}
+
 /* Tables: denser and top aligned. */
 table.docutils {
   font-size: 0.92rem;
