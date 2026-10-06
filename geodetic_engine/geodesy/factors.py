@@ -71,6 +71,9 @@ class ProjectionFactors:
         projected: False for a geographic CRS, where there is no grid: the
             convergence is then zero and every scale is one.
         coordinates: The points as given, one row per point, in ``xy`` order.
+        coordinates_crs: The CRS :attr:`coordinates` are in: :attr:`horizontal_crs`,
+            or :attr:`geographic_crs` when they were given as longitude and
+            latitude.
         longitude: Longitude in :attr:`geographic_crs`'s own unit and prime
             meridian, which is degrees from Greenwich almost always.
         latitude: Latitude, in the same unit.
@@ -87,6 +90,7 @@ class ProjectionFactors:
     geographic_crs: CoordinateReferenceSystem
     projected: bool
     coordinates: FloatArray
+    coordinates_crs: CoordinateReferenceSystem
     longitude: FloatArray
     latitude: FloatArray
     grid_convergence: FloatArray
@@ -126,6 +130,7 @@ class ProjectionFactors:
             "crs": _identify(self.crs),
             "geographic_crs": _identify(self.geographic_crs),
             "projected": self.projected,
+            "coordinates_crs": _identify(self.coordinates_crs),
             "coordinate_order": "xy",
             "angle_unit": "degree",
             "convention": CONVENTION,
@@ -208,12 +213,14 @@ def projection_factors(
         values["grid_convergence"] = np.zeros(count)
         values["angular_distortion"] = np.zeros(count)
 
+    horizontal_crs = CoordinateReferenceSystem(horizontal, resolved.definition)
     return ProjectionFactors(
         crs=resolved,
-        horizontal_crs=CoordinateReferenceSystem(horizontal, resolved.definition),
+        horizontal_crs=horizontal_crs,
         geographic_crs=geographic_crs,
         projected=bool(horizontal.is_projected),
         coordinates=points,
+        coordinates_crs=geographic_crs if geographic else horizontal_crs,
         longitude=lonlat[:, 0].copy(),
         latitude=lonlat[:, 1].copy(),
         **values,

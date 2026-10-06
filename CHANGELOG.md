@@ -71,6 +71,12 @@ All notable changes to this project are documented here. The format follows
   malformed nested field or a zero `md_interval`, and units with a non-positive
   scale, raise the module's own errors. `plot_trajectory` refuses an unknown
   `color_by` instead of labelling it as dogleg severity.
+- An OSDU payload that is not a JSON object, or whose `interpolate` is not a
+  boolean, raises `InvalidInputError`. `compute_trajectory` reads method and
+  north reference names in any case and refuses a wellhead that is not finite.
+  Interpolated and resampled trajectories keep the provenance of their model.
+  `ProjectionFactors.to_json_dict()` names the CRS of its coordinates. The
+  `docs` extra installs plotly.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order

@@ -27,6 +27,7 @@ from geodetic_engine.welltrajectory.datamodels.well_trajectory import (
     WellTrajectory,
     _describe,
     _georeferenced,
+    _model_step,
 )
 from geodetic_engine.welltrajectory.methods import LocalFrame, Method, MethodName
 from geodetic_engine.welltrajectory.minimum_curvature import MinimumCurvature
@@ -80,6 +81,7 @@ def compute_trajectory(
         :attr:`~WellTrajectory.is_survey_station` False.
 
     Raises:
+        InvalidInputError: If a wellhead value is not finite.
         InvalidSurveyError: If the survey cannot describe a wellbore, or a
             depth in ``md_points`` is outside it.
         UnitError: If a unit is not recognised.
@@ -118,7 +120,7 @@ def compute_trajectory(
     operations = [*_describe(frame, north, z_unit)]
     if survey.azimuth is None:
         operations.append("the survey states no azimuth; taken as 0 throughout")
-    operations.append(f"minimum curvature over {len(survey.md)} survey stations")
+    operations.append(_model_step(model))
     to_metres = length_factor(survey.md_unit)
     stations = model.stations
     if md_step is not None:

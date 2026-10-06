@@ -55,6 +55,11 @@ class Method(StrEnum):
     """Each step laid on the ellipsoid with the radii of curvature at its own
     latitude and elevation. A geographic or conformal projected CRS."""
 
+    @classmethod
+    def _missing_(cls, value: object) -> Method | None:
+        text = str(value).strip().casefold()
+        return next((member for member in cls if member.casefold() == text), None)
+
 
 PLACEMENTS: dict[Method, Place] = {
     Method.AZIMUTHAL_EQUIDISTANT: azimuthal_equidistant.place,

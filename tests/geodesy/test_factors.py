@@ -282,6 +282,7 @@ def test_the_json_form_is_serialisable_and_states_its_convention() -> None:
     document = json.loads(json.dumps(factors.to_json_dict()))
 
     assert document["crs"] == UTM31N
+    assert document["coordinates_crs"] == UTM31N
     assert document["projected"] is True
     assert "grid azimuth = true azimuth - grid_convergence" in document["convention"]
     assert [point["coordinates"] for point in document["points"]] == [
@@ -289,6 +290,16 @@ def test_the_json_form_is_serialisable_and_states_its_convention() -> None:
         [600000.0, 6700000.0],
     ]
     assert isinstance(factors, ProjectionFactors)
+
+
+def test_the_json_form_names_the_crs_of_geographic_coordinates() -> None:
+    factors = projection_factors(UTM31N, (6.0, 60.0), geographic=True)
+
+    document = factors.to_json_dict()
+
+    assert document["crs"] == UTM31N
+    assert document["coordinates_crs"] == "EPSG:4326"
+    assert document["points"][0]["coordinates"] == [6.0, 60.0]
 
 
 @pytest.mark.parametrize("crs", ["EPSG:32631", "EPSG:3395"])

@@ -183,7 +183,8 @@ class WellTrajectory:
         return plot_trajectory(self, **options)
 
     def _replace(self, stations: Stations, note: str) -> WellTrajectory:
-        head = _describe(self.frame, self.north_reference, self.z_unit)
+        # Keep how the model was made; drop the resampling and placement steps.
+        source = self.operations[: self.operations.index(_model_step(self.model)) + 1]
         return _georeferenced(
             stations,
             self.frame,
@@ -192,7 +193,7 @@ class WellTrajectory:
             north=self.north_reference,
             md_unit=self.md_unit,
             z_unit=self.z_unit,
-            operations=(*head, note),
+            operations=(*source, note),
             name=self.name,
         )
 
@@ -241,6 +242,10 @@ def _georeferenced(
         operations=(*operations, *placement.operations),
         name=name,
     )
+
+
+def _model_step(model: MinimumCurvature) -> str:
+    return f"minimum curvature over {len(model.stations.md)} survey stations"
 
 
 def _describe(frame: LocalFrame, north: NorthReference, z_unit: str) -> tuple[str, ...]:

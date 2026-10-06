@@ -661,6 +661,7 @@ def test_gnl_is_grid_north_local() -> None:
             "azimuth",
         ),
         ({"inputStations": "0, 0, 0"}, InvalidInputError, "inputStations"),
+        ({"interpolate": "false"}, InvalidInputError, "interpolate"),
     ],
     ids=[
         "both-md-i-forms",
@@ -675,6 +676,7 @@ def test_gnl_is_grid_north_local() -> None:
         "station-without-inclination",
         "station-without-azimuth",
         "stations-not-a-list",
+        "interpolate-not-a-boolean",
     ],
 )
 def test_a_payload_that_cannot_be_honoured_is_refused(
@@ -692,6 +694,12 @@ def test_a_missing_field_is_named() -> None:
 
     with pytest.raises(InvalidInputError, match="trajectoryCRS"):
         TrajectoryInput.from_osdu_payload(body)
+
+
+@pytest.mark.parametrize("payload", ["null", "42", "[]", "{not json"])
+def test_a_payload_that_is_not_a_json_object_is_refused(payload: str) -> None:
+    with pytest.raises(InvalidInputError, match="JSON"):
+        TrajectoryInput.from_osdu_payload(payload)
 
 
 def test_the_crs_own_xy_unit_is_accepted() -> None:

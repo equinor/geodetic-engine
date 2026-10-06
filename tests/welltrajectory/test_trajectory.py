@@ -14,6 +14,7 @@ from geodetic_engine.geodesy import (
 )
 from geodetic_engine.persistablereference import to_persistable_reference
 from geodetic_engine.welltrajectory import (
+    InvalidInputError,
     Method,
     NorthReference,
     Survey,
@@ -153,6 +154,35 @@ def test_the_provenance_says_what_was_done() -> None:
     assert "turned onto true north" in text
     assert "minimum curvature over 4 survey stations" in text
     assert "Azimuthal Equidistant" in text
+
+
+def test_a_derived_trajectory_keeps_how_its_model_was_made() -> None:
+    no_azimuth = Survey(SURVEY.md, SURVEY.inclination)
+    trajectory = compute_trajectory(
+        no_azimuth, OFF_CENTRAL_MERIDIAN, UTM31N, north="TN", md_step=100
+    )
+
+    twice = trajectory.resample(50).interpolate([700.0])
+
+    steps = twice.operations
+    assert "the survey states no azimuth; taken as 0 throughout" in steps
+    assert "minimum curvature over 4 survey stations" in steps
+    assert "interpolated 1 points on the minimum curvature arcs" in steps
+    assert not any(step.startswith("resampled") for step in steps)
+
+
+def test_method_and_north_reference_names_are_read_in_any_case() -> None:
+    lower = compute_trajectory(
+        SURVEY, OFF_CENTRAL_MERIDIAN, UTM31N, north="gn", method="lmp"
+    )
+
+    assert lower.method is Method.LMP
+    assert lower.north_reference is NorthReference.GRID
+
+
+def test_a_wellhead_that_is_not_finite_is_refused() -> None:
+    with pytest.raises(InvalidInputError, match="finite"):
+        compute_trajectory(SURVEY, (666000.0, 6660000.0, float("nan")), UTM31N)
 
 
 def test_a_table_and_the_factors_at_every_point() -> None:

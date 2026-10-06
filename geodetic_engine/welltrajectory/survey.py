@@ -22,7 +22,11 @@ from geodetic_engine.persistablereference import (
     looks_like_reference,
     parse_persistable_reference,
 )
-from geodetic_engine.welltrajectory.errors import InvalidSurveyError, UnitError
+from geodetic_engine.welltrajectory.errors import (
+    InvalidInputError,
+    InvalidSurveyError,
+    UnitError,
+)
 
 type FloatArray = NDArray[np.float64]
 
@@ -48,10 +52,15 @@ _MEASUREMENTS = {"length": {"length"}, "angle": {"plane_angle", "angle"}}
 
 
 class NorthReference(StrEnum):
-    """What a survey's azimuths are measured from."""
+    """What a survey's azimuths are measured from, ``"GN"`` or ``"TN"`` in any case."""
 
     GRID = "GN"
     TRUE = "TN"
+
+    @classmethod
+    def _missing_(cls, value: object) -> NorthReference | None:
+        text = str(value).strip().casefold()
+        return next((member for member in cls if member.casefold() == text), None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +78,10 @@ class Wellhead:
     x: float
     y: float
     z: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not all(math.isfinite(value) for value in (self.x, self.y, self.z)):
+            raise InvalidInputError(f"the wellhead must be finite, not {self}")
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)

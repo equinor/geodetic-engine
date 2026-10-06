@@ -533,8 +533,9 @@ class TrajectoryInput:
             payload: The request body, as a mapping or as JSON text.
 
         Raises:
-            InvalidInputError: If a required field is missing or has the wrong
-                shape, ``method`` names no known method, ``MD_i`` gives both
+            InvalidInputError: If the payload is not a JSON object, a required
+                field is missing or has the wrong shape, ``interpolate`` is not
+                a boolean, ``method`` names no known method, ``MD_i`` gives both
                 ``md_i`` and ``md_interval``, ``md_interval`` is not a positive
                 length, or ``md_interval`` and ``interpolate`` ask for spacings
                 that are not multiples of each other.
@@ -542,9 +543,15 @@ class TrajectoryInput:
             UnitError: If a unit is not recognised, or ``unitXY`` is not the
                 CRS's own unit.
         """
-        body: Mapping[str, Any] = (
-            json.loads(payload) if isinstance(payload, str) else payload
-        )
+        if isinstance(payload, str):
+            try:
+                body = json.loads(payload)
+            except json.JSONDecodeError as error:
+                raise InvalidInputError(f"the payload is not JSON: {error}") from error
+        else:
+            body = payload
+        if not isinstance(body, Mapping):
+            raise InvalidInputError("the payload must be a JSON object")
         missing = [
             key
             for key in (
@@ -584,6 +591,11 @@ class TrajectoryInput:
             raise InvalidInputError("MD_i gives both md_i and md_interval; give one")
         if unit := body.get("unitXY"):
             _require_crs_unit(body["trajectoryCRS"], (wellhead.x, wellhead.y), unit)
+        interpolate = body.get("interpolate")
+        if interpolate is not None and not isinstance(interpolate, bool):
+            raise InvalidInputError(
+                f"interpolate must be true or false, not {interpolate!r}"
+            )
 
         return cls.from_arrays(
             [row["md"] for row in rows],
@@ -595,7 +607,7 @@ class TrajectoryInput:
             md_unit=body.get("unitMD") or body["unitZ"],
             method=_OSDU_METHODS[method.casefold()],
             z_unit=body["unitZ"],
-            md_step=_osdu_step(bool(body.get("interpolate")), interval),
+            md_step=_osdu_step(bool(interpolate), interval),
             md_points=listed or None,
         )
 

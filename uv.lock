@@ -715,7 +715,10 @@ dev = [
 ]
 docs = [
     { name = "furo" },
+    { name = "kaleido" },
     { name = "myst-nb" },
+    { name = "nbformat" },
+    { name = "plotly" },
     { name = "sphinx" },
     { name = "sphinx-argparse" },
     { name = "sphinx-autobuild" },
@@ -734,6 +737,7 @@ plot = [
 requires-dist = [
     { name = "filelock", specifier = ">=3.16" },
     { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.8" },
+    { name = "geodetic-engine", extras = ["plot"], marker = "extra == 'docs'" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.29" },
     { name = "kaleido", marker = "extra == 'dev'", specifier = ">=1.0" },
