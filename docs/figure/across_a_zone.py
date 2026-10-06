@@ -247,21 +247,14 @@ def profile() -> None:
     east = distance > 0
     crossing = np.interp(1.0, k[east], distance[east])
     print(f"k = 1 at {crossing:.1f} km either side of the central meridian")
+    for latitude in (30.0, 60.0):
+        other_distance, other_k = profiles[latitude]
+        difference = np.abs(other_k - np.interp(other_distance, distance, k)).max()
+        print(f"{latitude:.0f}°N: k differs from the equator's by {difference:.1e}")
 
+    # Only the equator: at the same distance the others differ too little to see.
     figure, ax = plt.subplots(figsize=(8.0, 4.4))
-    # The curves overlap; the dashes let each show through the others.
-    styles = ((GRID, "-", 3.5), (GAMMA, (0, (5, 3)), 2.2), (TRUE, (0, (1, 1.5)), 2.2))
-    for (latitude, (distance, k)), (colour, dashes, width) in zip(
-        profiles.items(), styles, strict=True
-    ):
-        ax.plot(
-            distance,
-            k,
-            color=colour,
-            ls=dashes,
-            lw=width,
-            label=rf"$\varphi = {latitude:.0f}^\circ$",
-        )
+    ax.plot(distance, k, color=GRID, lw=2.5)
     ax.axhline(1.0, color=NEUTRAL, lw=0.8, alpha=0.7)
     for side in (-crossing, crossing):
         ax.axvline(side, color=NEUTRAL, lw=0.8, alpha=0.7)
@@ -272,7 +265,6 @@ def profile() -> None:
         r"Point scale factor $k$ against the distance from the central meridian",
         loc="left",
     )
-    ax.legend(loc="upper center", ncols=3)
     save(figure, "scale-factor-profile")
 
 

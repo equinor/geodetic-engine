@@ -59,20 +59,21 @@ zone's edges. Where it crosses one, the two agree. Away from the equator the
 zone is narrower, so its edges do not reach as far from the central meridian
 and the scale factor stays smaller there.
 
-Plotted against the distance from the central meridian, the scale factor at
-different latitudes falls on almost the same curve. On the grid it depends on
-how far east or west a point is, hardly on its latitude:
+Plotted against the distance from the central meridian, the scale factor is
+the same curve at every latitude: on the grid it depends on how far east or
+west a point is, hardly on its latitude. At 30°N and 60°N it differs from
+the equator's by at most $3.5 \times 10^{-6}$ (3.5 mm/km), far too little to
+see, so the figure draws the equator only:
 
 ```{image} /figure/scale-factor-profile.svg
-:alt: The point scale factor against the distance from the central meridian along the parallels at 0, 30 and 60 degrees north. The three curves lie on top of each other, rising from 0.9996 at the central meridian through 1 about 180 kilometres either side.
+:alt: The point scale factor at the equator against the distance from the central meridian. A U-shaped curve rises from 0.9996 at the central meridian through 1 about 180 kilometres either side to about 1.001 at the zone's edges, 334 kilometres out.
 :align: center
 ```
 
-Each curve runs along its parallel from one edge of the zone to the other:
-334 km either side of the central meridian at the equator, 289 km at 30°N and
-167 km at 60°N. The scale factor is 1 at 179.7 km either side, the vertical
-lines. Poleward of 57.3°N the zone's edge is closer than that, so there the
-whole zone has $k < 1$. The curve is close to
-$k \approx k_0\,(1 + x^2 / 2R^2)$, with $x$ the distance from the central
-meridian and $R$ the earth's radius. {doc}`azimuths-and-distances` uses the
-factors on azimuths and distances.
+The curve ends at the zone's edge, 334 km either side of the central meridian
+at the equator. Further north the zone is narrower and the same curve stops
+sooner: at 289 km at 30°N and at 167 km at 60°N. The scale factor is 1 at
+179.7 km either side, the vertical lines. Poleward of 57.3°N the zone's edge
+is closer than that, so there the whole zone has $k < 1$.
+
+
