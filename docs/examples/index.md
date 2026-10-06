@@ -38,7 +38,7 @@ ten OSDU `persistableReference` scenarios.
 Read the synthetic survey file, compute the trajectory, add points between the
 stations, convert to WGS 84 and plot it in 3D. Then one short example of each
 other way to build the input: arrays, rows, a DataFrame and an OSDU request
-body.
+body. Last, a real well, Volve F-1, checked against its survey report.
 :::
 ::::
 

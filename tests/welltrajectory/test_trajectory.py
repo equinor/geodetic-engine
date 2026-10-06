@@ -13,11 +13,12 @@ from geodetic_engine.welltrajectory import (
     Method,
     NorthReference,
     Survey,
+    TrajectoryInput,
     Wellhead,
     compute_trajectory,
 )
 
-from .conftest import legacy
+from .conftest import VOLVE_F1, legacy, volve_f1
 
 UTM31N = "EPSG:32631"
 OFF_CENTRAL_MERIDIAN = (666000.0, 6660000.0, 30.0)
@@ -216,3 +217,28 @@ def test_the_legacy_lmp_table_is_reproduced(north: NorthReference) -> None:
 
     assert trajectory.x == pytest.approx(rows[:, 1], abs=0.02)
     assert trajectory.y == pytest.approx(rows[:, 2], abs=0.02)
+
+
+@pytest.mark.parametrize(
+    "method", [Method.AZIMUTHAL_EQUIDISTANT, Method.GRID_NORTH_LOCAL]
+)
+def test_volve_f1_reproduces_its_survey_report(method: Method) -> None:
+    """A real well, to the report's rounding: MD and TVD to the centimetre,
+    angles and DLS to 0.01 degree, coordinates to the millimetre."""
+    report = volve_f1()
+    # The survey starts at the wellhead on the seabed, 91 m below sea level.
+    well = TrajectoryInput.from_csv(
+        VOLVE_F1,
+        wellhead=(435046.488, 6478566.687, -91.0),
+        crs="EPSG:23031",
+        method=method,
+    )
+    trajectory = well.compute()
+
+    assert (well.name, well.north_reference) == ("F-1", NorthReference.GRID)
+    assert len(trajectory) == len(report) == 100
+    # The report's TVD is below the rotary table, 54.90 m above sea level.
+    assert 54.90 - trajectory.z == pytest.approx(report.tvd, abs=0.005)
+    assert trajectory.x == pytest.approx(report.easting, abs=0.002)
+    assert trajectory.y == pytest.approx(report.northing, abs=0.002)
+    assert trajectory.dls() == pytest.approx(report.dls, abs=0.005)

@@ -170,7 +170,8 @@ print(f"{len(trajectory)} stations to TD at MD {trajectory.md[-1]:g} m, TVD {tra
 ### The survey file format
 
 The file is UTF-8 text. A byte order mark, as spreadsheet programs write, is
-skipped.
+skipped, and text that is not UTF-8 is read as Latin-1, as older software
+writes it.
 
 **Header.** Lines starting with `#`, above the table. A line `# key: value`
 states one setting, and the value runs to the end of the line, colons and
@@ -199,9 +200,17 @@ included. A key within a letter or two of a known one, such as `md_unti`, is
 refused as a likely misspelling rather than skipped; so is `Units`, which
 could be either unit.
 
-**Table.** The first line that does not start with `#` names the columns.
-They are separated by commas, semicolons or tabs, whichever that line uses;
-`delimiter=` names another, such as `" "` for columns lined up with spaces.
+**Free text.** Other lines above the table are free text, as a survey
+report's header is, and skipped, except a line `key: value` with one of the
+keys above, such as `North Reference: Grid`. It states that setting the first
+time the key appears, unless a `#` line states it. A key in free text is
+never refused as misspelt.
+
+**Table.** It starts at the first line naming the measured depth and
+inclination columns, or else at the first line that is not a header line.
+The columns are separated by commas, semicolons or tabs, whichever that line
+uses, or else lined up with spaces, where two or more spaces end a name, so
+`UTM E/W` is one; `delimiter=` names another.
 The three the survey needs are found by their names, in any case and with
 any punctuation, or named with an argument:
 
@@ -217,8 +226,10 @@ could both be one quantity, such as `AZIM_GN` and `AZIM_TN`, are refused:
 name the one to read.
 
 A unit in brackets after a column's name, as in `MD (ft)` or `Inc [deg]`, is
-that column's unit, unless an argument gives another; a header stating
-another is refused.
+that column's unit. So is one in a line of units right below the names, a
+line holding no number, as in `m RKB  deg  deg`; a word after the unit, such
+as the datum `RKB`, is ignored. A unit given both ways must agree. An argument
+giving another unit takes precedence; a header stating another is refused.
 
 Every further line is one station: plain numbers, with `.` as the decimal
 point and no thousands separator. Blank lines are skipped; header and comment
@@ -262,6 +273,30 @@ TrajectoryInput.from_csv(
     crs="EPSG:32631",
     north_reference="GN",
 ).to_dataframe()
+```
+
+### A survey report
+
+A survey report, as a well database exports it, is read as it is too. The
+package ships the report of Volve F-1, a real well, from the Volve field data
+set. Below its free text, the
+columns are lined up with spaces, with their units underneath:
+
+```{code-cell} python
+REPORT = files("geodetic_engine.welltrajectory") / "example_data" / "volve_f1_survey.txt"
+print(*REPORT.read_text(encoding="latin-1").splitlines()[37:48], "...", sep="\n")
+```
+
+The free text gives the name and the north reference, and the line of units
+the units. The report names its CRS only in words, ED50 and UTM zone 31N, and
+its survey starts at the wellhead on the seabed, 91 m below sea level, so
+those two are passed:
+
+```{code-cell} python
+volve = TrajectoryInput.from_csv(
+    REPORT, wellhead=(435046.488, 6478566.687, -91.0), crs="EPSG:23031"
+)
+print(volve.name, "|", volve.north_reference, "|", volve.survey.md_unit, "|", len(volve.survey.md), "stations")
 ```
 
 ### Arguments fill in and take precedence

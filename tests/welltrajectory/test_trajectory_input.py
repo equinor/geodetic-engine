@@ -45,6 +45,23 @@ REQUIRED: dict[str, Any] = {
 }
 HEADER = "# crs: EPSG:32631\n# wellhead_x: 500000\n# wellhead_y: 6600000\n"
 TABLE = "md,inclination,azimuth\n0,0,10\n500,20,30\n1500,60,45\n"
+# A survey report: free text, then a table lined up with spaces, with units.
+REPORT = (
+    "SURVEY REPORT (all units in default)\n"
+    "WELL NAME: A-10\n"
+    "WELLBORE NAME: A-10 T2\n"
+    "Surface EW: 500000.00m\n"
+    "Surface Latitude: 58° 26' 29.9 N\n"
+    "North Reference: Grid\n"
+    "Bottom Hole MD: 1500.00m\n"
+    "--------------------------------\n"
+    "SURVEY LIST\n"
+    "MD        Inc       Azim      TVD       UTM E/W\n"
+    "ft RKB    deg       deg       ft RKB    m\n"
+    "0.00      0.00      10.00     0.00      500000.000\n"
+    "500.00    20.00     30.00     489.90    500043.000\n"
+    "1500.00   60.00     45.00     1200.00   500300.000\n"
+)
 
 
 def _arrays(**options: Any) -> TrajectoryInput:
@@ -341,7 +358,7 @@ def test_a_byte_order_mark_is_skipped(tmp_path: Path) -> None:
         (HEADER + "inclination,azimuth\n0,0\n", "no md column among"),
         (HEADER + "md,md,inclination\n0,0,0\n", "named twice"),
         (HEADER + "md,inc,azim_gn,azim_tn\n0,0,0,0\n", "could each be the azimuth"),
-        (HEADER + "md inc azi\n0 0 0\n", "delimiter"),
+        (HEADER + "md|inc|azi\n0|0|0\n", "delimiter"),
         (HEADER + "# md_unit: m\nMD (ft),inc\n0,0\n", "states md_unit 'm'.*'ft'"),
         (HEADER + "md,Inc (deg),Azi (rad)\n0,0,0\n", "one angle unit"),
         (HEADER + TABLE + "2000,abc,45\n", "line 8: 'abc' in inclination"),
@@ -412,6 +429,35 @@ def test_a_file_from_other_software_is_read_as_it_is() -> None:
     assert well.survey.md.tolist() == [0.0, 500.0, 1500.0]
     assert well.survey.azimuth is not None
     assert well.survey.azimuth.tolist() == [10.0, 30.0, 45.0]
+
+
+def test_a_survey_report_is_read_below_its_free_text(tmp_path: Path) -> None:
+    path = tmp_path / "report.txt"
+    path.write_bytes(REPORT.encode("latin-1"))
+    where = {"wellhead": (500000.0, 6600000.0), "crs": "EPSG:32631"}
+
+    well = TrajectoryInput.from_csv(path, **where)
+    header_first = _csv("# name: B-2\n" + REPORT, **where)
+
+    assert well.name == "A-10"
+    assert header_first.name == "B-2"
+    assert well.north_reference is NorthReference.GRID
+    assert (well.survey.md_unit, well.survey.angle_unit) == ("ft", "deg")
+    assert well.survey.md.tolist() == [0.0, 500.0, 1500.0]
+    assert well.survey.azimuth is not None
+    assert well.survey.azimuth.tolist() == [10.0, 30.0, 45.0]
+
+
+def test_a_line_of_units_below_the_names_gives_their_units() -> None:
+    table = HEADER + "md,inc,azi\nft,deg,deg\n0,0,10\n500,20,30\n"
+
+    well = _csv(table, north_reference="GN")
+
+    assert (well.survey.md_unit, well.survey.angle_unit) == ("ft", "deg")
+    with pytest.raises(UnitError, match="line 5: 'furlong' is not a unit of 'md'"):
+        _csv(HEADER + "md,inc\nfurlong,deg\n0,0\n500,5\n", north_reference="GN")
+    with pytest.raises(InvalidInputError, match=r"line 5: 'MD \(ft\)' is in 'ft'"):
+        _csv(HEADER + "MD (ft),inc\nm,deg\n0,0\n500,5\n", north_reference="GN")
 
 
 @pytest.mark.parametrize(

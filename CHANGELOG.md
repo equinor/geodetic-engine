@@ -21,7 +21,10 @@ All notable changes to this project are documented here. The format follows
   columns by their usual names or by name given as an argument, ignores other
   columns, detects the delimiter, takes the unit from a name such as
   `MD (ft)`, and reads the wellhead and the settings from a header under
-  their usual names. A synthetic survey file ships in `example_data`.
+  their usual names. It also reads a survey report as it is: free text above
+  a table lined up with spaces, with a line of units, in UTF-8 or Latin-1.
+  A synthetic survey file and the survey report of Volve F-1, a real well,
+  ship in `example_data`.
   Documented in a user guide section of its own, the API reference and an
   example notebook.
 - Documentation site built with Sphinx and published to GitHub Pages: getting

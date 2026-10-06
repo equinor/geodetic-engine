@@ -374,9 +374,9 @@ class TrajectoryInput:
         delimiter: str | None = None,
         **options: Unpack[TrajectoryOptions],
     ) -> TrajectoryInput:
-        """An input from a CSV survey file: settings in a header, then a table.
+        """An input from a survey file: settings in a header, then a table.
 
-        The file is UTF-8 text, and reads, for instance::
+        A CSV file reads, for instance::
 
             # A synthetic well, not a real one. This line is a comment.
             # name: Synthetic-1
@@ -387,6 +387,18 @@ class TrajectoryInput:
             0.0,0.0,0.0,0.0
             30.0,0.31,210.01,30.0
             ...
+
+        and a survey report, as older software writes, is read as it is::
+
+            WELL NAME: F-1
+            North Reference: Grid
+            SURVEY LIST
+            MD        Inc       Azim      TVD       UTM E/W
+            m RKB     deg       deg       m RKB     m
+            145.90    0.00      0.00      145.90    435046.488
+            ...
+
+        The text is UTF-8, or else read as Latin-1.
 
         **Header.** Above the table, lines starting with ``#``. A line
         ``# key: value`` states a setting, and the value runs to the end of the
@@ -414,10 +426,18 @@ class TrajectoryInput:
         ``# Created by: Petrel``, unless its key is so close to a known one
         that it is likely misspelt, as ``md_unti`` is: that is refused.
 
-        **Table.** The first line that does not start with ``#`` names the
-        columns, separated by commas, semicolons or tabs, whichever the line
-        uses; ``delimiter`` names another. The measured depth, inclination and
-        azimuth columns are found by their usual names, in any case: ``MD``,
+        Other lines above the table are free text, and skipped, except a line
+        ``key: value`` with one of these keys, such as ``North Reference:
+        Grid``: it states the setting, the first time the key appears, unless
+        a ``#`` line states it.
+
+        **Table.** It starts at the first line naming the measured depth and
+        inclination columns, or else at the first line that is not a header
+        line. The columns are separated by commas, semicolons or tabs,
+        whichever that line uses, or else lined up with spaces, two or more
+        ending a name such as ``UTM E/W``; ``delimiter`` names another. The
+        measured depth, inclination and azimuth columns are found by their
+        usual names, in any case: ``MD``,
         ``Measured Depth`` or ``Depth``; ``Inclination``, ``Inc`` or ``Incl``;
         ``Azimuth``, ``Azi`` or any name starting ``Az``. ``md_column``,
         ``inclination_column`` and ``azimuth_column`` name them instead. A
@@ -425,8 +445,10 @@ class TrajectoryInput:
         columns are ignored.
 
         A unit in brackets after a column's name, as in ``MD (ft)`` or
-        ``Inc [deg]``, is its unit, unless the arguments say otherwise; a
-        header stating a different one is refused.
+        ``Inc [deg]``, is its unit, and so is one in a line of units right
+        below the names, which holds no number, and may follow a unit with a
+        word, as in ``m RKB``. Given both ways, the units must agree. The
+        arguments take precedence; a header stating a different one is refused.
 
         Every further line is one station: plain numbers, with ``.`` as the
         decimal point and no thousands separator. Blank lines are skipped.
@@ -446,8 +468,9 @@ class TrajectoryInput:
                 if left out.
             inclination_column: The column holding inclinations, likewise.
             azimuth_column: The column holding azimuths, likewise.
-            delimiter: The character separating the values; found from the
-                line naming the columns if left out.
+            delimiter: The character separating the values, ``" "`` for
+                columns lined up with spaces; found from the line naming the
+                columns if left out.
             options: The optional settings, each replacing the header's; see
                 :class:`TrajectoryOptions`.
 
@@ -457,7 +480,7 @@ class TrajectoryInput:
                 setting is in neither the header nor the arguments. The message
                 names the line at fault.
             InvalidSurveyError: If the stations cannot describe a wellbore.
-            UnitError: If a unit is not recognised.
+            UnitError: If a unit is not recognised, a line of units included.
             OSError: If the file cannot be read.
         """
         stated = read_survey_file(

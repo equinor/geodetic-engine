@@ -1,7 +1,8 @@
 """The CSV survey file: read for, and written by, :class:`TrajectoryInput`.
 
 A survey file states the settings of a trajectory input in a header of
-``# key: value`` lines, then its stations in a table.
+``# key: value`` lines, then its stations in a table. A survey report, with
+free text above a table whose columns are lined up with spaces, reads too.
 :meth:`TrajectoryInput.from_csv` documents the format, and reads it with
 :func:`read_survey_file`; :meth:`TrajectoryInput.to_csv` writes it with
 :func:`format_survey_file`.
@@ -95,8 +96,14 @@ _COLUMN_NAMES = {
 }
 _NORTH_NAMES = {"grid": "GN", "gridnorth": "GN", "true": "TN", "truenorth": "TN"}
 _DELIMITERS = (",", ";", "\t")
+# The delimiter of a table whose columns are lined up with spaces.
+_SPACES = " "
+# Lined up with spaces, a column's name may hold single spaces; more end it.
+_GAP = re.compile(r"\s{2,}")
 # "# key: value", the key words; any other line starting with # is a comment.
 _HEADER_LINE = re.compile(r"#\s*([A-Za-z][\w \-]*?)\s*:(.*)")
+# "key: value" in the free text above a table, as in a survey report.
+_TEXT_LINE = re.compile(r"([A-Za-z][\w \-]*?)\s*:(.*)")
 # A column name with its unit in brackets: "MD (ft)", "Inc [deg]".
 _UNIT_IN_NAME = re.compile(r"(.*?)\s*[(\[]\s*([^)\]]*?)\s*[)\]]")
 
@@ -124,6 +131,26 @@ class SurveyFile:
     options: dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class _Table:
+    """A survey file's table, each part with its line for messages.
+
+    Attributes:
+        names: The column names.
+        names_at: The line naming them.
+        units: The line of units below the names, a cell per column; empty if
+            there is none.
+        units_at: The line of units; :attr:`names_at` if there is none.
+        rows: Each station's line and values, as text.
+    """
+
+    names: list[str]
+    names_at: str
+    units: list[str]
+    units_at: str
+    rows: _Rows
+
+
 def read_survey_file(
     source: str | os.PathLike[str] | Traversable | TextIO,
     *,
@@ -148,18 +175,14 @@ def read_survey_file(
     """
     if delimiter is not None and len(delimiter) != 1:
         raise InvalidInputError(f"delimiter must be one character, not {delimiter!r}")
+    named = {
+        "md": md_column,
+        "inclination": inclination_column,
+        "azimuth": azimuth_column,
+    }
     where, text = _read(source)
-    header, names, names_at, rows = _parse(text, where, delimiter)
-    table, units = _survey_columns(
-        names,
-        names_at,
-        rows,
-        {
-            "md": md_column,
-            "inclination": inclination_column,
-            "azimuth": azimuth_column,
-        },
-    )
+    header, table = _parse(text, where, delimiter, named)
+    columns, units = _survey_columns(table, named)
     stated = _header_values(header, where)
     for key, (unit, at) in units.items():
         if key in options:
@@ -185,9 +208,9 @@ def read_survey_file(
         )
     settings = {key: stated[key] for key in stated.keys() - _REQUIRED_KEYS}
     return SurveyFile(
-        md=table["md"],
-        inclination=table["inclination"],
-        azimuth=table.get("azimuth"),
+        md=columns["md"],
+        inclination=columns["inclination"],
+        azimuth=columns.get("azimuth"),
         wellhead=wellhead,
         crs=crs,
         north_reference=north_reference,
@@ -230,65 +253,105 @@ def _read(
     if isinstance(source, str | os.PathLike):
         source = Path(source)
     if isinstance(source, Traversable):
-        return source.name, source.read_text(encoding="utf-8-sig")
+        data = source.read_bytes()
+        try:
+            return source.name, data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            # Older software writes a Windows code page; Latin-1 reads any byte.
+            return source.name, data.decode("latin-1")
     return str(getattr(source, "name", "the survey file")), source.read()
 
 
 def _parse(
-    text: str, where: str, delimiter: str | None
-) -> tuple[dict[str, str], list[str], str, _Rows]:
+    text: str, where: str, delimiter: str | None, named: Mapping[str, str | None]
+) -> tuple[dict[str, str], _Table]:
     """A survey file's header settings, as text, then its table.
 
-    The table is the column names, the line naming them, and each station's
-    line and values, as text.
+    Above the table, ``#`` lines are the header and other lines free text, of
+    which ``key: value`` lines with a known key are read as well, the first
+    of each key, unless the header states it.
     """
+    lines = [
+        (f"{where}, line {number}", stripped)
+        for number, line in enumerate(text.splitlines(), start=1)
+        if (stripped := line.strip())
+    ]
+    start = _names_line(lines, where, delimiter, named)
     header: dict[str, str] = {}
-    names: list[str] | None = None
-    names_at = where
-    separator = delimiter or ","
-    rows: _Rows = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        at = f"{where}, line {number}"
-        if stripped.startswith("#"):
-            if names is not None:
-                raise InvalidInputError(
-                    f"{at}: header and comment lines go above the table"
-                )
-            match = _HEADER_LINE.fullmatch(stripped)
+    in_text: dict[str, str] = {}
+    for at, line in lines[:start]:
+        if line.startswith("#"):
+            match = _HEADER_LINE.fullmatch(line)
             if match and (key := _header_key(match[1], at)):
                 if key in header:
                     raise InvalidInputError(f"{at}: {key} is stated twice")
                 header[key] = match[2].strip()
-            continue
-        if names is None:
-            if delimiter is None:
-                separator = max(_DELIMITERS, key=stripped.count)
-            names = _cells(stripped, separator)
-            while names and not names[-1]:
-                names.pop()
-            names_at = at
-        else:
-            rows.append((at, _cells(stripped, separator)))
-    if names is None:
+        elif (match := _TEXT_LINE.fullmatch(line)) and (
+            key := _header_key(match[1], at, guess=False)
+        ):
+            in_text.setdefault(key, match[2].strip())
+
+    names_at, line = lines[start]
+    separator = delimiter or _separator(line)
+    names = _labels(line, separator)
+    while names and not names[-1]:
+        names.pop()
+    body = lines[start + 1 :]
+    units: list[str] = []
+    units_at = names_at
+    if (
+        len(body) > 1
+        and body[0][1][0] != "#"
+        and not any(map(_is_number, labels := _labels(body[0][1], separator)))
+    ):
+        (units_at, _), units = body.pop(0), labels
+    rows: _Rows = []
+    for at, line in body:
+        if line.startswith("#"):
+            raise InvalidInputError(
+                f"{at}: header and comment lines go above the table"
+            )
+        rows.append((at, _cells(line, separator)))
+    if not rows:
+        raise InvalidInputError(f"{where} has no stations below its column names")
+    return in_text | header, _Table(names, names_at, units, units_at, rows)
+
+
+def _names_line(
+    lines: list[tuple[str, str]],
+    where: str,
+    delimiter: str | None,
+    named: Mapping[str, str | None],
+) -> int:
+    """Where the table starts: the first line naming the md and inclination
+    columns, or else the first that is not a header or comment line."""
+    candidates = [index for index, (_, line) in enumerate(lines) if line[0] != "#"]
+    if not candidates:
         raise InvalidInputError(
             f"{where} has no table: below the header, a line naming the columns "
             "md, inclination and azimuth, then one line per station"
         )
-    if not rows:
-        raise InvalidInputError(f"{where} has no stations below its column names")
-    return header, names, names_at, rows
+    for index in candidates:
+        line = lines[index][1]
+        names = _labels(line, delimiter or _separator(line))
+        if all(_matches(names, quantity, named[quantity]) for quantity in _COLUMNS[:2]):
+            return index
+    return candidates[0]
 
 
-def _header_key(word: str, at: str) -> str | None:
-    """The key a header line states, or None for a comment."""
+def _header_key(word: str, at: str, *, guess: bool = True) -> str | None:
+    """The key a header line states, or None for a comment.
+
+    With ``guess``, a word so close to a known key that it is likely misspelt
+    is refused.
+    """
     squeezed = _SQUEEZE.sub("", word.casefold())
     forms = dict.fromkeys((squeezed, squeezed.removesuffix("s")))
     for name in forms:
         if name in _HEADER_NAMES:
             return _HEADER_NAMES[name][0]
+    if not guess:
+        return None
     # A misspelling, not a comment: close, and about as long, as a known name.
     close = {
         _HEADER_NAMES[name][1]: None
@@ -303,18 +366,43 @@ def _header_key(word: str, at: str) -> str | None:
     return None
 
 
+def _separator(line: str) -> str:
+    """The delimiter a line uses: the commonest of comma, semicolon and tab, or
+    else spaces."""
+    common = max(_DELIMITERS, key=line.count)
+    return common if common in line else _SPACES
+
+
+def _labels(line: str, delimiter: str) -> list[str]:
+    """The column names, or units, a line gives."""
+    if delimiter == _SPACES and len(labels := _GAP.split(line)) > 1:
+        return labels
+    return _cells(line, delimiter)
+
+
 def _cells(line: str, delimiter: str) -> list[str]:
+    if delimiter == _SPACES:
+        return line.split()
     reader = csv.reader([line], delimiter=delimiter, skipinitialspace=True)
     return [cell.strip() for cell in next(reader)]
 
 
-def _survey_columns(
-    names: list[str], at: str, rows: _Rows, named: Mapping[str, str | None]
-) -> tuple[dict[str, list[float]], dict[str, tuple[str, str]]]:
-    """The md, inclination and azimuth columns, and the units their names give.
+def _is_number(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
 
-    The units are keyed by the setting they give, with the line naming them.
+
+def _survey_columns(
+    table: _Table, named: Mapping[str, str | None]
+) -> tuple[dict[str, list[float]], dict[str, tuple[str, str]]]:
+    """The md, inclination and azimuth columns, and the units the table gives.
+
+    The units are keyed by the setting they give, with the line giving them.
     """
+    names, at, rows = table.names, table.names_at, table.rows
     found = {
         quantity: index
         for quantity in _COLUMNS
@@ -344,47 +432,83 @@ def _survey_columns(
             columns[quantity].append(_float(cells[index], quantity, row_at))
 
     units: dict[str, tuple[str, str]] = {}
-    if md_unit := _unit_in_name(names[found["md"]], length_factor):
-        units["md_unit"] = (md_unit, at)
+    if md_unit := _column_unit(table, found["md"], length_factor):
+        units["md_unit"] = md_unit
     angle_units = [
         unit
         for quantity in _COLUMNS[1:]
         if quantity in found
-        and (unit := _unit_in_name(names[found[quantity]], angle_factor))
+        and (unit := _column_unit(table, found[quantity], angle_factor))
     ]
-    if len({angle_factor(unit) for unit in angle_units}) > 1:
+    if len({angle_factor(unit) for unit, _ in angle_units}) > 1:
         raise InvalidInputError(
-            f"{at}: the inclinations are in {angle_units[0]!r} and the azimuths "
-            f"in {angle_units[1]!r}; a survey has one angle unit"
+            f"{angle_units[1][1]}: the inclinations are in {angle_units[0][0]!r} "
+            f"and the azimuths in {angle_units[1][0]!r}; a survey has one angle unit"
         )
     if angle_units:
-        units["angle_unit"] = (angle_units[0], at)
+        units["angle_unit"] = angle_units[0]
     return columns, units
 
 
-def _column(names: list[str], quantity: str, named: str | None, at: str) -> int | None:
-    """Where the ``quantity`` column is: the one named, or else by its usual names."""
+def _column_unit(
+    table: _Table, index: int, factor: Callable[[str], float]
+) -> tuple[str, str] | None:
+    """A column's unit, with the line giving it: in brackets after its name, or
+    in the line of units below the names."""
+    name = table.names[index]
+    in_name = _unit_in_name(name, factor)
+    cell = table.units[index].strip("()[] ") if index < len(table.units) else ""
+    if not cell:
+        return (in_name, table.names_at) if in_name else None
+    # The unit may be followed by its datum, as in "m RKB".
+    in_line = next(
+        (unit for unit in (cell, cell.split()[0]) if _is_unit(unit, factor)), None
+    )
+    if in_line is None:
+        raise UnitError(f"{table.units_at}: {cell!r} is not a unit of {name!r}")
+    if in_name and not math.isclose(factor(in_name), factor(in_line)):
+        raise InvalidInputError(
+            f"{table.units_at}: {name!r} is in {in_name!r}, not {in_line!r}"
+        )
+    return (in_name, table.names_at) if in_name else (in_line, table.units_at)
+
+
+def _is_unit(unit: str, factor: Callable[[str], float]) -> bool:
+    try:
+        factor(unit)
+    except UnitError:
+        return False
+    return True
+
+
+def _matches(names: list[str], quantity: str, named: str | None) -> list[int]:
+    """Each column that could be ``quantity``: the one named, or else by its
+    usual names."""
     bare = [_bare(name) for name in names]
     if named is not None:
         wanted = named.strip().casefold()
-        found = [
+        return [
             index
             for index, name in enumerate(names)
             if wanted in (name.casefold(), bare[index].casefold())
         ]
-        if not found:
+    return [
+        index
+        for index, name in enumerate(bare)
+        if _is_usual(quantity, _SQUEEZE.sub("", name.casefold()))
+    ]
+
+
+def _column(names: list[str], quantity: str, named: str | None, at: str) -> int | None:
+    """Where the ``quantity`` column is: the one named, or else by its usual names."""
+    found = _matches(names, quantity, named)
+    if not found:
+        if named is not None:
             raise InvalidInputError(
                 f"{at}: the table has no column {named!r}; its columns are "
                 f"{', '.join(map(repr, names))}"
             )
-    else:
-        found = [
-            index
-            for index, name in enumerate(bare)
-            if _is_usual(quantity, _SQUEEZE.sub("", name.casefold()))
-        ]
-        if not found:
-            return None
+        return None
     if len(found) > 1:
         candidates = [names[index] for index in found]
         if len({name.casefold() for name in candidates}) == 1:
@@ -409,11 +533,7 @@ def _bare(name: str) -> str:
 
 def _unit_in_name(name: str, factor: Callable[[str], float]) -> str | None:
     """The unit in brackets after a column's name, if ``factor`` knows it."""
-    if not (match := _UNIT_IN_NAME.fullmatch(name)):
-        return None
-    try:
-        factor(match[2])
-    except UnitError:
+    if not (match := _UNIT_IN_NAME.fullmatch(name)) or not _is_unit(match[2], factor):
         return None
     return match[2]
 
