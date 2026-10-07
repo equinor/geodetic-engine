@@ -14,18 +14,24 @@ rm -f "${dest}"/host-*.crt
 case "$(uname -s)" in
 Linux)
     # Debian/Ubuntu (including WSL) and Fedora/RHEL anchor directories.
+    n=0
     for dir in /usr/local/share/ca-certificates /etc/pki/ca-trust/source/anchors; do
         [[ -d "${dir}" ]] || continue
+        # Follows symlinks like update-ca-certificates; numbered since names can repeat.
         while IFS= read -r -d '' cert; do
             name="$(basename "${cert}")"
-            cp "${cert}" "${dest}/host-${name%.*}.crt"
-        done < <(find "${dir}" -type f \( -name '*.crt' -o -name '*.pem' \) -print0)
+            cp "${cert}" "${dest}/host-$((++n))-${name%.*}.crt"
+        done < <(find -L "${dir}" -type f \( -name '*.crt' -o -name '*.pem' \) -print0)
     done
     ;;
 Darwin)
     # update-ca-certificates expects one certificate per file.
     security find-certificate -a -p /Library/Keychains/System.keychain |
-        awk -v dir="${dest}" '/BEGIN CERTIFICATE/ { n++ } { print > (dir "/host-macos-" n ".crt") }'
+        awk -v dir="${dest}" '/BEGIN CERTIFICATE/ { if (out) close(out); out = dir "/host-macos-" ++n ".crt" } out { print > out }'
+    # The keychain also holds untrusted, expired and per-machine certificates.
+    for cert in "${dest}"/host-macos-*.crt; do
+        security verify-cert -l -L -R offline -p ssl -c "${cert}" &>/dev/null || rm -f "${cert}"
+    done
     ;;
 esac
 

@@ -4,8 +4,8 @@ A line-by-line port of ``CRSConverter.squaring`` and the methods it calls in the
 OSDU crs-conversion-service, used for two things only: to show, inside this
 test suite, what the Java implementation computes where it is wrong (defect D2,
 scale factor), and to check that the package agrees with it wherever it is
-right (scale factor 1). It is never used as the expected value of a test of the
-correct behaviour. Line numbers refer to
+right (scale factor 1). Where it is wrong, it is never the expected value of a
+test. Line numbers refer to
 ``crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java``
 in the OSDU crs-conversion-service repository
 (https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service)
