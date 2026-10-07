@@ -242,12 +242,14 @@ print("areal scale       :", laea.areal_scale)
 print("angular distortion:", laea.angular_distortion)
 ```
 
-There, turning an azimuth by the convergence alone gives the wrong answer, so
-the azimuth helpers refuse:
+There, turning an azimuth by the convergence alone gives the wrong answer.
+{attr}`~geodetic_engine.geodesy.ProjectionFactors.conformal` says so, and the
+azimuth helpers refuse:
 
 ```{code-cell} python
 :tags: [raises-exception]
 
+print("conformal:", laea.conformal)
 laea.to_grid_azimuth(45.0)
 ```
 

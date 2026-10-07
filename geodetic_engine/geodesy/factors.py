@@ -56,6 +56,9 @@ _PROJ_NAMES = {
 
 type FloatArray = NDArray[np.float64]
 
+# Angular distortion, in degrees, taken as none: PROJ's own noise is ~1.5e-6.
+_CONFORMAL = 1e-5
+
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ProjectionFactors:
@@ -98,6 +101,16 @@ class ProjectionFactors:
     meridional_scale: FloatArray
     areal_scale: FloatArray
     angular_distortion: FloatArray
+
+    @property
+    def conformal(self) -> bool:
+        """Whether the projection preserves angles at every point.
+
+        True for a geographic CRS. Only then does the grid convergence turn
+        azimuths between true and grid north, and one scale factor hold in
+        every direction.
+        """
+        return bool(np.all(self.angular_distortion <= _CONFORMAL))
 
     def to_true_azimuth(self, grid_azimuth: ArrayLike) -> FloatArray:
         """Grid azimuths plus convergence, in degrees in ``[0, 360)``.
@@ -291,42 +304,11 @@ def _web_mercator_scales(
 
 
 def _require_conformal(factors: ProjectionFactors) -> None:
-    if np.any(factors.angular_distortion > 1e-5):
+    if not factors.conformal:
         raise UnsupportedCRSError(
             f"{factors.horizontal_crs.name} does not preserve angles here; "
             "scale factor and grid convergence need a conformal projection"
         )
-
-
-def _grid_axes(crs: CoordinateReferenceSystem) -> FloatArray:
-    """Map native horizontal axis directions onto grid east and north."""
-    axes = [crs.axes[index] for index in crs.value_axis_order[:2]]
-    east = next(
-        (
-            index
-            for index, axis in enumerate(axes)
-            if axis.direction in ("east", "west")
-        ),
-        None,
-    )
-    north = next(
-        (
-            index
-            for index, axis in enumerate(axes)
-            if axis.direction in ("north", "south")
-        ),
-        None,
-    )
-    if east is not None and north is not None and east != north:
-        result = np.zeros((2, 2))
-        result[0, east] = 1 if axes[east].direction == "east" else -1
-        result[1, north] = 1 if axes[north].direction == "north" else -1
-        return result
-    if [axis.abbrev.upper() for axis in axes] == ["E", "N"]:
-        return np.eye(2)
-    raise UnsupportedCRSError(
-        f"{crs.name} has no identifiable grid east and north axes"
-    )
 
 
 def _azimuths(azimuth: ArrayLike) -> FloatArray:

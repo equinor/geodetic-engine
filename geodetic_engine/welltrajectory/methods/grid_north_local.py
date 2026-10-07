@@ -16,8 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from geodetic_engine.geodesy import UnsupportedCRSError
-from geodetic_engine.geodesy.factors import _grid_axes, _require_conformal
+from geodetic_engine.geodesy import CoordinateReferenceSystem, UnsupportedCRSError
 from geodetic_engine.welltrajectory.methods.base import (
     FloatArray,
     LocalFrame,
@@ -32,7 +31,11 @@ def place(offsets: FloatArray, frame: LocalFrame) -> Placement:
             f"grid north local needs a projected CRS, and {frame.crs.name} "
             "is geographic"
         )
-    _require_conformal(frame.factors)
+    if not frame.factors.conformal:
+        raise UnsupportedCRSError(
+            f"grid north local needs a conformal projection, and "
+            f"{frame.horizontal_crs.name} does not preserve angles at the wellhead"
+        )
     gamma = np.radians(frame.factors.grid_convergence[0])
     scale = float(frame.factors.scale_factor[0])
     cosine, sine = np.cos(gamma), np.sin(gamma)
@@ -50,4 +53,35 @@ def place(offsets: FloatArray, frame: LocalFrame) -> Placement:
             f"turned offsets onto grid north by {np.degrees(gamma):.6f} deg and "
             f"scaled by {scale:.9f}, both taken at the wellhead",
         ),
+    )
+
+
+def _grid_axes(crs: CoordinateReferenceSystem) -> FloatArray:
+    """Map native horizontal axis directions onto grid east and north."""
+    axes = [crs.axes[index] for index in crs.value_axis_order[:2]]
+    east = next(
+        (
+            index
+            for index, axis in enumerate(axes)
+            if axis.direction in ("east", "west")
+        ),
+        None,
+    )
+    north = next(
+        (
+            index
+            for index, axis in enumerate(axes)
+            if axis.direction in ("north", "south")
+        ),
+        None,
+    )
+    if east is not None and north is not None and east != north:
+        result = np.zeros((2, 2))
+        result[0, east] = 1 if axes[east].direction == "east" else -1
+        result[1, north] = 1 if axes[north].direction == "north" else -1
+        return result
+    if [axis.abbrev.upper() for axis in axes] == ["E", "N"]:
+        return np.eye(2)
+    raise UnsupportedCRSError(
+        f"{crs.name} has no identifiable grid east and north axes"
     )

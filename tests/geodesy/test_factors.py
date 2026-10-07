@@ -330,6 +330,24 @@ def test_azimuth_helpers_refuse_projections_that_distort_angles(crs: str) -> Non
     factors = projection_factors(crs, (20.0, 60.0), geographic=True)
 
     assert factors.angular_distortion[0] > 1e-5
+    assert not factors.conformal
     for convert in (factors.to_true_azimuth, factors.to_grid_azimuth):
         with pytest.raises(UnsupportedCRSError, match="conformal"):
             convert(45.0)
+
+
+@pytest.mark.parametrize(
+    ("crs", "point"),
+    [
+        ("EPSG:32631", (6.0, 60.0)),
+        ("EPSG:32661", (45.0, 89.9)),  # polar stereographic, near the pole
+        ("EPSG:2053", (29.5, -26.0)),  # transverse Mercator, south-orientated
+        ("EPSG:4326", (6.0, 60.0)),
+    ],
+)
+def test_conformal_projections_and_geographic_crss_are_conformal(
+    crs: str, point: tuple[float, float]
+) -> None:
+    """Near the pole and south-orientated, PROJ's numerical noise is largest,
+    about 1.5e-6 degrees: well within the tolerance."""
+    assert projection_factors(crs, point, geographic=True).conformal
