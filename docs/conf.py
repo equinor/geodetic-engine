@@ -59,6 +59,10 @@ nitpick_ignore = [
     ("py:class", "httpx.Client"),
     ("py:class", "httpx.BaseTransport"),
     ("py:class", "httpx.Response"),
+    # numpy files NDArray as data and float64 as an attribute, so the class
+    # references a NDArray[np.float64] annotation renders as cannot resolve.
+    ("py:class", "numpy._typing._array_like.NDArray"),
+    ("py:class", "numpy.float64"),
 ]
 
 intersphinx_mapping = {

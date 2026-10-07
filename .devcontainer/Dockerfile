@@ -35,7 +35,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Root CAs of a TLS-intercepting proxy, as .crt files in certs/ (gitignored, so
-# empty in CI). Installed before install-proj.sh, whose downloads pass the proxy.
+# empty in CI), filled from the host by collect-host-certs.sh. Installed before
+# install-proj.sh, whose downloads pass the proxy.
 COPY certs/ /usr/local/share/ca-certificates/proxy/
 RUN update-ca-certificates
 

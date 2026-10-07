@@ -1,0 +1,39 @@
+{
+  "source": {
+    "file": "docs/v3/tutorial/SDU_geometric_aspects_of_bin_grids.docx",
+    "repository": "OSDU crs-conversion-service, https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service",
+    "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
+    "document": "Geometric Aspects of Bin Grids, version 2.3 (2020-04-04), Bert Kampes (Shell)",
+    "note": "The note states that the example values of its Table 1 and Table 2 do not correspond spatially to each other or to its figures."
+  },
+  "four_point_example": {
+    "case_id": "sdu_note_table_1",
+    "description": "Table 1: four-point (loadsheet) definition with example values. Left-handed: the inline axis (A to C) points to the left of the crossline axis (A to B).",
+    "crs": {"name": "NAD27 / UTM zone 15N", "code": "EPSG::26715"},
+    "corners": [
+      {"label": "A", "inline": 14100, "crossline": 5161, "easting": 423081.91, "northing": 3227689.59},
+      {"label": "B", "inline": 14100, "crossline": 9409, "easting": 491345.95, "northing": 3309043.51},
+      {"label": "C", "inline": 17700, "crossline": 5161, "easting": 395504.31, "northing": 3250829.95},
+      {"label": "D", "inline": 17700, "crossline": 9409, "easting": 463768.35, "northing": 3332183.87}
+    ]
+  },
+  "p6_example": {
+    "case_id": "sdu_note_table_2",
+    "description": "Table 2 and the P6/11 header records: right-handed grid, inline axis bearing 92.48019694 and crossline axis bearing 2.48019694 degrees, written as EPSG method 9666.",
+    "crs": {"name": "NAD27 / UTM zone 15N", "code": "EPSG::26715"},
+    "method_code": 9666,
+    "parameters": {
+      "origin_i": 14100,
+      "origin_j": 5161,
+      "origin_easting": 423081.91,
+      "origin_northing": 3227689.59,
+      "scale_factor": 1.0,
+      "bin_width_i": 30.0,
+      "bin_width_j": 25.0,
+      "bearing_j": 2.48019694,
+      "increment_i": 1,
+      "increment_j": 4
+    },
+    "bearing_i": 92.48019694
+  }
+}

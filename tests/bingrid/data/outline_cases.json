@@ -1,0 +1,45 @@
+{
+  "source": {
+    "document": "docs/v3/tutorial/CRS_Convert_Service_howto.md, section 7.5 Seismic Bin Grid Spatial Area",
+    "repository": "OSDU crs-conversion-service, https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service",
+    "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
+    "rule": "The outer rim is written counterclockwise (OGC/GeoJSON). Order the corners A,B,D,C,A; if that ring is clockwise, use A,C,D,B,A instead.",
+    "note": "The tutorial's own example ring is A,B,D,C,A, which is clockwise for its coordinates (a right-handed grid), contrary to the rule it states. The expected order below follows the rule."
+  },
+  "cases": [
+    {
+      "case_id": "tutorial_7_5_right_handed",
+      "description": "Corner coordinates of the tutorial section 7.5 example ring (NAD27 / BLM 14N, ftUS).",
+      "corners": [
+        {"label": "A", "inline": 1, "crossline": 1000, "easting": 3593536.4609, "northing": 9888463.8749},
+        {"label": "B", "inline": 1, "crossline": 2000, "easting": 3577506.2747, "northing": 10217819.3106},
+        {"label": "C", "inline": 101, "crossline": 1000, "easting": 3922894.4303, "northing": 9904494.1844},
+        {"label": "D", "inline": 101, "crossline": 2000, "easting": 3906864.2441, "northing": 10233849.6201}
+      ],
+      "documented_labels": ["A", "B", "D", "C", "A"],
+      "expected_labels": ["A", "C", "D", "B", "A"]
+    },
+    {
+      "case_id": "sdu_note_left_handed",
+      "description": "The SDU note's Table 1 corners (NAD27 / UTM zone 15N), a left-handed grid.",
+      "corners": [
+        {"label": "A", "inline": 14100, "crossline": 5161, "easting": 423081.91, "northing": 3227689.59},
+        {"label": "B", "inline": 14100, "crossline": 9409, "easting": 491345.95, "northing": 3309043.51},
+        {"label": "C", "inline": 17700, "crossline": 5161, "easting": 395504.31, "northing": 3250829.95},
+        {"label": "D", "inline": 17700, "crossline": 9409, "easting": 463768.35, "northing": 3332183.87}
+      ],
+      "expected_labels": ["A", "B", "D", "C", "A"]
+    },
+    {
+      "case_id": "acceptance_grid_right_handed",
+      "description": "The acceptance-test grid (WGS 84 / UTM zone 15N), axis-aligned and right-handed.",
+      "corners": [
+        {"label": "A", "inline": 1, "crossline": 1000, "easting": 500000.0, "northing": 3000000.0},
+        {"label": "B", "inline": 1, "crossline": 2000, "easting": 500000.0, "northing": 3100000.0},
+        {"label": "C", "inline": 101, "crossline": 1000, "easting": 600000.0, "northing": 3000000.0},
+        {"label": "D", "inline": 101, "crossline": 2000, "easting": 600000.0, "northing": 3100000.0}
+      ],
+      "expected_labels": ["A", "C", "D", "B", "A"]
+    }
+  ]
+}

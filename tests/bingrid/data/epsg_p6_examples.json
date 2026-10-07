@@ -1,0 +1,75 @@
+{
+  "source": {
+    "document": "IOGP Publication 373-7-2, Geomatics Guidance Note 7 part 2 (EPSG Guidance Note 7-2), section on the P6 seismic bin grid transformations",
+    "transcription": "EPSG dataset method records 9666 and 1049 (example text), retrieved from https://epsg.io/9666-method and https://epsg.io/1049-method",
+    "note": "Published values are rounded: coordinates to 2 decimals in the stated unit and intermediate terms to 3 decimals. The reverse example starts from the rounded forward coordinates, so it recovers the node only to within that rounding."
+  },
+  "examples": [
+    {
+      "case_id": "epsg_9666_p6_98",
+      "method_code": 9666,
+      "method_name": "P6 I=J+90 seismic bin grid coordinate operation",
+      "handedness": "right",
+      "description": "P6/98 document example. Bin grid on WGS 84 / UTM zone 31N; the map grid point scale factor at the origin is 0.99984. Bearings of the I and J axes are 110 and 20 degrees.",
+      "crs": "EPSG:32631",
+      "unit": "metre",
+      "parameters": {
+        "origin_i": 1,
+        "origin_j": 1,
+        "origin_easting": 456781.0,
+        "origin_northing": 5836723.0,
+        "scale_factor": 0.99984,
+        "bin_width_i": 25.0,
+        "bin_width_j": 12.5,
+        "bearing_j": 20.0,
+        "increment_i": 1,
+        "increment_j": 1
+      },
+      "forward": {
+        "node": [300, 247],
+        "easting_terms": [7023.078, 1051.544],
+        "northing_terms": [-2556.192, 2889.092],
+        "map": [464855.62, 5837055.9]
+      },
+      "reverse": {
+        "map": [464855.62, 5837055.9],
+        "i_terms": [7473.804, 0.040006401],
+        "j_terms": [3074.508, 0.080012802],
+        "node": [300, 247]
+      }
+    },
+    {
+      "case_id": "epsg_1049_p6_11",
+      "method_code": 1049,
+      "method_name": "P6 I=J-90 seismic bin grid coordinate operation",
+      "handedness": "left",
+      "description": "IOGP P6/11 user guide example. Bin grid on NAD27 / BLM 16N (ftUS); acquired on the map grid, so the scale factor is 1. Bearings of the I and J axes are 250 and 340 degrees.",
+      "crs": "EPSG:32066",
+      "unit": "US survey foot",
+      "parameters": {
+        "origin_i": 5000,
+        "origin_j": 0,
+        "origin_easting": 871200.0,
+        "origin_northing": 10280160.0,
+        "scale_factor": 1.0,
+        "bin_width_i": 82.5,
+        "bin_width_j": 41.25,
+        "bearing_j": 340.0,
+        "increment_i": 1,
+        "increment_j": 1
+      },
+      "forward": {
+        "node": [4700, 247],
+        "easting_terms": [23257.392, -3484.758],
+        "northing_terms": [8464.999, 9574.293],
+        "map": [890972.63, 10298199.29]
+      },
+      "reverse": {
+        "map": [890972.63, 10298199.29],
+        "i_terms": [24750.0, 0.012121212],
+        "j_terms": [10188.75, 0.024242424],
+        "node": [4700, 247]
+      }
+    }
+  ]
+}

@@ -24,6 +24,9 @@ exactly as specified is refused with an error rather than approximated.
   envelope, and transform with exactly what it states.
 - **Custom PROJ databases.** Add a Georepository register's or an OSDU
   catalogue's own CRSs and transformations to a copy of PROJ's `proj.db`.
+- **Seismic bin grids.** Convert between bin grid and map grid with P6
+  parameters, check and square up a four-corner grid, convert it to another
+  CRS, and match a legacy dataset to a stored grid.
 
 ## Quickstart
 
@@ -64,7 +67,7 @@ for details.
 | | |
 |---|---|
 | [Getting started](https://equinor.github.io/geodetic-engine/dev/getting-started/index.html) | Installation, quickstart, core concepts |
-| [User guide](https://equinor.github.io/geodetic-engine/dev/user-guide/index.html) | Transformations, OSDU payloads, the Georepository client, custom `proj.db` builds |
+| [User guide](https://equinor.github.io/geodetic-engine/dev/user-guide/index.html) | Transformations, OSDU payloads, the Georepository client, custom `proj.db` builds, seismic bin grids |
 | [Examples](https://equinor.github.io/geodetic-engine/dev/examples/index.html) | Executed notebooks |
 | [API reference](https://equinor.github.io/geodetic-engine/dev/api/index.html) | Every public class and function |
 | [Command-line tools](https://equinor.github.io/geodetic-engine/dev/cli/index.html) | `geodetic-projdb`, `geodetic-osdudb` |

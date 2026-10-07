@@ -31,12 +31,21 @@ running before a release, or after changing operation selection. It takes
 minutes, not seconds, which is why it is opt-in. Tests marked `network` need a
 reachable Georepository instance and credentials.
 
+The bin grid property tests (`tests/bingrid/test_properties.py`, Hypothesis)
+run a fixed set of examples by default, so that every machine gets the same
+run. To draw fresh examples, as CI does in a separate step:
+
+```bash
+uv run pytest tests/bingrid/test_properties.py --hypothesis-profile=geodetic-engine-random
+```
+
 CI runs these as two separate GitHub workflows, so a red check says which kind
 of problem it is:
 
 - **Lint and type check** (`.github/workflows/lint.yml`): `ruff` and `mypy`.
-- **Tests** (`.github/workflows/tests.yml`): the unit and integration tests, then
-  the dataset sweep, with a coverage floor of 80 % across both.
+- **Tests** (`.github/workflows/tests.yml`): the unit and integration tests,
+  the bin grid property tests with fresh Hypothesis examples, then the dataset
+  sweep, with a coverage floor of 80 % across the unit tests and the sweep.
 
 ## Building the documentation
 

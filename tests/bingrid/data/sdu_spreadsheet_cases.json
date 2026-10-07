@@ -1,0 +1,1345 @@
+{
+  "source": {
+    "file": "docs/v3/tutorial/SDU_geometric_aspects_of_bin_grids.xlsx",
+    "repository": "OSDU crs-conversion-service, https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service",
+    "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
+    "author": "Bert Kampes (Shell), spreadsheet version 1, 2019-09-06",
+    "note": "Cached cell values of an independent implementation (MS Excel) of the SDU four-corner method with P6ScaleFactorOfBinGrid = 1. Residuals are input minus model; max_mislocation is in inline/crossline-number units."
+  },
+  "atan2": {
+    "quadrant_bearings": [
+      {
+        "quadrant": "I",
+        "dx": 1.0,
+        "dy": 2.0,
+        "bearing": 26.56505117707799
+      },
+      {
+        "quadrant": "II",
+        "dx": -1.0,
+        "dy": 2.0,
+        "bearing": 333.434948822922
+      },
+      {
+        "quadrant": "III",
+        "dx": -1.0,
+        "dy": -2.0,
+        "bearing": 206.565051177078
+      },
+      {
+        "quadrant": "IV",
+        "dx": 1.0,
+        "dy": -2.0,
+        "bearing": 153.434948822922
+      }
+    ],
+    "mean_bearings": [
+      {
+        "bearing_1": 359.0,
+        "bearing_2": 2.0,
+        "mean": 0.4999999999999986
+      },
+      {
+        "bearing_1": 358.0,
+        "bearing_2": 1.0,
+        "mean": 359.5
+      },
+      {
+        "bearing_1": 89.0,
+        "bearing_2": 91.99999999999999,
+        "mean": 90.5
+      },
+      {
+        "bearing_1": 88.0,
+        "bearing_2": 90.99999999999999,
+        "mean": 89.5
+      },
+      {
+        "bearing_1": 182.0,
+        "bearing_2": 181.00000000000003,
+        "mean": 181.5
+      },
+      {
+        "bearing_1": 179.0,
+        "bearing_2": 182.0,
+        "mean": 180.5
+      },
+      {
+        "bearing_1": 269.0,
+        "bearing_2": 272.0,
+        "mean": 270.5
+      },
+      {
+        "bearing_1": 268.0,
+        "bearing_2": 271.0,
+        "mean": 269.5
+      }
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "sdu_bingridmath",
+      "sheet": "BinGridMath",
+      "description": "Worked example of the accompanying document: NAD27 / UTM zone 15N, corners rounded to the metre, left-handed, increments 5 x 2.",
+      "crs": {
+        "name": "NAD27 / UTM zone 15N",
+        "code": "EPSG::26715"
+      },
+      "transformation": null,
+      "unit": "m",
+      "increment_i": 5,
+      "increment_j": 2,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 14100,
+          "crossline": 5161,
+          "easting": 423082.0,
+          "northing": 3227690.0
+        },
+        {
+          "label": "B",
+          "inline": 14100,
+          "crossline": 9409,
+          "easting": 491346.0,
+          "northing": 3309044.0
+        },
+        {
+          "label": "C",
+          "inline": 17700,
+          "crossline": 5161,
+          "easting": 395504.0,
+          "northing": 3250830.0
+        },
+        {
+          "label": "D",
+          "inline": 17700,
+          "crossline": 9409,
+          "easting": 463768.0,
+          "northing": 3332184.0
+        }
+      ],
+      "derived": {
+        "r_ac": 36000.07894435788,
+        "r_bd": 36000.07894435788,
+        "bin_width_i": 50.0001096449415,
+        "r_ab": 106200.03301317754,
+        "r_cd": 106200.03301317754,
+        "bin_width_j": 50.00001554292728,
+        "bearing_ab": 39.999953961957296,
+        "bearing_cd": 39.999953961957296,
+        "bearing_j": 39.999953961957296,
+        "handedness": "LEFT-HANDED",
+        "method_code": 1049,
+        "origin_i": 15900.0,
+        "origin_j": 7285.0,
+        "origin_easting": 443425.0,
+        "origin_northing": 3279937.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 14100.000000173166,
+          "crossline_model": 5161.009987187765,
+          "easting_model": 423081.83951041655,
+          "northing_model": 3227689.808732956,
+          "residual_inline": -1.73165972228162e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        },
+        {
+          "label": "B",
+          "inline_model": 14100.000000173166,
+          "crossline_model": 9409.009987187765,
+          "easting_model": 491345.83951041655,
+          "northing_model": 3309043.808732956,
+          "residual_inline": -1.73165972228162e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        },
+        {
+          "label": "C",
+          "inline_model": 17699.999999826832,
+          "crossline_model": 5160.990012812235,
+          "easting_model": 395504.16048958345,
+          "northing_model": 3250830.191267044,
+          "residual_inline": 1.7316779121756554e-07,
+          "residual_crossline": 0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        },
+        {
+          "label": "D",
+          "inline_model": 17699.999999826836,
+          "crossline_model": 9408.990012812235,
+          "easting_model": 463768.16048958345,
+          "northing_model": 3332184.191267044,
+          "residual_inline": 1.7316415323875844e-07,
+          "residual_crossline": 0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        }
+      ],
+      "max_mislocation": {
+        "di": 1.7316779121756554e-07,
+        "dj": 0.009987187764636474
+      },
+      "corner_qc_1_5m": "PASS",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test1a",
+      "sheet": "Test1a",
+      "description": "simple example; CRS in meters, const inline due (grid) North.  Const. crossline due (grid) East.  Right-handed.  Spacing 1000 x 100m at incr. 1",
+      "crs": {
+        "name": "WGS 84 / UTM zone 15N",
+        "code": "EPSG::32615"
+      },
+      "transformation": null,
+      "unit": "m",
+      "increment_i": 1,
+      "increment_j": 1,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 1,
+          "crossline": 1000,
+          "easting": 500000.0,
+          "northing": 3000000.0
+        },
+        {
+          "label": "B",
+          "inline": 1,
+          "crossline": 2000,
+          "easting": 500000.0,
+          "northing": 3100000.0
+        },
+        {
+          "label": "C",
+          "inline": 101,
+          "crossline": 1000,
+          "easting": 600000.0,
+          "northing": 3000000.0
+        },
+        {
+          "label": "D",
+          "inline": 101,
+          "crossline": 2000,
+          "easting": 600000.0,
+          "northing": 3100000.0
+        }
+      ],
+      "derived": {
+        "r_ac": 100000.0,
+        "r_bd": 100000.0,
+        "bin_width_i": 1000.0,
+        "r_ab": 100000.0,
+        "r_cd": 100000.0,
+        "bin_width_j": 100.0,
+        "bearing_ab": 0.0,
+        "bearing_cd": 0.0,
+        "bearing_j": 0.0,
+        "handedness": "RIGHT-HANDED",
+        "method_code": 9666,
+        "origin_i": 51.0,
+        "origin_j": 1500.0,
+        "origin_easting": 550000.0,
+        "origin_northing": 3050000.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 1.0,
+          "crossline_model": 1000.0,
+          "easting_model": 500000.0,
+          "northing_model": 3000000.0,
+          "residual_inline": 0.0,
+          "residual_crossline": 0.0,
+          "residual_easting": 0.0,
+          "residual_northing": 0.0
+        },
+        {
+          "label": "B",
+          "inline_model": 1.0,
+          "crossline_model": 2000.0,
+          "easting_model": 500000.0,
+          "northing_model": 3100000.0,
+          "residual_inline": 0.0,
+          "residual_crossline": 0.0,
+          "residual_easting": 0.0,
+          "residual_northing": 0.0
+        },
+        {
+          "label": "C",
+          "inline_model": 101.0,
+          "crossline_model": 1000.0,
+          "easting_model": 600000.0,
+          "northing_model": 3000000.0,
+          "residual_inline": 0.0,
+          "residual_crossline": 0.0,
+          "residual_easting": 0.0,
+          "residual_northing": 0.0
+        },
+        {
+          "label": "D",
+          "inline_model": 101.0,
+          "crossline_model": 2000.0,
+          "easting_model": 600000.0,
+          "northing_model": 3100000.0,
+          "residual_inline": 0.0,
+          "residual_crossline": 0.0,
+          "residual_easting": 0.0,
+          "residual_northing": 0.0
+        }
+      ],
+      "max_mislocation": {
+        "di": 0.0,
+        "dj": 0.0
+      },
+      "corner_qc_1_5m": "PASS",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test1b",
+      "sheet": "Test1b",
+      "description": "same as case1a, but introducing slight non-squareness such that inline bearings are ~359.9 and ~0.05deg  (i.e. I moved B to the left and point D to the right by few meters)",
+      "crs": {
+        "name": "WGS 84 / UTM zone 15N",
+        "code": "EPSG::32615"
+      },
+      "transformation": null,
+      "unit": "m",
+      "increment_i": 1,
+      "increment_j": 1,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 1,
+          "crossline": 1000,
+          "easting": 500000.0,
+          "northing": 3000000.0
+        },
+        {
+          "label": "B",
+          "inline": 1,
+          "crossline": 2000,
+          "easting": 499850.0,
+          "northing": 3100000.0
+        },
+        {
+          "label": "C",
+          "inline": 101,
+          "crossline": 1000,
+          "easting": 600000.0,
+          "northing": 3000000.0
+        },
+        {
+          "label": "D",
+          "inline": 101,
+          "crossline": 2000,
+          "easting": 600100.0,
+          "northing": 3100000.0
+        }
+      ],
+      "derived": {
+        "r_ac": 100000.0,
+        "r_bd": 100250.0,
+        "bin_width_i": 1001.25,
+        "r_ab": 100000.11249993672,
+        "r_cd": 100000.0499999875,
+        "bin_width_j": 100.00008124996211,
+        "bearing_ab": -0.08594360481195855,
+        "bearing_cd": 0.057295760414500616,
+        "bearing_j": 359.98567607780126,
+        "handedness": "RIGHT-HANDED",
+        "method_code": 9666,
+        "origin_i": 51.0,
+        "origin_j": 1500.0,
+        "origin_easting": 549987.5,
+        "origin_northing": 3050000.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 1.062423552585507,
+          "crossline_model": 1000.1253903237131,
+          "easting_model": 499937.5015546826,
+          "northing_model": 2999987.445332462,
+          "residual_inline": -0.062423552585507025,
+          "residual_crossline": -0.12539032371307712,
+          "residual_easting": 62.49844531738199,
+          "residual_northing": 12.554667538031936
+        },
+        {
+          "label": "B",
+          "inline_model": 0.9375795724045943,
+          "crossline_model": 2000.1249215739742,
+          "easting_model": 499912.50157421373,
+          "northing_model": 3099987.5234574312,
+          "residual_inline": 0.06242042759540567,
+          "residual_crossline": -0.12492157397423398,
+          "residual_easting": -62.501574213732965,
+          "residual_northing": 12.47654256876558
+        },
+        {
+          "label": "C",
+          "inline_model": 100.9375764864281,
+          "crossline_model": 999.8753909252738,
+          "easting_model": 600062.4984257863,
+          "northing_model": 3000012.4765425688,
+          "residual_inline": 0.06242351357190046,
+          "residual_crossline": 0.12460907472620875,
+          "residual_easting": -62.498425786267035,
+          "residual_northing": -12.47654256876558
+        },
+        {
+          "label": "D",
+          "inline_model": 101.0624203885818,
+          "crossline_model": 1999.874297177039,
+          "easting_model": 600037.4984453175,
+          "northing_model": 3100012.554667538,
+          "residual_inline": -0.0624203885817991,
+          "residual_crossline": 0.12570282296110236,
+          "residual_easting": 62.50155468250159,
+          "residual_northing": -12.554667538031936
+        }
+      ],
+      "max_mislocation": {
+        "di": 0.062423552585507025,
+        "dj": 0.12570282296110236
+      },
+      "corner_qc_1_5m": "FAIL",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test1c",
+      "sheet": "Test1c",
+      "description": "same as 1a but introduced errors on point C to demonstrate squaring and residuals.  Case could be used to implement pairwise logic.",
+      "crs": {
+        "name": "WGS 84 / UTM zone 15N",
+        "code": "EPSG::32615"
+      },
+      "transformation": null,
+      "unit": "m",
+      "increment_i": 1,
+      "increment_j": 1,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 1,
+          "crossline": 1000,
+          "easting": 500000.0,
+          "northing": 3000000.0
+        },
+        {
+          "label": "B",
+          "inline": 1,
+          "crossline": 2000,
+          "easting": 500000.0,
+          "northing": 3100000.0
+        },
+        {
+          "label": "C",
+          "inline": 101,
+          "crossline": 1000,
+          "easting": 598995.0,
+          "northing": 3006300.0
+        },
+        {
+          "label": "D",
+          "inline": 101,
+          "crossline": 2000,
+          "easting": 600000.0,
+          "northing": 3100000.0
+        }
+      ],
+      "derived": {
+        "r_ac": 99195.2621096391,
+        "r_bd": 100000.0,
+        "bin_width_i": 995.9763105481954,
+        "r_ab": 100000.0,
+        "r_cd": 93705.38951949349,
+        "bin_width_j": 96.85269475974675,
+        "bearing_ab": 0.0,
+        "bearing_cd": 0.6145149461546776,
+        "bearing_j": 0.3072574730773388,
+        "handedness": "RIGHT-HANDED",
+        "method_code": 9666,
+        "origin_i": 51.0,
+        "origin_j": 1500.0,
+        "origin_easting": 549748.75,
+        "origin_northing": 3051575.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 1.328680957774516,
+          "crossline_model": 964.7434166496965,
+          "easting_model": 499690.9580019127,
+          "northing_model": 3003416.4015074633,
+          "residual_inline": -0.328680957774516,
+          "residual_crossline": 35.25658335030346,
+          "residual_easting": 309.0419980873121,
+          "residual_northing": -3416.401507463306
+        },
+        {
+          "label": "B",
+          "inline_model": 0.790251599913347,
+          "crossline_model": 1997.2243646326947,
+          "easting_model": 500210.34305735445,
+          "northing_model": 3100267.7036225554,
+          "residual_inline": 0.20974840008665296,
+          "residual_crossline": 2.7756353673053127,
+          "residual_easting": -210.3430573544465,
+          "residual_northing": -267.7036225553602
+        },
+        {
+          "label": "C",
+          "inline_model": 100.6882650576205,
+          "crossline_model": 1035.2709623477908,
+          "easting_model": 599287.1569426456,
+          "northing_model": 3002882.2963774446,
+          "residual_inline": 0.31173494237950194,
+          "residual_crossline": -35.27096234779083,
+          "residual_easting": -292.1569426455535,
+          "residual_northing": 3417.70362255536
+        },
+        {
+          "label": "D",
+          "inline_model": 101.19280238469162,
+          "crossline_model": 2002.761256369818,
+          "easting_model": 599806.5419980874,
+          "northing_model": 3099733.5984925367,
+          "residual_inline": -0.1928023846916176,
+          "residual_crossline": -2.7612563698180566,
+          "residual_easting": 193.4580019125715,
+          "residual_northing": 266.4015074633062
+        }
+      ],
+      "max_mislocation": {
+        "di": 0.328680957774516,
+        "dj": 35.27096234779083
+      },
+      "corner_qc_1_5m": "FAIL",
+      "loading_qc_one_incremented_bin": "FAIL"
+    },
+    {
+      "case_id": "sdu_test1d",
+      "sheet": "Test1d",
+      "description": "Same bin grid of test 1a, but ABCD transformed to a new CRS.  ABCD points given before squaring in new geometry.  Also note unit changed from m to ftUS.",
+      "crs": {
+        "name": "NAD27 / BLM 14N (ftUS)",
+        "code": "EPSG::32064"
+      },
+      "transformation": {
+        "name": "NAD27 to WGS 84 (79)",
+        "code": "EPSG::15851"
+      },
+      "unit": "ftUS",
+      "increment_i": 1,
+      "increment_j": 1,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 1,
+          "crossline": 1000,
+          "easting": 3593524.86,
+          "northing": 9888579.93
+        },
+        {
+          "label": "B",
+          "inline": 1,
+          "crossline": 2000,
+          "easting": 3577518.4,
+          "northing": 10217694.31
+        },
+        {
+          "label": "C",
+          "inline": 101,
+          "crossline": 1000,
+          "easting": 3922906.04,
+          "northing": 9904378.13
+        },
+        {
+          "label": "D",
+          "inline": 101,
+          "crossline": 2000,
+          "easting": 3906852.11,
+          "northing": 10233974.62
+        }
+      ],
+      "derived": {
+        "r_ac": 329759.8290596242,
+        "r_bd": 329735.86555917776,
+        "bin_width_i": 3297.4784730940096,
+        "r_ab": 329503.38675727835,
+        "r_cd": 329987.2344330367,
+        "bin_width_j": 329.74531059515755,
+        "bearing_ab": -2.7843831541532795,
+        "bearing_cd": -2.788549282000898,
+        "bearing_j": 357.21353378192293,
+        "handedness": "RIGHT-HANDED",
+        "method_code": 9666,
+        "origin_i": 51.0,
+        "origin_j": 1500.0,
+        "origin_easting": 3750200.3525,
+        "origin_northing": 10061156.7475,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 0.9981970064869756,
+          "crossline_model": 1000.3532479138073,
+          "easting_model": 3593536.460932664,
+          "northing_model": 9888463.874904899,
+          "residual_inline": 0.0018029935130243757,
+          "residual_crossline": -0.3532479138073086,
+          "residual_easting": -11.600932664237916,
+          "residual_northing": 116.05509510077536
+        },
+        {
+          "label": "B",
+          "inline_model": 1.0018299435881488,
+          "crossline_model": 1999.6195784790293,
+          "easting_model": 3577506.2747071325,
+          "northing_model": 10217819.310550148,
+          "residual_inline": -0.001829943588148808,
+          "residual_crossline": 0.3804215209706854,
+          "residual_easting": 12.125292867422104,
+          "residual_northing": -125.00055014714599
+        },
+        {
+          "label": "C",
+          "inline_model": 101.00180566084244,
+          "crossline_model": 999.6467527470811,
+          "easting_model": 3922894.4302928676,
+          "northing_model": 9904494.184449853,
+          "residual_inline": -0.001805660842435941,
+          "residual_crossline": 0.3532472529188908,
+          "residual_easting": 11.609707132447511,
+          "residual_northing": -116.05444985255599
+        },
+        {
+          "label": "D",
+          "inline_model": 100.99816738908227,
+          "crossline_model": 2000.3804208600768,
+          "easting_model": 3906864.244067336,
+          "northing_model": 10233849.620095102,
+          "residual_inline": 0.0018326109177309036,
+          "residual_crossline": -0.38042086007681064,
+          "residual_easting": -12.13406733609736,
+          "residual_northing": 124.99990489706397
+        }
+      ],
+      "max_mislocation": {
+        "di": 0.0018326109177309036,
+        "dj": 0.3804215209706854
+      },
+      "corner_qc_1_5m": "FAIL",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test1e",
+      "sheet": "Test1e",
+      "description": "Same bin grid corner locations (on the earth) of test 1, but transformed to a new CRS.  ABCD points given before squaring in new geometry.  Also note unit changed from m to ftUS.",
+      "crs": {
+        "name": "NAD27 / BLM 16N (ftUS)",
+        "code": "EPSG::32066"
+      },
+      "transformation": {
+        "name": "NAD27 to WGS 84 (79)",
+        "code": "EPSG::15851"
+      },
+      "unit": "ftUS",
+      "increment_i": 1,
+      "increment_j": 1,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 1,
+          "crossline": 1000,
+          "easting": -312617.66,
+          "northing": 9888576.39
+        },
+        {
+          "label": "B",
+          "inline": 1,
+          "crossline": 2000,
+          "easting": -296599.22,
+          "northing": 10217690.07
+        },
+        {
+          "label": "C",
+          "inline": 101,
+          "crossline": 1000,
+          "easting": 16280.67,
+          "northing": 9872829.65
+        },
+        {
+          "label": "D",
+          "inline": 101,
+          "crossline": 2000,
+          "easting": 32255.91,
+          "northing": 10201463.52
+        }
+      ],
+      "derived": {
+        "r_ac": 329275.0693529902,
+        "r_bd": 329255.2162870307,
+        "bin_width_i": 3292.6514282001044,
+        "r_ab": 329503.26976097794,
+        "r_cd": 329021.92754318664,
+        "bin_width_j": 329.26259865208226,
+        "bearing_ab": 2.7864697537270877,
+        "bearing_cd": 2.7830176979273613,
+        "bearing_j": 2.7847437258272247,
+        "handedness": "RIGHT-HANDED",
+        "method_code": 9666,
+        "origin_i": 51.0,
+        "origin_j": 1500.0,
+        "origin_easting": -140170.07499999995,
+        "origin_northing": 10045139.907499999,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 0.9985060483200812,
+          "crossline_model": 999.6188600888631,
+          "easting_model": -312606.6497153236,
+          "northing_model": 9888701.497934774,
+          "residual_inline": 0.0014939516799188368,
+          "residual_crossline": 0.38113991113687007,
+          "residual_easting": -11.010284676391166,
+          "residual_northing": -125.10793477296829
+        },
+        {
+          "label": "B",
+          "inline_model": 1.0015207139554647,
+          "crossline_model": 2000.3497993463664,
+          "easting_model": -296609.81694968906,
+          "northing_model": 10217575.27343624,
+          "residual_inline": -0.0015207139554647142,
+          "residual_crossline": -0.34979934636635335,
+          "residual_easting": 10.596949689090252,
+          "residual_northing": 114.79656375944614
+        },
+        {
+          "label": "C",
+          "inline_model": 101.00149174975051,
+          "crossline_model": 1000.381140364899,
+          "easting_model": 16269.666949689177,
+          "northing_model": 9872704.541563757,
+          "residual_inline": -0.0014917497505138044,
+          "residual_crossline": -0.3811403648990108,
+          "residual_easting": 11.0030503108228,
+          "residual_northing": 125.1084362436086
+        },
+        {
+          "label": "D",
+          "inline_model": 100.99848148797383,
+          "crossline_model": 1999.6502001998883,
+          "easting_model": 32266.499715323655,
+          "northing_model": 10201578.317065224,
+          "residual_inline": 0.0015185120261662632,
+          "residual_crossline": 0.34979980011166845,
+          "residual_easting": -10.589715323654673,
+          "residual_northing": -114.79706522449851
+        }
+      ],
+      "max_mislocation": {
+        "di": 0.0015207139554647142,
+        "dj": 0.3811403648990108
+      },
+      "corner_qc_1_5m": "FAIL",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test2a",
+      "sheet": "Test2a",
+      "description": "More realistic; CRS in meters, input corner coordinates rounded to nearest meter.   (const) Inline bearing about 40 deg from Grid North.  Left handed grid;  increments 2 x 3.",
+      "crs": {
+        "name": "NAD27 / UTM zone 15N",
+        "code": "EPSG::26715"
+      },
+      "transformation": {
+        "name": "NAD27 to WGS 84 (79)",
+        "code": "EPSG::15851"
+      },
+      "unit": "m",
+      "increment_i": 3,
+      "increment_j": 2,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 14100,
+          "crossline": 5161,
+          "easting": 423082.0,
+          "northing": 3227690.0
+        },
+        {
+          "label": "B",
+          "inline": 14100,
+          "crossline": 9409,
+          "easting": 491346.0,
+          "northing": 3309044.0
+        },
+        {
+          "label": "C",
+          "inline": 17700,
+          "crossline": 5161,
+          "easting": 395504.0,
+          "northing": 3250830.0
+        },
+        {
+          "label": "D",
+          "inline": 17700,
+          "crossline": 9409,
+          "easting": 463768.0,
+          "northing": 3332184.0
+        }
+      ],
+      "derived": {
+        "r_ac": 36000.07894435788,
+        "r_bd": 36000.07894435788,
+        "bin_width_i": 30.000065786964903,
+        "r_ab": 106200.03301317754,
+        "r_cd": 106200.03301317754,
+        "bin_width_j": 50.00001554292728,
+        "bearing_ab": 39.999953961957296,
+        "bearing_cd": 39.999953961957296,
+        "bearing_j": 39.999953961957296,
+        "handedness": "LEFT-HANDED",
+        "method_code": 1049,
+        "origin_i": 15900.0,
+        "origin_j": 7285.0,
+        "origin_easting": 443425.0,
+        "origin_northing": 3279937.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 14100.000000173166,
+          "crossline_model": 5161.009987187765,
+          "easting_model": 423081.83951041655,
+          "northing_model": 3227689.808732956,
+          "residual_inline": -1.73165972228162e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        },
+        {
+          "label": "B",
+          "inline_model": 14100.000000173166,
+          "crossline_model": 9409.009987187765,
+          "easting_model": 491345.83951041655,
+          "northing_model": 3309043.808732956,
+          "residual_inline": -1.73165972228162e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        },
+        {
+          "label": "C",
+          "inline_model": 17699.999999826832,
+          "crossline_model": 5160.990012812235,
+          "easting_model": 395504.16048958345,
+          "northing_model": 3250830.191267044,
+          "residual_inline": 1.7316779121756554e-07,
+          "residual_crossline": 0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        },
+        {
+          "label": "D",
+          "inline_model": 17699.999999826836,
+          "crossline_model": 9408.990012812235,
+          "easting_model": 463768.16048958345,
+          "northing_model": 3332184.191267044,
+          "residual_inline": 1.7316415323875844e-07,
+          "residual_crossline": 0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        }
+      ],
+      "max_mislocation": {
+        "di": 1.7316779121756554e-07,
+        "dj": 0.009987187764636474
+      },
+      "corner_qc_1_5m": "PASS",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test2b",
+      "sheet": "Test2b",
+      "description": "Same as 2a, but flipped the inl,xln at the corners, i.e., switched XY coordinates of A<>C and B<>D.  This flips the original left-handed grid to a right-handed grid, but has same inline bearing",
+      "crs": {
+        "name": "NAD27 / UTM zone 15N",
+        "code": "EPSG::26715"
+      },
+      "transformation": {
+        "name": "NAD27 to WGS 84 (79)",
+        "code": "EPSG::15851"
+      },
+      "unit": "m",
+      "increment_i": 3,
+      "increment_j": 2,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 14100,
+          "crossline": 5161,
+          "easting": 395504.0,
+          "northing": 3250830.0
+        },
+        {
+          "label": "B",
+          "inline": 14100,
+          "crossline": 9409,
+          "easting": 463768.0,
+          "northing": 3332184.0
+        },
+        {
+          "label": "C",
+          "inline": 17700,
+          "crossline": 5161,
+          "easting": 423082.0,
+          "northing": 3227690.0
+        },
+        {
+          "label": "D",
+          "inline": 17700,
+          "crossline": 9409,
+          "easting": 491346.0,
+          "northing": 3309044.0
+        }
+      ],
+      "derived": {
+        "r_ac": 36000.07894435788,
+        "r_bd": 36000.07894435788,
+        "bin_width_i": 30.000065786964903,
+        "r_ab": 106200.03301317754,
+        "r_cd": 106200.03301317754,
+        "bin_width_j": 50.00001554292728,
+        "bearing_ab": 39.999953961957296,
+        "bearing_cd": 39.999953961957296,
+        "bearing_j": 39.999953961957296,
+        "handedness": "RIGHT-HANDED",
+        "method_code": 9666,
+        "origin_i": 15900.0,
+        "origin_j": 7285.0,
+        "origin_easting": 443425.0,
+        "origin_northing": 3279937.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 14100.000000173166,
+          "crossline_model": 5160.990012812235,
+          "easting_model": 395504.16048958345,
+          "northing_model": 3250830.191267044,
+          "residual_inline": -1.73165972228162e-07,
+          "residual_crossline": 0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        },
+        {
+          "label": "B",
+          "inline_model": 14100.000000173166,
+          "crossline_model": 9408.990012812235,
+          "easting_model": 463768.16048958345,
+          "northing_model": 3332184.191267044,
+          "residual_inline": -1.73165972228162e-07,
+          "residual_crossline": 0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        },
+        {
+          "label": "C",
+          "inline_model": 17699.999999826836,
+          "crossline_model": 5161.009987187765,
+          "easting_model": 423081.83951041655,
+          "northing_model": 3227689.808732956,
+          "residual_inline": 1.7316415323875844e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        },
+        {
+          "label": "D",
+          "inline_model": 17699.999999826832,
+          "crossline_model": 9409.009987187765,
+          "easting_model": 491345.83951041655,
+          "northing_model": 3309043.808732956,
+          "residual_inline": 1.7316779121756554e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        }
+      ],
+      "max_mislocation": {
+        "di": 1.7316779121756554e-07,
+        "dj": 0.009987187764636474
+      },
+      "corner_qc_1_5m": "PASS",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test2c",
+      "sheet": "Test2c",
+      "description": "Same as 2a, but flipped the inl,xln at the corners, i.e., switched XY coordinates of A<>B and C<>D.  This adds 180 to inline bearing and makes it right-handed.",
+      "crs": {
+        "name": "NAD27 / UTM zone 15N",
+        "code": "EPSG::26715"
+      },
+      "transformation": {
+        "name": "NAD27 to WGS 84 (79)",
+        "code": "EPSG::15851"
+      },
+      "unit": "m",
+      "increment_i": 3,
+      "increment_j": 2,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 14100,
+          "crossline": 5161,
+          "easting": 491346.0,
+          "northing": 3309044.0
+        },
+        {
+          "label": "B",
+          "inline": 14100,
+          "crossline": 9409,
+          "easting": 423082.0,
+          "northing": 3227690.0
+        },
+        {
+          "label": "C",
+          "inline": 17700,
+          "crossline": 5161,
+          "easting": 463768.0,
+          "northing": 3332184.0
+        },
+        {
+          "label": "D",
+          "inline": 17700,
+          "crossline": 9409,
+          "easting": 395504.0,
+          "northing": 3250830.0
+        }
+      ],
+      "derived": {
+        "r_ac": 36000.07894435788,
+        "r_bd": 36000.07894435788,
+        "bin_width_i": 30.000065786964903,
+        "r_ab": 106200.03301317754,
+        "r_cd": 106200.03301317754,
+        "bin_width_j": 50.00001554292728,
+        "bearing_ab": -140.0000460380427,
+        "bearing_cd": -140.0000460380427,
+        "bearing_j": 219.9999539619573,
+        "handedness": "RIGHT-HANDED",
+        "method_code": 9666,
+        "origin_i": 15900.0,
+        "origin_j": 7285.0,
+        "origin_easting": 443425.0,
+        "origin_northing": 3279937.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 14100.000000173164,
+          "crossline_model": 5160.990012812236,
+          "easting_model": 491345.83951041655,
+          "northing_model": 3309043.808732956,
+          "residual_inline": -1.7316415323875844e-07,
+          "residual_crossline": 0.009987187763726979,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        },
+        {
+          "label": "B",
+          "inline_model": 14100.000000173168,
+          "crossline_model": 9408.990012812235,
+          "easting_model": 423081.83951041655,
+          "northing_model": 3227689.808732956,
+          "residual_inline": -1.7316779121756554e-07,
+          "residual_crossline": 0.009987187764636474,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        },
+        {
+          "label": "C",
+          "inline_model": 17699.999999826832,
+          "crossline_model": 5161.009987187765,
+          "easting_model": 463768.16048958345,
+          "northing_model": 3332184.191267044,
+          "residual_inline": 1.7316779121756554e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        },
+        {
+          "label": "D",
+          "inline_model": 17699.999999826836,
+          "crossline_model": 9409.009987187765,
+          "easting_model": 395504.16048958345,
+          "northing_model": 3250830.191267044,
+          "residual_inline": 1.7316415323875844e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        }
+      ],
+      "max_mislocation": {
+        "di": 1.7316779121756554e-07,
+        "dj": 0.009987187764636474
+      },
+      "corner_qc_1_5m": "PASS",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test2d",
+      "sheet": "Test2d",
+      "description": "Same as 2a, but flipped the inl,xln at the corners, i.e., switched XY coordinates of A<>D and B<>C.  This keeps left-handed grid, but adds 180 to inline bearing",
+      "crs": {
+        "name": "NAD27 / UTM zone 15N",
+        "code": "EPSG::26715"
+      },
+      "transformation": {
+        "name": "NAD27 to WGS 84 (79)",
+        "code": "EPSG::15851"
+      },
+      "unit": "m",
+      "increment_i": 3,
+      "increment_j": 2,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 14100,
+          "crossline": 5161,
+          "easting": 463768.0,
+          "northing": 3332184.0
+        },
+        {
+          "label": "B",
+          "inline": 14100,
+          "crossline": 9409,
+          "easting": 395504.0,
+          "northing": 3250830.0
+        },
+        {
+          "label": "C",
+          "inline": 17700,
+          "crossline": 5161,
+          "easting": 491346.0,
+          "northing": 3309044.0
+        },
+        {
+          "label": "D",
+          "inline": 17700,
+          "crossline": 9409,
+          "easting": 423082.0,
+          "northing": 3227690.0
+        }
+      ],
+      "derived": {
+        "r_ac": 36000.07894435788,
+        "r_bd": 36000.07894435788,
+        "bin_width_i": 30.000065786964903,
+        "r_ab": 106200.03301317754,
+        "r_cd": 106200.03301317754,
+        "bin_width_j": 50.00001554292728,
+        "bearing_ab": -140.0000460380427,
+        "bearing_cd": -140.0000460380427,
+        "bearing_j": 219.9999539619573,
+        "handedness": "LEFT-HANDED",
+        "method_code": 1049,
+        "origin_i": 15900.0,
+        "origin_j": 7285.0,
+        "origin_easting": 443425.0,
+        "origin_northing": 3279937.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 14100.000000173168,
+          "crossline_model": 5161.009987187765,
+          "easting_model": 463768.16048958345,
+          "northing_model": 3332184.191267044,
+          "residual_inline": -1.7316779121756554e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        },
+        {
+          "label": "B",
+          "inline_model": 14100.000000173164,
+          "crossline_model": 9409.009987187765,
+          "easting_model": 395504.16048958345,
+          "northing_model": 3250830.191267044,
+          "residual_inline": -1.7316415323875844e-07,
+          "residual_crossline": -0.009987187764636474,
+          "residual_easting": -0.16048958344617859,
+          "residual_northing": -0.19126704381778836
+        },
+        {
+          "label": "C",
+          "inline_model": 17699.999999826836,
+          "crossline_model": 5160.990012812236,
+          "easting_model": 491345.83951041655,
+          "northing_model": 3309043.808732956,
+          "residual_inline": 1.7316415323875844e-07,
+          "residual_crossline": 0.009987187763726979,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        },
+        {
+          "label": "D",
+          "inline_model": 17699.999999826832,
+          "crossline_model": 9408.990012812235,
+          "easting_model": 423081.83951041655,
+          "northing_model": 3227689.808732956,
+          "residual_inline": 1.7316779121756554e-07,
+          "residual_crossline": 0.009987187764636474,
+          "residual_easting": 0.16048958344617859,
+          "residual_northing": 0.19126704381778836
+        }
+      ],
+      "max_mislocation": {
+        "di": 1.7316779121756554e-07,
+        "dj": 0.009987187764636474
+      },
+      "corner_qc_1_5m": "PASS",
+      "loading_qc_one_incremented_bin": "PASS"
+    },
+    {
+      "case_id": "sdu_test2e",
+      "sheet": "Test2e",
+      "description": "Same as 2a, but flipped the inl,xln at the corners, i.e., switched XY coordinates of B<>C.  This flips the const. inline bearing by -90; and makes it right-handed",
+      "crs": {
+        "name": "NAD27 / UTM zone 15N",
+        "code": "EPSG::26715"
+      },
+      "transformation": {
+        "name": "NAD27 to WGS 84 (79)",
+        "code": "EPSG::15851"
+      },
+      "unit": "m",
+      "increment_i": 3,
+      "increment_j": 2,
+      "corners": [
+        {
+          "label": "A",
+          "inline": 14100,
+          "crossline": 5161,
+          "easting": 423082.0,
+          "northing": 3227690.0
+        },
+        {
+          "label": "B",
+          "inline": 14100,
+          "crossline": 9409,
+          "easting": 395504.0,
+          "northing": 3250830.0
+        },
+        {
+          "label": "C",
+          "inline": 17700,
+          "crossline": 5161,
+          "easting": 491346.0,
+          "northing": 3309044.0
+        },
+        {
+          "label": "D",
+          "inline": 17700,
+          "crossline": 9409,
+          "easting": 463768.0,
+          "northing": 3332184.0
+        }
+      ],
+      "derived": {
+        "r_ac": 106200.03301317754,
+        "r_bd": 106200.03301317754,
+        "bin_width_i": 88.50002751098127,
+        "r_ab": 36000.07894435788,
+        "r_cd": 36000.07894435788,
+        "bin_width_j": 16.949189710149664,
+        "bearing_ab": -50.00084079169712,
+        "bearing_cd": -50.00084079169712,
+        "bearing_j": 309.9991592083029,
+        "handedness": "RIGHT-HANDED",
+        "method_code": 9666,
+        "origin_i": 15900.0,
+        "origin_j": 7285.0,
+        "origin_easting": 443425.0,
+        "origin_northing": 3279937.0,
+        "scale_factor": 1.0
+      },
+      "squareness": [
+        {
+          "label": "A",
+          "inline_model": 14100.000000173166,
+          "crossline_model": 5161.086913174373,
+          "easting_model": 423082.5642367171,
+          "northing_model": 3227689.52655662,
+          "residual_inline": -1.73165972228162e-07,
+          "residual_crossline": -0.08691317437296675,
+          "residual_easting": -0.5642367171240039,
+          "residual_northing": 0.47344338009133935
+        },
+        {
+          "label": "B",
+          "inline_model": 14100.000000173166,
+          "crossline_model": 9409.086913174373,
+          "easting_model": 395504.5642367171,
+          "northing_model": 3250829.52655662,
+          "residual_inline": -1.73165972228162e-07,
+          "residual_crossline": -0.08691317437296675,
+          "residual_easting": -0.5642367171240039,
+          "residual_northing": 0.47344338009133935
+        },
+        {
+          "label": "C",
+          "inline_model": 17699.999999826836,
+          "crossline_model": 5160.913086825627,
+          "easting_model": 491345.4357632829,
+          "northing_model": 3309044.47344338,
+          "residual_inline": 1.7316415323875844e-07,
+          "residual_crossline": 0.08691317437296675,
+          "residual_easting": 0.5642367171240039,
+          "residual_northing": -0.47344338009133935
+        },
+        {
+          "label": "D",
+          "inline_model": 17699.999999826836,
+          "crossline_model": 9408.913086825627,
+          "easting_model": 463767.4357632829,
+          "northing_model": 3332184.47344338,
+          "residual_inline": 1.7316415323875844e-07,
+          "residual_crossline": 0.08691317437296675,
+          "residual_easting": 0.5642367171240039,
+          "residual_northing": -0.47344338009133935
+        }
+      ],
+      "max_mislocation": {
+        "di": 1.73165972228162e-07,
+        "dj": 0.08691317437296675
+      },
+      "corner_qc_1_5m": "PASS",
+      "loading_qc_one_incremented_bin": "PASS"
+    }
+  ]
+}
