@@ -459,8 +459,9 @@ class TrajectoryInput:
         A unit in brackets after a column's name, as in ``MD (ft)`` or
         ``Inc [deg]``, is its unit, and so is one in a line of units right
         below the names, which holds no number, and may follow a unit with a
-        word, as in ``m RKB``. Given both ways, the units must agree. The
-        arguments take precedence; a header stating a different one is refused.
+        word, as in ``m RKB``. Given both ways, the units must agree, and so
+        must one given as an argument or in the header: a column's own unit is
+        never overridden.
 
         Every further line is one station: plain numbers, with ``.`` as the
         decimal point and no thousands separator. Blank lines are skipped.

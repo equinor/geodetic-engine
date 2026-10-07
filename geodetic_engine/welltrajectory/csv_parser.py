@@ -176,7 +176,8 @@ def read_survey_file(
 
     Raises:
         InvalidInputError: If the file does not follow the format, a column
-            cannot be found or is found twice, or a required setting is in
+            cannot be found or is found twice, a unit given as an argument or
+            in the header is not the column's own, or a required setting is in
             neither the header nor the arguments.
         OSError: If the file cannot be read.
     """
@@ -193,6 +194,11 @@ def read_survey_file(
     stated = _header_values(header, where)
     for key, (unit, at) in units.items():
         if key in options:
+            if not _same_unit(key, options[key], unit):
+                raise InvalidInputError(
+                    f"{at}: {key} {options[key]!r} is given, but the column names "
+                    f"{unit!r}"
+                )
             continue
         if key not in stated:
             stated[key] = unit

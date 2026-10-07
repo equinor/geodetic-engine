@@ -536,12 +536,16 @@ def test_columns_are_found_by_their_usual_names_or_named() -> None:
         assert well.survey.azimuth.tolist() == [10.0, 30.0]
 
 
-def test_the_unit_after_a_column_name_gives_way_to_an_argument() -> None:
+def test_an_argument_must_agree_with_the_unit_after_a_column_name() -> None:
     text = HEADER + "MD (ft),Inc (deg),Azi\n0,0,0\n500,20,30\n"
 
     assert _csv(text, north_reference="GN").survey.md_unit == "ft"
-    assert _csv(text, north_reference="GN", md_unit="m").survey.md_unit == "m"
+    assert _csv(text, north_reference="GN", md_unit="foot").survey.md_unit == "foot"
     assert _csv("# md_unit: ft\n" + text, north_reference="GN").survey.md_unit == "ft"
+    with pytest.raises(InvalidInputError, match=r"md_unit 'm' is given.*'ft'"):
+        _csv(text, north_reference="GN", md_unit="m")
+    with pytest.raises(InvalidInputError, match="angle_unit 'rad' is given"):
+        _csv(text, north_reference="GN", angle_unit="rad")
 
 
 @pytest.mark.parametrize(

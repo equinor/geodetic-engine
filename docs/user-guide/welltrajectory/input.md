@@ -231,10 +231,10 @@ name the one to read.
 A unit in brackets after a column's name, as in `MD (ft)` or `Inc [deg]`, is
 that column's unit. So is one in a line of units right below the names, a
 line holding no number, as in `m RKB  deg  deg`; a word after the unit, such
-as the datum `RKB`, is ignored. A unit given both ways must agree. An argument
-giving another unit takes precedence; a header stating another is refused.
-Annotated units must be recognized and measure the correct quantity, including
-when an argument overrides them. An unsupported annotation never becomes a default.
+as the datum `RKB`, is ignored. A unit given both ways must agree, and so must
+one given as an argument or in the header: a column's own unit is never
+overridden. Annotated units must be recognized and measure the correct
+quantity. An unsupported annotation never becomes a default.
 
 Every further line is one station: plain numbers, with `.` as the decimal
 point and no thousands separator. Blank lines are skipped; header and comment
