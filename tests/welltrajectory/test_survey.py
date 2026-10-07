@@ -10,6 +10,7 @@ import pytest
 
 from geodetic_engine.welltrajectory import (
     InvalidSurveyError,
+    NorthReference,
     Survey,
     UnitError,
     angle_factor,
@@ -119,3 +120,27 @@ def test_malformed_stations_are_refused(
 def test_an_unknown_unit_is_refused_when_the_survey_is_made() -> None:
     with pytest.raises(UnitError):
         Survey([0, 1], [0, 0], md_unit="cubit")
+
+
+@pytest.mark.parametrize(
+    ("text", "north"),
+    [
+        ("gn", NorthReference.GRID),
+        ("Grid", NorthReference.GRID),
+        ("grid north", NorthReference.GRID),
+        ("GRID_NORTH", NorthReference.GRID),
+        ("TN", NorthReference.TRUE),
+        ("True North", NorthReference.TRUE),
+        ("TRUE_NORTH", NorthReference.TRUE),
+    ],
+)
+def test_the_north_reference_is_read_under_its_usual_names(
+    text: str, north: NorthReference
+) -> None:
+    assert NorthReference(text) is north
+
+
+@pytest.mark.parametrize("text", ["MN", "magnetic north", "north", ""])
+def test_magnetic_north_and_bare_north_are_refused(text: str) -> None:
+    with pytest.raises(ValueError):
+        NorthReference(text)

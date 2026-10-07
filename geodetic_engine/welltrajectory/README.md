@@ -130,8 +130,9 @@ md,inclination,azimuth
   `z_unit`, `method`, `md_step`, `md_points` (comma separated) and `name` are
   optional. Any other `#` line is a comment, unless its key is a likely
   misspelling of a known one, which is refused. Other lines above the table
-  are free text, as in a survey report, and skipped, except `key: value`
-  lines with a known key, such as `North Reference: Grid`.
+  are free text, as in a survey report, and skipped, except a `key: value`
+  line giving the name or the north reference, such as
+  `North Reference: Grid`.
 - Then the table, from the first line naming the md and inclination columns,
   separated by commas, semicolons or tabs, or lined up with spaces, two or
   more ending a name. Measured depth, inclination and azimuth are found by

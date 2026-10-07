@@ -201,10 +201,13 @@ refused as a likely misspelling rather than skipped; so is `Units`, which
 could be either unit.
 
 **Free text.** Other lines above the table are free text, as a survey
-report's header is, and skipped, except a line `key: value` with one of the
-keys above, such as `North Reference: Grid`. It states that setting the first
-time the key appears, unless a `#` line states it. A key in free text is
-never refused as misspelt.
+report's header is, and skipped, except a line `key: value` that gives the
+name or the north reference under one of their keys above, such as
+`WELL NAME: F-1` or `North Reference: Grid`. The first of each states that
+setting, unless a `#` line states it, and only if its value reads as the
+setting: `North: 6478566.7` is skipped. Nothing else is read from free text,
+which may give the positions and elevations of more than the wellhead; give
+those in `#` lines or as arguments. A line of free text is never refused.
 
 **Table.** It starts at the first line naming the measured depth and
 inclination columns, or else at the first line that is not a header line.

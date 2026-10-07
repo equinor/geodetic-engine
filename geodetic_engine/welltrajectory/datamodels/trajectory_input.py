@@ -429,9 +429,11 @@ class TrajectoryInput:
         that it is likely misspelt, as ``md_unti`` is: that is refused.
 
         Other lines above the table are free text, and skipped, except a line
-        ``key: value`` with one of these keys, such as ``North Reference:
-        Grid``: it states the setting, the first time the key appears, unless
-        a ``#`` line states it.
+        ``key: value`` giving the name or the north reference, such as
+        ``North Reference: Grid``, when its value reads as that setting: the
+        first of each states it, unless a ``#`` line does. Nothing else is
+        read from free text, which may give positions and elevations of more
+        than the wellhead.
 
         **Table.** It starts at the first line naming the measured depth and
         inclination columns, or else at the first line that is not a header
@@ -739,14 +741,14 @@ class TrajectoryInput:
 
 
 def _member[E: StrEnum](kind: type[E], value: object, setting: str) -> E:
-    """The member of ``kind`` whose value ``value`` is, in any case."""
-    if isinstance(value, kind):
-        return value
-    for member in kind:
-        if str(value).strip().casefold() == member.value.casefold():
-            return member
-    choices = ", ".join(member.value for member in kind)
-    raise InvalidInputError(f"{setting} must be one of {choices}, not {value!r}")
+    """The member of ``kind`` that ``value`` names, read as ``kind`` reads it."""
+    try:
+        return kind(str(value))
+    except ValueError:
+        choices = ", ".join(member.value for member in kind)
+        raise InvalidInputError(
+            f"{setting} must be one of {choices}, not {value!r}"
+        ) from None
 
 
 def _wellhead(value: object) -> Wellhead:

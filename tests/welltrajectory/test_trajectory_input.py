@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import io
 import json
+import time
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -448,7 +449,33 @@ def test_a_survey_report_is_read_below_its_free_text(tmp_path: Path) -> None:
     assert well.survey.azimuth.tolist() == [10.0, 30.0, 45.0]
 
 
-def test_a_line_of_units_below_the_names_gives_their_units() -> None:
+def test_free_text_states_only_the_name_and_the_north_reference() -> None:
+    """A report's text gives positions and elevations of more than the wellhead,
+    and words where a setting would be: none of it is taken, or refused."""
+    text = "North: 6600000.00\nEasting: 500000.00\nElevation: 54.90 m\n"
+    text += "Method: Minimum Curvature\n" + REPORT
+
+    well = _csv(text, wellhead=(500000.0, 6600000.0), crs="EPSG:32631")
+
+    assert well.name == "A-10"
+    assert well.north_reference is NorthReference.GRID
+    assert well.method is Method.AZIMUTHAL_EQUIDISTANT
+    with pytest.raises(InvalidInputError, match="states no wellhead"):
+        _csv("Easting: 500000\nNorthing: 6600000\n" + REPORT, crs="EPSG:32631")
+
+
+def test_long_runs_of_spaces_are_read_in_linear_time() -> None:
+    """Lines like these took the parser's patterns minutes, while parts of them
+    competed for the same spaces."""
+    spaces = " " * 40_000
+    text = f"#a{spaces}b\nfree{spaces}text\n" + HEADER
+    text += f"md,inclination,azimuth,Remark ({spaces[:1000]}x\n0,0,10,\n500,20,30,\n"
+
+    start = time.perf_counter()
+    well = _csv(text, north_reference="GN")
+
+    assert time.perf_counter() - start < 1.0
+    assert well.survey.md.tolist() == [0.0, 500.0]
     table = HEADER + "md,inc,azi\nft,deg,deg\n0,0,10\n500,20,30\n"
 
     well = _csv(table, north_reference="GN")

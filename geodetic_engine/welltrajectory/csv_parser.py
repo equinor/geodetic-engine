@@ -25,7 +25,11 @@ import pandas as pd
 
 from geodetic_engine.geodesy import CoordinateReferenceSystem
 from geodetic_engine.welltrajectory.errors import InvalidInputError, UnitError
-from geodetic_engine.welltrajectory.survey import angle_factor, length_factor
+from geodetic_engine.welltrajectory.survey import (
+    NorthReference,
+    angle_factor,
+    length_factor,
+)
 
 # A survey file's stations: each one's line, for messages, and its values.
 type _Rows = list[tuple[str, list[str]]]
@@ -94,18 +98,21 @@ _COLUMN_NAMES = {
     ),
     "azimuth": frozenset(("azimuth", "azi", "azim", "az", "hazi", "direction")),
 }
-_NORTH_NAMES = {"grid": "GN", "gridnorth": "GN", "true": "TN", "truenorth": "TN"}
 _DELIMITERS = (",", ";", "\t")
 # The delimiter of a table whose columns are lined up with spaces.
 _SPACES = " "
 # Lined up with spaces, a column's name may hold single spaces; more end it.
 _GAP = re.compile(r"\s{2,}")
+# No two quantifiers below compete for the same characters: long lines stay linear.
 # "# key: value", the key words; any other line starting with # is a comment.
-_HEADER_LINE = re.compile(r"#\s*([A-Za-z][\w \-]*?)\s*:(.*)")
+_HEADER_LINE = re.compile(r"#\s*([A-Za-z][\w\s-]*):(.*)")
 # "key: value" in the free text above a table, as in a survey report.
-_TEXT_LINE = re.compile(r"([A-Za-z][\w \-]*?)\s*:(.*)")
+_TEXT_LINE = re.compile(r"([A-Za-z][\w\s-]*):(.*)")
 # A column name with its unit in brackets: "MD (ft)", "Inc [deg]".
-_UNIT_IN_NAME = re.compile(r"(.*?)\s*[(\[]\s*([^)\]]*?)\s*[)\]]")
+_UNIT_IN_NAME = re.compile(r"(.*)[(\[]([^()\[\]]*)[)\]]")
+# The settings free text is read for: a report's text also gives positions and
+# elevations of other things than the wellhead.
+_TEXT_KEYS = frozenset(("name", "north_reference"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,8 +275,8 @@ def _parse(
     """A survey file's header settings, as text, then its table.
 
     Above the table, ``#`` lines are the header and other lines free text, of
-    which ``key: value`` lines with a known key are read as well, the first
-    of each key, unless the header states it.
+    which a ``key: value`` line giving the name or the north reference is read
+    as well, the first of each, unless the header states it.
     """
     lines = [
         (f"{where}, line {number}", stripped)
@@ -282,14 +289,12 @@ def _parse(
     for at, line in lines[:start]:
         if line.startswith("#"):
             match = _HEADER_LINE.fullmatch(line)
-            if match and (key := _header_key(match[1], at)):
+            if match and (key := _header_key(match[1].rstrip(), at)):
                 if key in header:
                     raise InvalidInputError(f"{at}: {key} is stated twice")
                 header[key] = match[2].strip()
-        elif (match := _TEXT_LINE.fullmatch(line)) and (
-            key := _header_key(match[1], at, guess=False)
-        ):
-            in_text.setdefault(key, match[2].strip())
+        elif setting := _text_setting(line, at):
+            in_text.setdefault(*setting)
 
     names_at, line = lines[start]
     separator = delimiter or _separator(line)
@@ -364,6 +369,25 @@ def _header_key(word: str, at: str, *, guess: bool = True) -> str | None:
             f"{at}: {word!r} is not a header key; did you mean {' or '.join(close)}?"
         )
     return None
+
+
+def _text_setting(line: str, at: str) -> tuple[str, str] | None:
+    """The setting a line of free text states, if it is one read there.
+
+    A value that does not read as its setting is free text like the rest, so
+    ``North: 6478566.7`` states nothing.
+    """
+    if not (match := _TEXT_LINE.fullmatch(line)):
+        return None
+    key, value = _header_key(match[1].rstrip(), at, guess=False), match[2].strip()
+    if key is None or key not in _TEXT_KEYS or not value:
+        return None
+    if key == "north_reference":
+        try:
+            NorthReference(value)
+        except ValueError:
+            return None
+    return key, value
 
 
 def _separator(line: str) -> str:
@@ -531,15 +555,16 @@ def _is_usual(quantity: str, squeezed: str) -> bool:
 
 def _bare(name: str) -> str:
     """A column's name without the unit in brackets after it."""
-    return match[1] if (match := _UNIT_IN_NAME.fullmatch(name)) else name
+    return match[1].strip() if (match := _UNIT_IN_NAME.fullmatch(name)) else name
 
 
 def _unit_in_name(name: str, factor: Callable[[str], float]) -> str | None:
     """The annotated unit, refusing an unknown unit or the wrong quantity."""
     if not (match := _UNIT_IN_NAME.fullmatch(name)):
         return None
-    factor(match[2])
-    return match[2]
+    unit = match[2].strip()
+    factor(unit)
+    return unit
 
 
 def _same_unit(key: str, stated: str, named: str) -> bool:
@@ -558,8 +583,6 @@ def _header_values(header: Mapping[str, str], where: str) -> dict[str, Any]:
             values[key] = [
                 _float(value, key, at) for value in re.split(r"[,;\s]+", text) if value
             ]
-        elif key == "north_reference":
-            values[key] = _NORTH_NAMES.get(_SQUEEZE.sub("", text.casefold()), text)
         else:
             values[key] = text
     return values

@@ -9,6 +9,7 @@ downstream works in metres and radians.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from urllib.parse import unquote
@@ -52,15 +53,20 @@ _MEASUREMENTS = {"length": {"length"}, "angle": {"plane_angle", "angle"}}
 
 
 class NorthReference(StrEnum):
-    """What a survey's azimuths are measured from, ``"GN"`` or ``"TN"`` in any case."""
+    """What a survey's azimuths are measured from, ``"GN"`` or ``"TN"``.
+
+    Read in any case, and also as ``"grid"``, ``"grid north"`` or
+    ``"GRID_NORTH"``, and ``"true"``, ``"true north"`` or ``"TRUE_NORTH"``.
+    """
 
     GRID = "GN"
     TRUE = "TN"
 
     @classmethod
     def _missing_(cls, value: object) -> NorthReference | None:
-        text = str(value).strip().casefold()
-        return next((member for member in cls if member.casefold() == text), None)
+        text = re.sub(r"[\W_]+", "", str(value).casefold()).removesuffix("north")
+        names = {"gn": cls.GRID, "grid": cls.GRID, "tn": cls.TRUE, "true": cls.TRUE}
+        return names.get(text)
 
 
 @dataclass(frozen=True, slots=True)
