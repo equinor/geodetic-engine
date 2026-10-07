@@ -381,7 +381,7 @@ Its fields map onto the input one for one:
 | `MD_i.md_i` | `md_points` |
 | `MD_i.md_interval` | `md_points`: a point every `md_interval` from the first station, and the last, as the service expands it |
 | `interpolate`, true when left out, as the service takes it | `md_step`: a point every 100 of the MD unit, or none for `false` |
-| `unitXY` | Checked to be the CRS's own unit, and not stored: the wellhead is never rescaled. |
+| `unitXY` | Checked to be the CRS's own unit, which resolves the CRS when the input is made, and not stored: the wellhead is never rescaled. |
 
 ```{code-cell} python
 body = {
@@ -413,7 +413,9 @@ The service returned the points `MD_i` asked for apart from the stations, as
 Everything that can be checked without the CRS is checked when the input is
 made, before anything is computed: the units, the settings, and that the
 survey describes a wellbore. The CRS is resolved by
-{meth}`~geodetic_engine.welltrajectory.TrajectoryInput.compute`.
+{meth}`~geodetic_engine.welltrajectory.TrajectoryInput.compute`, or already by
+{meth}`~geodetic_engine.welltrajectory.TrajectoryInput.from_osdu_payload` to
+check a body's `unitXY`.
 
 ```{code-cell} python
 :tags: [raises-exception]

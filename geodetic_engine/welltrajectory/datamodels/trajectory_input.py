@@ -114,7 +114,8 @@ class TrajectoryInput:
 
     Everything that can be checked without the CRS is checked when the input
     is made: the units, the settings, and that the survey describes a
-    wellbore. The CRS is resolved by :meth:`compute`. An input is frozen;
+    wellbore. The CRS is resolved by :meth:`compute`, or already by
+    :meth:`from_osdu_payload` to check a body's ``unitXY``. An input is frozen;
     :func:`dataclasses.replace` gives a copy with some settings changed, and
     checks it again.
 
@@ -540,7 +541,8 @@ class TrajectoryInput:
           service expands it.
 
         ``unitXY`` is checked against the CRS and not stored: the wellhead is
-        read in the CRS's own unit, never rescaled.
+        read in the CRS's own unit, never rescaled. Checking it resolves the
+        CRS here, rather than in :meth:`compute`.
 
         The service returned the points ``MD_i`` asked for apart from the
         stations, as ``stations_i``. Here they are among the stations, in MD
@@ -560,6 +562,12 @@ class TrajectoryInput:
             InvalidSurveyError: If the stations cannot describe a wellbore.
             UnitError: If a unit is not recognised, or ``unitXY`` is not the
                 CRS's own unit.
+            UnresolvableCRSError: With ``unitXY``, if the CRS cannot be
+                resolved.
+            geodetic_engine.geodesy.UnsupportedCRSError: With ``unitXY``, if
+                the CRS has no geographic or projected horizontal part.
+            TransformationFailedError: With ``unitXY``, if the wellhead is
+                outside the CRS's range.
         """
         if isinstance(payload, str):
             try:

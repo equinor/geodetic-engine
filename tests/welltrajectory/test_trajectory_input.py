@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from geodetic_engine.geodesy import UnsupportedCRSError
 from geodetic_engine.persistablereference import (
     CrsReference,
     parse_persistable_reference,
@@ -800,6 +801,18 @@ def test_a_geographic_crs_takes_its_angular_xy_unit() -> None:
 
     assert TrajectoryInput.from_osdu_payload(body | {"unitXY": "degree"})
     with pytest.raises(UnitError, match="unitXY"):
+        TrajectoryInput.from_osdu_payload(body | {"unitXY": "m"})
+
+
+def test_checking_unit_xy_resolves_the_crs_when_the_input_is_made() -> None:
+    body = request(EXAMPLES / "02_deviated_well_build.json")
+    body["trajectoryCRS"] = "EPSG:4978"
+
+    well = TrajectoryInput.from_osdu_payload(body)
+
+    with pytest.raises(UnsupportedCRSError):
+        well.compute()
+    with pytest.raises(UnsupportedCRSError):
         TrajectoryInput.from_osdu_payload(body | {"unitXY": "m"})
 
 
