@@ -49,13 +49,13 @@ def interpolate(stations: Stations, survey: Stations, frame: LocalFrame) -> Plac
     origin = latitude[index]
     latitude = origin.copy()
     semi_major, semi_minor = frame.semi_axes
-    eccentricity = 1.0 - (semi_minor / semi_major) ** 2
+    eccentricity_squared = 1.0 - (semi_minor / semi_major) ** 2
     for _ in range(_PASSES):
         middle = 0.5 * (origin + latitude)
-        meridian, _ = _radii(middle, semi_major, eccentricity)
+        meridian, _ = _radii(middle, semi_major, eccentricity_squared)
         latitude = origin + delta[:, 1] / (meridian + height)
     middle = 0.5 * (origin + latitude)
-    _, normal = _radii(middle, semi_major, eccentricity)
+    _, normal = _radii(middle, semi_major, eccentricity_squared)
     longitude = longitude[index] + delta[:, 0] / ((normal + height) * np.cos(middle))
     return _placement(longitude, latitude, frame)
 
@@ -64,7 +64,7 @@ def _geographic(
     offsets: FloatArray, frame: LocalFrame
 ) -> tuple[FloatArray, FloatArray]:
     semi_major, semi_minor = frame.semi_axes
-    eccentricity = 1.0 - (semi_minor / semi_major) ** 2
+    eccentricity_squared = 1.0 - (semi_minor / semi_major) ** 2
     origin = np.radians(frame.latitude)
     d_east, d_north = np.diff(offsets[:, 0]), np.diff(offsets[:, 1])
     height = frame.height - 0.5 * (offsets[:-1, 2] + offsets[1:, 2])
@@ -72,22 +72,22 @@ def _geographic(
     latitude = np.full(len(offsets), origin)
     for _ in range(_PASSES):
         middle = 0.5 * (latitude[:-1] + latitude[1:])
-        meridian, _ = _radii(middle, semi_major, eccentricity)
+        meridian, _ = _radii(middle, semi_major, eccentricity_squared)
         latitude = origin + np.concatenate(
             [[0.0], np.cumsum(d_north / (meridian + height))]
         )
     middle = 0.5 * (latitude[:-1] + latitude[1:])
-    _, normal = _radii(middle, semi_major, eccentricity)
+    _, normal = _radii(middle, semi_major, eccentricity_squared)
     turned = d_east / ((normal + height) * np.cos(middle))
     longitude = np.radians(frame.longitude) + np.concatenate([[0.0], np.cumsum(turned)])
     return longitude, latitude
 
 
 def _radii(
-    latitude: FloatArray, semi_major: float, eccentricity: float
+    latitude: FloatArray, semi_major: float, eccentricity_squared: float
 ) -> tuple[FloatArray, FloatArray]:
-    weight = np.sqrt(1.0 - eccentricity * np.sin(latitude) ** 2)
-    return semi_major * (1.0 - eccentricity) / weight**3, semi_major / weight
+    weight = np.sqrt(1.0 - eccentricity_squared * np.sin(latitude) ** 2)
+    return semi_major * (1.0 - eccentricity_squared) / weight**3, semi_major / weight
 
 
 def _placement(

@@ -73,7 +73,8 @@ class ProjectionFactors:
             :attr:`latitude` are expressed in.
         projected: False for a geographic CRS, where there is no grid: the
             convergence is then zero and every scale is one.
-        coordinates: The points as given, one row per point, in ``xy`` order.
+        coordinates: The points as given, one row per point, in ``xy`` order,
+            without any third value.
         coordinates_crs: The CRS :attr:`coordinates` are in: :attr:`horizontal_crs`,
             or :attr:`geographic_crs` when they were given as longitude and
             latitude.
@@ -290,10 +291,12 @@ def _web_mercator_scales(
     ellipsoid = geographic_crs.crs.ellipsoid
     if ellipsoid is None:
         raise UnsupportedCRSError(f"{geographic_crs.name} has no ellipsoid")
-    eccentricity = 1 - (ellipsoid.semi_minor_metre / ellipsoid.semi_major_metre) ** 2
-    weight = np.sqrt(1 - eccentricity * np.sin(latitude) ** 2)
+    eccentricity_squared = (
+        1 - (ellipsoid.semi_minor_metre / ellipsoid.semi_major_metre) ** 2
+    )
+    weight = np.sqrt(1 - eccentricity_squared * np.sin(latitude) ** 2)
     parallel = values["scale_factor"] * weight
-    meridian = values["meridional_scale"] * weight**3 / (1 - eccentricity)
+    meridian = values["meridional_scale"] * weight**3 / (1 - eccentricity_squared)
     values["scale_factor"] = parallel
     values["meridional_scale"] = meridian
     values["areal_scale"] = parallel * meridian
