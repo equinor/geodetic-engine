@@ -120,8 +120,10 @@ $$\Delta\varphi = \frac{\Delta N}{M(\bar\varphi) + \bar h}, \qquad
 $$M = \frac{a(1 - e^2)}{W^3}, \qquad N = \frac{a}{W}, \qquad W = \sqrt{1 - e^2\sin^2\bar\varphi},$$
 
 with $\bar\varphi$ and $\bar h = z_0 - \overline{\mathrm{TVD}}$ taken at the
-middle of the step. A step drilled deep sweeps a larger angle than the same
-step at the surface. The latitudes depend on each other only through
+middle of the step. As in `ENU`, the elevation stands in for the ellipsoidal
+height, and an error $\delta h$ in it moves a station by $d\,\delta h / R$.
+A step drilled deep sweeps a larger angle than the same step at the surface.
+The latitudes depend on each other only through
 $\bar\varphi$, so they are solved for the whole well at once by fixed-point
 iteration. Each pass shrinks the error by the reach over the earth's radius,
 and three passes are far more than enough. Each step's azimuth is thereby

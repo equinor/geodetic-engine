@@ -289,11 +289,13 @@ $$\Delta\varphi = \frac{\Delta N}{M(\bar\varphi) + \bar h}, \qquad
 $$M = \frac{a(1 - e^2)}{W^3}, \qquad N = \frac{a}{W}, \qquad W = \sqrt{1 - e^2\sin^2\bar\varphi},$$
 
 with $\bar\varphi$ and $\bar h = z_0 - \overline{\mathrm{TVD}}$ taken at the
-middle of the step. The latitudes depend on each other only through
-$\bar\varphi$, so they are solved for the whole well at once by fixed-point
-iteration; each pass shrinks the error by the reach over the earth's radius,
-and three passes are far more than enough. Each step's azimuth is thereby
-counted from the meridian where it was drilled, not the wellhead's.
+middle of the step. As in `ENU`, the elevation stands in for the ellipsoidal
+height, with the same $d\,\delta h / R$ effect. The latitudes depend on each
+other only through $\bar\varphi$, so they are solved for the whole well at
+once by fixed-point iteration; each pass shrinks the error by the reach over
+the earth's radius, and three passes are far more than enough. Each step's
+azimuth is thereby counted from the meridian where it was drilled, not the
+wellhead's.
 
 The original survey stations remain the integration anchors. Each interpolated
 point is evaluated from its preceding survey station; changing the query
@@ -325,4 +327,4 @@ Licence. The synthetic survey is generated example data, not an observed well.
 Survey error models and uncertainty (ISCWSA), anti-collision, magnetic
 declination, a convergence that varies across the well for grid azimuths, and
 vertical datums beyond the stated assumption that the wellhead elevation stands
-in for its ellipsoidal height in `ENU`.
+in for its ellipsoidal height in `ENU` and `LMP`.

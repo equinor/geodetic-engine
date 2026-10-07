@@ -8,11 +8,13 @@ elevation:
     d(lambda) = dE / ((N(phi) + h) cos(phi))
 
 with ``M`` and ``N`` the meridian and prime vertical radii and ``h`` the
-step's elevation, ``wellhead z - TVD``. A step drilled deep sweeps a larger
-angle than the same step at the surface, which is the curvature correction
-long, deep wells are said to need. The latitudes are found by fixed-point
-iteration over the whole well at once, which converges in a couple of passes
-because a well spans a tiny fraction of a radius.
+step's elevation, ``wellhead z - TVD``. As in ENU, the elevation stands in
+for the ellipsoidal height, which it is not: an error ``dh`` in it moves a
+station by ``d dh / R``, 3 cm for 40 m at 5 km. A step drilled deep sweeps a
+larger angle than the same step at the surface, which is the curvature
+correction long, deep wells are said to need. The latitudes are found by
+fixed-point iteration over the whole well at once, which converges in a couple
+of passes because a well spans a tiny fraction of a radius.
 
 Queries are evaluated from the preceding original survey station. Adding,
 removing or reordering query points never changes those station positions.
