@@ -7,18 +7,22 @@ the survey stations marked on them and shadows on the floor and walls. Drag to
 rotate, scroll to zoom, right-drag to pan, and hover a point for its MD,
 angles, TVD and dogleg severity.
 
-:func:`open_in_browser` serves a figure from this process on ``127.0.0.1`` and
-opens it in the default browser. In a dev container that is the host's
-browser, through VS Code's port forwarding. Still images come from
-``figure.write_image(path)``, through kaleido and Chromium.
+:func:`open_in_browser` serves a figure from this process on ``127.0.0.1``, at
+an address holding a random token, and opens it in the default browser. In a
+dev container that is the host's browser, through VS Code's port forwarding.
+Still images come from ``figure.write_image(path)``, through kaleido and
+Chromium.
 """
 
 from __future__ import annotations
 
+import atexit
 import html
 import itertools
 import math
 import re
+import secrets
+import shutil
 import sys
 import tempfile
 import threading
@@ -26,6 +30,7 @@ import webbrowser
 from collections.abc import Sequence
 from dataclasses import replace
 from functools import cache, partial
+from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -314,8 +319,10 @@ def open_in_browser(figure: Any, name: str | None = None) -> str:
 
     The page fills the browser window and follows it when resized. It is
     served from a local web server in this process, for as long as it runs: a
-    notebook's kernel keeps it up, a script's exit takes it down. To keep a
-    figure, write it to a file instead, with ``figure.write_html(path)``.
+    notebook's kernel keeps it up, a script's exit takes it down and deletes
+    its files. Its address holds a random token, so other web pages and users
+    of the machine cannot find it. To keep a figure, write it to a file
+    instead, with ``figure.write_html(path)``.
 
     Args:
         figure: A figure from :func:`plot_trajectory`, or any plotly figure.
@@ -326,7 +333,7 @@ def open_in_browser(figure: Any, name: str | None = None) -> str:
     """
     from plotly.offline import get_plotlyjs
 
-    directory, port = _server()
+    directory, served_at = _server()
     title = name or figure.layout.title.text or "trajectory"
     page = f"{re.sub(r'[^A-Za-z0-9_-]+', '-', title).strip('-')}-{next(_FIGURES)}.html"
     script = directory / "plotly.min.js"
@@ -343,7 +350,7 @@ def open_in_browser(figure: Any, name: str | None = None) -> str:
     (directory / page).write_text(
         _PAGE.format(title=html.escape(title), body=body), encoding="utf-8"
     )
-    address = f"http://127.0.0.1:{port}/{page}"
+    address = f"{served_at}/{page}"
     webbrowser.open(address)
     return address
 
@@ -507,6 +514,10 @@ class _QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         """Keep requests out of the notebook's output."""
 
+    def list_directory(self, path: Any) -> None:
+        """List nothing, so the token directory cannot be found from the root."""
+        self.send_error(HTTPStatus.NOT_FOUND)
+
 
 class _QuietServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -518,13 +529,19 @@ class _QuietServer(ThreadingHTTPServer):
 
 
 @cache
-def _server() -> tuple[Path, int]:
-    """A directory, and the port of a local server serving it, for this process."""
-    directory = Path(tempfile.mkdtemp(prefix="welltrajectory-"))
-    handler = partial(_QuietHandler, directory=str(directory))
+def _server() -> tuple[Path, str]:
+    """A directory, and the address a local server serves it at, for this process.
+
+    The address holds a random token, and the server lists no directory.
+    """
+    root = Path(tempfile.mkdtemp(prefix="welltrajectory-"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    token = secrets.token_urlsafe(16)
+    (root / token).mkdir()
+    handler = partial(_QuietHandler, directory=str(root))
     server = _QuietServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return directory, int(server.server_address[1])
+    return root / token, f"http://127.0.0.1:{server.server_address[1]}/{token}"
 
 
 def _plotly() -> Any:

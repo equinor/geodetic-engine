@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import shutil
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -176,6 +177,11 @@ def test_the_browser_is_given_a_page_it_can_load(
     script = address.rsplit("/", 1)[0] + "/plotly.min.js"
     with urllib.request.urlopen(script, timeout=10) as response:
         assert response.status == 200
+    root, token, name = address.rsplit("/", 2)
+    for hidden in (f"{root}/", f"{root}/{token}/", f"{root}/{name}"):
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(hidden, timeout=10)
+        assert refused.value.code == 404
 
 
 @pytest.mark.skipif(

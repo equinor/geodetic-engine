@@ -125,8 +125,9 @@ open_in_browser(well.plot())
 
 The page is served from a local web server on `127.0.0.1`, in the Python
 process, for as long as that process runs: a notebook's kernel keeps it up, a
-script's exit takes it down. In a dev container the browser is the host's,
-through VS Code's port forwarding.
+script's exit takes it down and deletes its files. Its address holds a random
+token, so other web pages and users of the machine cannot find it. In a dev
+container the browser is the host's, through VS Code's port forwarding.
 
 ## Keeping a figure
 
