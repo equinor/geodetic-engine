@@ -201,9 +201,9 @@ def test_squaring_agrees_with_the_java_service_on_distorted_grids(
 def test_one_displaced_corner_spreads_its_error_over_all_four() -> None:
     """25 m bins at 30 degrees, corner A moved 3 m east: about 1/20 of a bin.
 
-    The expected values come from the independent scalar transcription of the
-    method (checked against the SDU spreadsheet in test_reference_oracles), not
-    from this implementation.
+    The expected values come from the port of the Java squaring, which is right
+    at scale factor 1 (test_reference_oracles checks it against the SDU
+    spreadsheet), not from this implementation.
     """
     parameters = {
         "origin_i": 1000, "origin_j": 2000, "origin_easting": 450000.0,
