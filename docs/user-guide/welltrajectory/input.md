@@ -371,15 +371,16 @@ Its fields map onto the input one for one:
 | Body field | Input setting |
 |---|---|
 | `trajectoryCRS` | `crs` |
-| `azimuthReference` | `north_reference` |
+| `azimuthReference`, also `GRID_NORTH` or `TRUE_NORTH` | `north_reference` |
 | `referencePoint`, `{x, y, z}` | `wellhead` |
 | `inputStations`, `[{md, inclination, azimuth}, ...]` | `survey`, with angles in degrees |
-| `inputKind`, `"MD_Incl"` | An inclination-only survey: any azimuths are ignored. |
+| `inputKind`, `"MD_Incl"` | An inclination-only survey, whose stations give no azimuth. |
 | `unitMD`, else `unitZ` | `md_unit` |
 | `unitZ` | `z_unit` |
-| `method`, where `"GNL"` is `GridNorthLocal` | `method` |
+| `method`, where `"GNL"` is `GridNorthLocal` and `"LeesModifiedProposal"` is `LMP` | `method` |
 | `MD_i.md_i` | `md_points` |
-| `MD_i.md_interval`, and `interpolate`, a point every 100 | `md_step`, the finer of the two when both are given and one is a multiple of the other |
+| `MD_i.md_interval` | `md_points`: a point every `md_interval` from the first station, and the last, as the service expands it |
+| `interpolate`, true when left out, as the service takes it | `md_step`: a point every 100 of the MD unit, or none for `false` |
 | `unitXY` | Checked to be the CRS's own unit, and not stored: the wellhead is never rescaled. |
 
 ```{code-cell} python
@@ -395,6 +396,7 @@ body = {
         {"md": 1500, "inclination": 60, "azimuth": 45},
     ],
     "method": "GNL",
+    "interpolate": False,
     "MD_i": {"md_i": [1000.0]},
 }
 from_body = TrajectoryInput.from_osdu_payload(body)

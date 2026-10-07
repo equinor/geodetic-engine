@@ -95,7 +95,7 @@ method="LMP")` gives a checked copy with a setting changed.
 | `from_records(rows, ...)` | One row per station: `(md, inclination, azimuth)` tuples or lists, or mappings with those keys. |
 | `from_dataframe(frame, md_column=..., ...)` | A pandas DataFrame, with any column names; other columns are ignored. |
 | `from_csv(path, ...)` | A CSV survey file in the format below, or a survey report with free text above a table lined up with spaces. Keyword arguments fill in or override its header; `md_column`, `inclination_column` and `azimuth_column` name columns it does not recognise, and `delimiter` the separator. |
-| `from_osdu_payload(body)` | An OSDU `convertTrajectory` request body, as a mapping or JSON text. `MD_i.md_i` maps onto `md_points` and `MD_i.md_interval` onto `md_step`. |
+| `from_osdu_payload(body)` | An OSDU `convertTrajectory` request body, as a mapping or JSON text. `MD_i` maps onto `md_points`, and `interpolate`, true unless the body says false, onto `md_step`, a point every 100. |
 
 `to_csv(path)` writes an input in the survey file format, every setting
 included, and `to_dataframe()` gives its stations.

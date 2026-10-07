@@ -660,10 +660,55 @@ def test_md_in_metres_with_depths_in_feet() -> None:
     assert mixed.x == pytest.approx(metres.x)
 
 
-def test_gnl_is_grid_north_local() -> None:
-    body = request(EXAMPLES / "02_deviated_well_build.json") | {"method": "GNL"}
+@pytest.mark.parametrize(
+    ("name", "method"),
+    [("GNL", Method.GRID_NORTH_LOCAL), ("LeesModifiedProposal", Method.LMP)],
+)
+def test_the_service_names_of_the_methods_are_read(name: str, method: Method) -> None:
+    body = request(EXAMPLES / "02_deviated_well_build.json") | {"method": name}
 
-    assert TrajectoryInput.from_osdu_payload(body).method is Method.GRID_NORTH_LOCAL
+    assert TrajectoryInput.from_osdu_payload(body).method is method
+
+
+@pytest.mark.parametrize(
+    ("name", "north"),
+    [
+        ("GRID_NORTH", NorthReference.GRID),
+        ("Grid North", NorthReference.GRID),
+        ("TRUE_NORTH", NorthReference.TRUE),
+        ("tn", NorthReference.TRUE),
+    ],
+)
+def test_the_service_names_of_the_north_reference_are_read(
+    name: str, north: NorthReference
+) -> None:
+    body = request(EXAMPLES / "02_deviated_well_build.json")
+
+    well = TrajectoryInput.from_osdu_payload(body | {"azimuthReference": name})
+
+    assert well.north_reference is north
+
+
+def test_interpolate_is_true_unless_the_body_says_false() -> None:
+    body = request(EXAMPLES / "02_deviated_well_build.json")
+    del body["interpolate"]
+
+    assert TrajectoryInput.from_osdu_payload(body).md_step == 100.0
+    for stated, step in ((None, 100.0), (True, 100.0), (False, None)):
+        well = TrajectoryInput.from_osdu_payload(body | {"interpolate": stated})
+        assert well.md_step == step
+
+
+def test_interpolate_and_an_md_interval_give_both_spacings() -> None:
+    body = request(EXAMPLES / "02_deviated_well_build.json")
+    body |= {"interpolate": True, "MD_i": {"md_interval": 30}}
+
+    trajectory = TrajectoryInput.from_osdu_payload(body).compute()
+
+    md = set(trajectory.md.tolist())
+    assert {float(depth) for depth in range(0, 3000, 30)} <= md
+    assert {float(depth) for depth in range(0, 3001, 100)} <= md
+    assert trajectory.md[-1] == 3000.0
 
 
 @pytest.mark.parametrize(
@@ -671,11 +716,8 @@ def test_gnl_is_grid_north_local() -> None:
     [
         ({"MD_i": {"md_i": [10.0], "md_interval": 5}}, InvalidInputError, "both"),
         ({"MD_i": {"md_i": [99999.0]}}, InvalidSurveyError, "outside"),
-        (
-            {"interpolate": True, "MD_i": {"md_interval": 30}},
-            InvalidInputError,
-            "multiple",
-        ),
+        ({"MD_i": {"md_interval": 1e-6}}, InvalidInputError, "1,000,000 points"),
+        ({"azimuthReference": "MAGNETIC_NORTH"}, InvalidInputError, "north_ref"),
         ({"unitXY": "ft"}, UnitError, "unitXY"),
         ({"method": "Tangential"}, InvalidInputError, "Tangential"),
         ({"MD_i": {"md_interval": 0}}, InvalidInputError, "md_interval"),
@@ -699,7 +741,8 @@ def test_gnl_is_grid_north_local() -> None:
     ids=[
         "both-md-i-forms",
         "md-i-outside",
-        "spacings-apart",
+        "md-interval-too-fine",
+        "magnetic-north",
         "foreign-xy-unit",
         "unknown-method",
         "zero-md-interval",
@@ -756,10 +799,17 @@ def test_a_geographic_crs_takes_its_angular_xy_unit() -> None:
         TrajectoryInput.from_osdu_payload(body | {"unitXY": "m"})
 
 
-def test_an_inclination_only_payload_ignores_any_azimuth() -> None:
-    body = request(EXAMPLES / "02_deviated_well_build.json") | {"inputKind": "MD_Incl"}
-    body["azimuthReference"] = "TN"
+def test_an_inclination_only_payload_gives_no_azimuths() -> None:
+    body = request(EXAMPLES / "02_deviated_well_build.json")
+    body |= {"inputKind": "MD_Incl", "azimuthReference": "TN"}
 
+    with pytest.raises(InvalidInputError, match="MD_Incl"):
+        TrajectoryInput.from_osdu_payload(body)
+
+    body["inputStations"] = [
+        {"md": row["md"], "inclination": row["inclination"]}
+        for row in body["inputStations"]
+    ]
     trajectory = TrajectoryInput.from_osdu_payload(body).compute()
 
     assert trajectory.east == pytest.approx(0.0, abs=1e-9)

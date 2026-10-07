@@ -12,7 +12,7 @@ import json
 import math
 import os
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from importlib.resources.abc import Traversable
 from pathlib import Path
@@ -56,8 +56,10 @@ _OSDU_METHODS = {
     "gridnorthlocal": Method.GRID_NORTH_LOCAL,
     "enu": Method.ENU,
     "lmp": Method.LMP,
+    "leesmodifiedproposal": Method.LMP,
 }
-# The spacing an OSDU payload's "interpolate": true asks for, in its MD unit.
+# The spacing "interpolate" asks for, in the MD unit: about as often as the
+# service adds stations.
 _OSDU_STEP = 100.0
 
 
@@ -521,16 +523,20 @@ class TrajectoryInput:
         The body's fields map onto the input one for one:
 
         * ``inputStations`` onto the survey, with ``inputKind`` ``"MD_Incl"``
-          for an inclination-only one;
+          for an inclination-only one, whose stations give no azimuth;
         * ``referencePoint`` onto the wellhead, ``trajectoryCRS`` onto the CRS
-          and ``azimuthReference`` onto the north reference;
+          and ``azimuthReference`` onto the north reference, also read as
+          ``"GRID_NORTH"`` or ``"TRUE_NORTH"``;
         * ``unitMD`` onto the MD unit, ``unitZ`` if it is left out, and
           ``unitZ`` onto :attr:`z_unit`; angles are in degrees;
         * ``method`` onto :attr:`method`, where ``"GNL"`` is
-          ``GridNorthLocal``;
-        * ``MD_i.md_i`` onto :attr:`md_points`, and ``MD_i.md_interval`` onto
-          :attr:`md_step`. ``"interpolate": true`` asks for a point every 100
-          of the MD unit.
+          ``GridNorthLocal`` and ``"LeesModifiedProposal"`` is ``LMP``;
+        * ``interpolate`` onto :attr:`md_step`: true, also when it is left
+          out, as the service takes it, asks for a point every 100 of the MD
+          unit;
+        * ``MD_i`` onto :attr:`md_points`: ``md_i`` as listed, or a point
+          every ``md_interval`` from the first station, and the last, as the
+          service expands it.
 
         ``unitXY`` is checked against the CRS and not stored: the wellhead is
         read in the CRS's own unit, never rescaled.
@@ -545,11 +551,11 @@ class TrajectoryInput:
         Raises:
             InvalidInputError: If the payload is not a JSON object, a required
                 field is missing or has the wrong shape, ``inputKind`` is not
-                ``"MD_Incl_Azim"`` or ``"MD_Incl"``, ``interpolate`` is not
-                a boolean, ``method`` names no known method, ``MD_i`` gives both
-                ``md_i`` and ``md_interval``, ``md_interval`` is not a positive
-                length, or ``md_interval`` and ``interpolate`` ask for spacings
-                that are not multiples of each other.
+                ``"MD_Incl_Azim"`` or ``"MD_Incl"``, an ``"MD_Incl"`` station
+                gives an azimuth, ``interpolate`` is not a boolean, ``method``
+                names no known method, ``MD_i`` gives both ``md_i`` and
+                ``md_interval``, or ``md_interval`` is not a positive length
+                or gives more than a million points.
             InvalidSurveyError: If the stations cannot describe a wellbore.
             UnitError: If a unit is not recognised, or ``unitXY`` is not the
                 CRS's own unit.
@@ -595,6 +601,11 @@ class TrajectoryInput:
             raise InvalidInputError(
                 f"inputStations must be a list of stations, each with {', '.join(keys)}"
             )
+        if inclination_only and any(row.get("azimuth") is not None for row in rows):
+            raise InvalidInputError(
+                "inputKind MD_Incl is an inclination-only survey, but inputStations "
+                "give azimuths: leave them out, or give inputKind MD_Incl_Azim"
+            )
         reference = body["referencePoint"]
         if not isinstance(reference, Mapping) or not {"x", "y"} <= reference.keys():
             raise InvalidInputError("referencePoint must be a mapping with x and y")
@@ -616,8 +627,9 @@ class TrajectoryInput:
             raise InvalidInputError(
                 f"interpolate must be true or false, not {interpolate!r}"
             )
+        spacing = _step(interval, "MD_i.md_interval")
 
-        return cls.from_arrays(
+        well = cls.from_arrays(
             [row["md"] for row in rows],
             [row["inclination"] for row in rows],
             None if inclination_only else [row["azimuth"] for row in rows],
@@ -627,9 +639,12 @@ class TrajectoryInput:
             md_unit=body["unitMD"] if "unitMD" in body else body["unitZ"],
             method=_OSDU_METHODS[method.casefold()],
             z_unit=body["unitZ"],
-            md_step=_osdu_step(bool(interpolate), interval),
+            md_step=None if interpolate is False else _OSDU_STEP,
             md_points=listed or None,
         )
+        if spacing is None:
+            return well
+        return replace(well, md_points=_interval_depths(spacing, well.survey.md))
 
     def compute(self) -> WellTrajectory:
         """The trajectory: positions, angles and dogleg severity at every point.
@@ -824,20 +839,15 @@ def _columns_of(
     return columns[0], columns[1], columns[2] if widths == {3} else None
 
 
-def _osdu_step(interpolate: bool, interval: object) -> float | None:
-    """One MD step covering both ``interpolate`` and ``MD_i.md_interval``."""
-    stated = _step(interval, "MD_i.md_interval")
-    implied = _OSDU_STEP if interpolate else None
-    steps = sorted(step for step in (stated, implied) if step is not None)
-    if len(steps) == 2 and not math.isclose(
-        steps[1] / steps[0], round(steps[1] / steps[0]), rel_tol=1e-9
-    ):
+def _interval_depths(spacing: float, md: FloatArray) -> FloatArray:
+    """A depth every ``spacing`` from the first station, and the last one."""
+    intervals = float(md[-1] - md[0]) / spacing
+    if not intervals < _MAX_POINTS:
         raise InvalidInputError(
-            f"interpolate asks for a point every {_OSDU_STEP:g} of MD and "
-            f"MD_i.md_interval every {stated:g}; neither is a multiple of the "
-            "other, so no single spacing gives both"
+            f"MD_i.md_interval {spacing:g} gives more than {_MAX_POINTS:,} points"
         )
-    return steps[0] if steps else None
+    depths = md[0] + spacing * np.arange(math.ceil(intervals - 1e-9))
+    return np.union1d(np.minimum(depths, md[-1]), md[-1:])
 
 
 def _require_crs_unit(crs: Any, wellhead: Sequence[float], unit: str) -> None:
