@@ -1,7 +1,7 @@
 {
   "source": {
-    "file": "local/crs-conversion-service/docs/v3/tutorial/SDU_geometric_aspects_of_bin_grids.docx",
-    "repository": "OSDU crs-conversion-service (local clone)",
+    "file": "docs/v3/tutorial/SDU_geometric_aspects_of_bin_grids.docx",
+    "repository": "OSDU crs-conversion-service, https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service",
     "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
     "document": "Geometric Aspects of Bin Grids, version 2.3 (2020-04-04), Bert Kampes (Shell)",
     "note": "The note states that the example values of its Table 1 and Table 2 do not correspond spatially to each other or to its figures."

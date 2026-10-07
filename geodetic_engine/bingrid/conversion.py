@@ -2,12 +2,12 @@
 
 :func:`convert_bin_grid` is the computation behind the OSDU CRS conversion
 service's ``POST v3/convertBinGrid``, without any of its JSON: optionally
-convert the corners to another CRS, fit the best rectangle through them there,
-report how far they were from it, and give the squared corners in WGS 84. The
-bin grid scale factor is that CRS's point scale factor at the grid centre, so
-that the P6 bin widths are the ground spacing of the bins there. A projection
-that is not conformal there has a scale per direction rather than one, so the
-scale factor must then be stated.
+convert the corners to another CRS, fit the SDU note's rectangle through them
+there, report how far they were from it, and give the squared corners in WGS
+84. The bin grid scale factor is that CRS's point scale factor at the grid
+centre, so that the P6 bin widths are the ground spacing of the bins there. A
+projection that is not conformal there has a scale per direction rather than
+one, so the scale factor must then be stated.
 
 Coordinate conversions go through :class:`~geodetic_engine.geodesy.Transformation`
 and keep its guarantees: a datum change needs a named operation or a bound CRS,
@@ -53,7 +53,8 @@ class BinGridResult:
     Attributes:
         source_crs: CRS the input corners are in.
         crs: CRS of the converted and squared grid: the target CRS if one was
-            given and differs from the source CRS, else the source CRS.
+            given on another map grid, or a bound one on the same map grid;
+            else the source CRS.
         input_corners: The corners as given.
         converted_corners: The input corners converted to :attr:`crs`, before
             squaring; None when no conversion was applied.
@@ -171,6 +172,7 @@ def convert_bin_grid(
     increment_j: int = 1,
     wgs84: bool = True,
     wgs84_operation: Any = None,
+    coordinate_epoch: float | None = None,
 ) -> BinGridResult:
     """Check a four-corner bin grid, optionally convert it, and square it up.
 
@@ -179,8 +181,11 @@ def convert_bin_grid(
         crs: CRS the corners' coordinates are in; anything
             :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`
             accepts. Must be projected, optionally bound.
-        target_crs: CRS to convert the grid to. Omitted, or equal to ``crs``,
-            the grid is squared up where it is.
+        target_crs: CRS to convert the grid to. Omitted, or on the same map
+            grid as ``crs`` -- the same projected CRS, whether or not either
+            is bound -- the grid is squared up where it is; a bound
+            ``target_crs`` then names the operation to WGS 84, an unbound one
+            leaves the grid's own CRS in place.
         operation: Coordinate operation for the conversion to ``target_crs``,
             as :class:`~geodetic_engine.geodesy.Transformation` takes it.
             Needed when the conversion changes datum and neither CRS is bound.
@@ -195,19 +200,24 @@ def convert_bin_grid(
         wgs84: Whether to also give the squared corners in WGS 84.
         wgs84_operation: Coordinate operation to WGS 84, when the grid's CRS
             does not state one.
+        coordinate_epoch: Decimal year the coordinates were observed at, for
+            a conversion whose operation reads it, as
+            :meth:`~geodetic_engine.geodesy.Transformation.transform` takes it.
 
     Returns:
         The squared grid with its provenance.
 
     Raises:
-        InvalidCornersError: If the corners are not those of a bin grid.
+        InvalidCornersError: If the corners are not those of a bin grid, or
+            their spans are not multiples of the node increments.
         DegenerateBinGridError: If their coordinates cannot be.
         InvalidParameterError: If a parameter is out of range.
         UnsupportedCRSError: If a CRS cannot carry a bin grid, or
             ``scale_factor`` is omitted and cannot be derived: the projection
             is not conformal at the grid, or its geographic CRS states its
             axes in different units.
-        ValueError: If ``operation`` is given without a conversion to apply it to.
+        ValueError: If ``operation`` is given without a conversion to apply it
+            to, or ``wgs84_operation`` with ``wgs84=False``.
         geodetic_engine.geodesy.GeodesyError: If a conversion cannot be resolved
             or applied, for example a datum change that names no operation.
     """
@@ -218,18 +228,27 @@ def convert_bin_grid(
     )
     source = map_grid_crs(crs, "")
     target = None if target_crs is None else map_grid_crs(target_crs, "target ")
-    if target is not None and target == source:
+    working = source
+    if target is not None and same_map_grid(target, source):
+        # Nothing to convert; the target's binding to WGS 84, if it has one, is
+        # what was asked for, else the grid's own CRS stays, bound or not.
+        working = target if target.crs.is_bound else source
         target = None
     if operation is not None and target is None:
         raise ValueError(
-            "an operation was given, but no target_crs other than the grid's own "
-            "CRS to convert the corners to"
+            "an operation was given, but no target_crs on another map grid than "
+            "the grid's own to convert the corners to"
+        )
+    if wgs84_operation is not None and not wgs84:
+        raise ValueError(
+            "a wgs84_operation was given, but wgs84=False asks for no WGS 84 "
+            "coordinates to apply it to"
         )
 
-    working, conversion, converted_corners = source, None, None
+    conversion, converted_corners = None, None
     if target is not None:
         conversion = Transformation(source, target, operation).transform(
-            labelled.coordinates
+            labelled.coordinates, coordinate_epoch=coordinate_epoch
         )
         working = target
         converted_corners = labelled.with_coordinates(conversion.coordinates)
@@ -257,7 +276,7 @@ def convert_bin_grid(
     wgs84_conversion, wgs84_corners, wgs84_outline = None, None, None
     if wgs84:
         wgs84_conversion = Transformation(working, WGS84, wgs84_operation).transform(
-            squaring.squared_corners.coordinates
+            squaring.squared_corners.coordinates, coordinate_epoch=coordinate_epoch
         )
         wgs84_corners = tuple(
             (point[0], point[1]) for point in wgs84_conversion.coordinates
@@ -366,6 +385,17 @@ def unbound_crs(crs: CoordinateReferenceSystem) -> CRS:
     """The CRS itself, without any transformation to WGS 84 it is bound with."""
     base = crs.crs.source_crs if crs.crs.is_bound else None
     return crs.crs if base is None else base
+
+
+def same_map_grid(
+    first: CoordinateReferenceSystem, second: CoordinateReferenceSystem
+) -> bool:
+    """Whether two CRSs are the same projected CRS, bound to WGS 84 or not.
+
+    Coordinates in one are coordinates in the other: a bin grid defined in
+    either is the same grid.
+    """
+    return bool(unbound_crs(first) == unbound_crs(second))
 
 
 def _geographic_ring(

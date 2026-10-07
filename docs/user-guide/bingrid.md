@@ -108,10 +108,13 @@ result.applied_operations()        # what was done, step by step, with EPSG code
 
 The conversion goes through {class}`~geodetic_engine.geodesy.Transformation`,
 so it follows the same rules: a datum change needs a named operation or a
-bound CRS, ballpark results and missing grids are refused, and both conversions
-are kept on the result as
-{class}`~geodetic_engine.geodesy.TransformationResult` objects. A target CRS
-equal to the source CRS means no conversion.
+bound CRS, ballpark results and missing grids are refused, an operation that
+reads the coordinate epoch needs `coordinate_epoch`, and both conversions are
+kept on the result as {class}`~geodetic_engine.geodesy.TransformationResult`
+objects. A target CRS on the grid's own map grid -- the same projected CRS,
+bound to WGS 84 or not -- means no conversion; a bound target then names the
+operation the WGS 84 step applies, which is how an OSDU `BoundProjected`
+reference of the grid's CRS is meant to be used.
 
 `result.wgs84_outline` visits the corners in the order of `result.outline`,
 each edge the short way round in longitude. For a grid across the antimeridian
@@ -125,7 +128,7 @@ subclasses of {class}`~geodetic_engine.bingrid.BinGridError`:
 
 | Error | Raised when |
 | --- | --- |
-| {class}`~geodetic_engine.bingrid.InvalidCornersError` | There are not four corners, or their numbers are not the four combinations of two inlines and two crosslines. |
+| {class}`~geodetic_engine.bingrid.InvalidCornersError` | There are not four corners, their numbers are not the four combinations of two inlines and two crosslines, or they are not whole node increments apart. |
 | {class}`~geodetic_engine.bingrid.DegenerateBinGridError` | Coordinates are not finite, corners coincide, or the outline A-B-D-C is not convex (swapped or collinear corners). |
 | {class}`~geodetic_engine.bingrid.InvalidParameterError` | A P6 parameter is out of range, for example a scale factor that is not positive. |
 | {class}`~geodetic_engine.bingrid.UnsupportedCRSError` | A CRS is not a 2D projected CRS with easting and northing axes in one linear unit, or k is to be derived from a projection that is not conformal at the grid. |
@@ -148,19 +151,22 @@ any k, and k moves no position: only k × bin width enters the formulas.
 CRS the grid is squared in, taken at the centre of the grid, from PROJ. The bin
 widths are then the ground spacing of the bins at the centre, the same in any
 CRS. Where the projection's scale varies across the grid, the spacing elsewhere
-differs: the average over the grid by about 1e-5 (1 cm per km) for a 100 km
-grid, and 4e-7 for a 20 km one. A projection that is not conformal, such as
-Cassini-Soldner or an equal-area one, has a scale that depends on direction,
-and no single k makes both bin widths ground distances. Where the scale at the
-grid centre differs by more than 1e-6 between directions, `convert_bin_grid`
-raises `UnsupportedCRSError` rather than derive k. Pass `scale_factor` to state
-k yourself; `square_up` and `derive_p6` take k as given, 1.0 by default.
+in the grid differs from it: averaged over the grid, by about 1e-5 (1 cm per
+km) for a 100 km grid and 4e-7 for a 20 km one. A projection that is not
+conformal, such as Cassini-Soldner or an equal-area one, has a scale that
+depends on direction, and no single k makes both bin widths ground distances.
+Where the scale at the grid centre differs by more than 1e-6 between
+directions, `convert_bin_grid` raises `UnsupportedCRSError` rather than derive
+k. Pass `scale_factor` to state k yourself; `square_up` and `derive_p6` take k
+as given, 1.0 by default.
 
 Node increments are how the inline and crossline numbers step between adjacent
 nodes: a grid numbered 1, 5, 9, ... in crossline has `increment_j=4`, and its
-crossline bin width is the distance between those nodes. Mis-location is
-reported in inline and crossline numbers (`di`, `dj`), in bins (`di_bins`,
-`dj_bins`), and as a map grid distance.
+crossline bin width is the distance between those nodes. Corners that are not
+whole increments apart cannot all be nodes, and are refused with
+`InvalidCornersError`. Mis-location is reported in inline and crossline
+numbers (`di`, `dj`), in bins (`di_bins`, `dj_bins`), and as a map grid
+distance.
 
 ## Matching a legacy dataset to a stored grid
 
@@ -196,8 +202,9 @@ result.best.grid.key   # result.best: the BinGridMatch to assign, or None to def
 
 A stored grid matches if it puts every dataset corner within half of the
 smaller real spacing between the dataset's loaded traces. When several match,
-the order of preference is: a grid in the dataset's own CRS, then a grid stored
-at the dataset's increments, then the smallest distance.
+the order of preference is: a grid on the dataset's own map grid (the same
+projected CRS, bound to WGS 84 or not), then a grid stored at the dataset's
+increments, then the smallest distance.
 
 The note makes one exception to comparing in the dataset's own CRS: NAD27 data
 in US survey feet against grids stored in metres. This module allows the
@@ -215,11 +222,11 @@ The with-toCRS case reproduces the Java service's Apache SIS results: the P6
 origin to within 1e-5 ftUS, and the corners to the 3 decimals the Java service
 writes.
 
-The Java implementation's defects in the computation are fixed; those in its
-JSON handling are outside this package. Each fixed defect has a test that
-states the correct behaviour and is marked `java_defect` (`uv run pytest -m
-java_defect`). `tests/bingrid/data/java_defects.json` records where each defect
-is in the Java source.
+The Java implementation's defects in the computation are not reproduced here;
+those in its JSON handling are outside this package. Each defect has a test
+that states the correct behaviour and is marked `java_defect` (`uv run pytest
+-m java_defect`). `tests/bingrid/data/java_defects.json` records where each
+defect is in the Java source.
 
 | | Java service | Here |
 | --- | --- | --- |
@@ -234,10 +241,10 @@ is in the Java source.
 
 ## Sources
 
-The package is an independent implementation. PROJ runs the P6 conversion
-(EPSG methods 9666 and 1049) and supplies the bin grid scale factor, and the
-squaring follows the SDU note. Third-party material is used in the test suite
-only, as references:
+The package is an independent implementation. PROJ runs the P6 conversion as
+its affine operation, with the coefficients it documents for EPSG methods 9666
+and 1049, and supplies the bin grid scale factor; the squaring follows the SDU
+note. Third-party material is used in the test suite only, as references:
 
 - the OSDU crs-conversion-service's test cases and expected outcomes, and a
   port of its Java squaring to compare with (Apache License 2.0);

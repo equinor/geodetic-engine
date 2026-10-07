@@ -1,6 +1,7 @@
 {
   "source": {
-    "document": "local/crs-conversion-service/docs/v3/tutorial/CRS_Convert_Service_howto.md, section 7.5 Seismic Bin Grid Spatial Area",
+    "document": "docs/v3/tutorial/CRS_Convert_Service_howto.md, section 7.5 Seismic Bin Grid Spatial Area",
+    "repository": "OSDU crs-conversion-service, https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service",
     "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
     "rule": "The outer rim is written counterclockwise (OGC/GeoJSON). Order the corners A,B,D,C,A; if that ring is clockwise, use A,C,D,B,A instead.",
     "note": "The tutorial's own example ring is A,B,D,C,A, which is clockwise for its coordinates (a right-handed grid), contrary to the rule it states. The expected order below follows the rule."

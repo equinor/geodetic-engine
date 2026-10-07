@@ -1,16 +1,16 @@
 {
   "source": {
-    "repository": "OSDU crs-conversion-service (local clone at local/crs-conversion-service)",
+    "repository": "OSDU crs-conversion-service, https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service",
     "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
-    "note": "Defects found in the Java bin grid implementation (POST v3/convertBinGrid) that concern the computation; those of its JSON handling (D1, D6 to D12, D17) are outside this package and not listed. Each defect listed has at least one test marked @pytest.mark.java_defect(<id>) that states the correct behaviour and failed before the Python implementation existed. Paths are relative to the repository root."
+    "note": "Defects found in the Java bin grid implementation (POST v3/convertBinGrid) that concern the computation; those of its JSON handling (D1, D6 to D12, D17) are outside this package and not listed. Each defect listed has at least one test marked @pytest.mark.java_defect(<id>) that states the correct behaviour and failed before the Python implementation existed. Paths and line numbers are relative to the root of that repository at the commit stated."
   },
   "defects": [
     {
       "id": "D2",
       "title": "Bin widths ignore the scale factor that the formulas then apply",
       "java": [
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L529-L556",
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L617-L716"
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L529-L556",
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L617-L716"
       ],
       "docs": ["EPSG Guidance Note 7-2, methods 9666 and 1049: bin width is a ground distance and k scales it to the map grid"],
       "defect": "Bin widths are derived as map-grid distances but both conversion directions multiply them by k, so any k other than 1 reports a spurious squaring error ((span/2)(1 - 1/k) bins) and moves the squared corners by a factor k about the centre.",
@@ -20,11 +20,11 @@
       "id": "D3",
       "title": "The inline/crossline layout of the corners is never validated",
       "java": [
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L335-L355",
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L363-L385",
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L529-L556"
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L335-L355",
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L363-L385",
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L529-L556"
       ],
-      "docs": ["local/crs-conversion-service/docs/v3/tutorial/CRS_Convert_Service_howto.md#L3807 (section 7.3, check 4)"],
+      "docs": ["docs/v3/tutorial/CRS_Convert_Service_howto.md#L3807 (section 7.3, check 4)"],
       "defect": "Corners are sorted and labelled without checking that they are (minI,minJ), (minI,maxJ), (maxI,minJ), (maxI,maxJ); duplicate or repeated inline numbers divide by zero and produce NaN or infinity instead of the documented validation error.",
       "expected": "InvalidCornersError naming the offending inline/crossline pairs."
     },
@@ -32,8 +32,8 @@
       "id": "D4",
       "title": "Degenerate or twisted corner geometry is not detected",
       "java": [
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L499-L527",
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L576-L582"
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L499-L527",
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L576-L582"
       ],
       "docs": [],
       "defect": "Coincident corners give zero-length edges and atan2(0, 0); corners whose coordinates contradict their labels (crossing edges) give a meaningless bearing and handedness; non-finite coordinates propagate.",
@@ -42,18 +42,18 @@
     {
       "id": "D5",
       "title": "A bin grid in a non-projected CRS is accepted",
-      "java": ["local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L236-L305"],
-      "docs": ["local/crs-conversion-service/docs/v3/tutorial/CRS_Convert_Service_howto.md#L3807 (section 7.3: BinGrids should use type BoundProjected or Projected)"],
+      "java": ["crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L236-L305"],
+      "docs": ["docs/v3/tutorial/CRS_Convert_Service_howto.md#L3807 (section 7.3: BinGrids should use type BoundProjected or Projected)"],
       "defect": "Nothing checks the CRS type, so geographic coordinates in degrees are treated as linear map-grid coordinates.",
       "expected": "UnsupportedCRSError unless the CRS is projected (optionally bound) with easting/northing value axes."
     },
     {
       "id": "D13",
       "title": "No SpatialArea outline is produced, and the documented ring is clockwise",
-      "java": ["local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L226-L305"],
+      "java": ["crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L226-L305"],
       "docs": [
-        "local/crs-conversion-service/docs/v3/tutorial/CRS_Convert_Service_howto.md#L3322 (section 7.2)",
-        "local/crs-conversion-service/docs/v3/tutorial/CRS_Convert_Service_howto.md#L3889 (section 7.5)"
+        "docs/v3/tutorial/CRS_Convert_Service_howto.md#L3322 (section 7.2)",
+        "docs/v3/tutorial/CRS_Convert_Service_howto.md#L3889 (section 7.5)"
       ],
       "defect": "Section 7.2 promises a polygon for the SeismicBinGrid SpatialArea, which the code never builds; the section 7.5 example ring A,B,D,C,A is clockwise for its coordinates although the section requires counterclockwise.",
       "expected": "A closed, counterclockwise 5-point outline of the squared corners, in the map CRS and in WGS 84, returned as SpatialArea."
@@ -62,8 +62,8 @@
       "id": "D14",
       "title": "The request is mutated and the input corners are lost",
       "java": [
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L252",
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L264-L276"
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L252",
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L264-L276"
       ],
       "docs": [],
       "defect": "outBinGrid is the request's inBinGrid object, overwritten in place with converted and then squared coordinates.",
@@ -72,8 +72,8 @@
     {
       "id": "D15",
       "title": "A conversion is applied even when toCRS is the CRS the grid is in",
-      "java": ["local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L253"],
-      "docs": ["local/crs-conversion-service/docs/v3/tutorial/CRS_Convert_Service_howto.md#L3322 (section 7.2: conversion is omitted)"],
+      "java": ["crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L253"],
+      "docs": ["docs/v3/tutorial/CRS_Convert_Service_howto.md#L3322 (section 7.2: conversion is omitted)"],
       "defect": "Any non-empty toCRS sends the corners through a conversion.",
       "expected": "No conversion, and no conversion recorded, when the target equals the source CRS."
     },
@@ -81,8 +81,8 @@
       "id": "D16",
       "title": "Rounding is inconsistent between corners and P6 origin",
       "java": [
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L621",
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L761"
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L621",
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L761"
       ],
       "docs": ["SDU note 'Storage, compute and display precision'"],
       "defect": "Squared corner coordinates are rounded to 3 decimals while P6BinGridOriginEasting/Northing, which is corner A, is left unrounded, so the two disagree.",
@@ -92,13 +92,13 @@
       "id": "D18",
       "title": "The request's scale factor is written back, even into another CRS",
       "java": [
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L317-L318",
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L617",
-        "local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L253-L298"
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L317-L318",
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java#L617",
+        "crs-converter-core/src/main/java/org/opengroup/osdu/crs/api/CrsConverterApiV3.java#L253-L298"
       ],
       "docs": [
-        "local/crs-conversion-service/docs/v3/tutorial/CRS_Convert_Service_howto.md#L3798 (section 7.2.3: ignored on input, populated with a derived value on output)",
-        "local/PROJ/docs/source/operations/transformations/affine.rst#L72-L73 (the point scale factor of the map grid)"
+        "docs/v3/tutorial/CRS_Convert_Service_howto.md#L3798 (section 7.2.3: ignored on input, populated with a derived value on output)",
+        "PROJ documentation, Affine transformation (docs/source/operations/transformations/affine.rst): SF is the point scale factor of the map grid at a chosen reference point"
       ],
       "defect": "P6ScaleFactorOfBinGrid is read from the request and written back unchanged; with toCRS it is the source projection's scale stamped on a grid in the target projection (UTM 15N's 0.9996 on BLM 14N, whose scale there is 1.0047), and with D2 any value other than 1 also moves the squared corners.",
       "expected": "The request's value is ignored; the output scale factor is derived from the output CRS, so that the bin widths are the ground spacing of the bins in any CRS."

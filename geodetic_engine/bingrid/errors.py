@@ -18,10 +18,12 @@ class BinGridError(GeodeticEngineError):
 class InvalidCornersError(BinGridError):
     """The corners given do not state a bin grid.
 
-    Raised when there are not exactly four, or when their inline and crossline
-    numbers are not the minimum and maximum of each, in all four combinations.
-    Sorting such points into A, B, C and D anyway is how a grid ends up with a
-    zero inline span and an infinite bin width.
+    Raised when there are not exactly four, when their inline and crossline
+    numbers are not the minimum and maximum of each, in all four combinations,
+    or when the numbers are not multiples of the node increments apart, so
+    that the corners cannot all be bin nodes. Sorting such points into A, B, C
+    and D anyway is how a grid ends up with a zero inline span and an infinite
+    bin width.
     """
 
 

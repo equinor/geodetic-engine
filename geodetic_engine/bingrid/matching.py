@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 
-from geodetic_engine.bingrid.conversion import map_grid_crs, unbound_crs
+from geodetic_engine.bingrid.conversion import map_grid_crs, same_map_grid, unbound_crs
 from geodetic_engine.bingrid.corners import BinGridCorner, BinGridCorners
 from geodetic_engine.bingrid.p6 import P6Parameters
 from geodetic_engine.bingrid.squaring import derive_p6
@@ -50,9 +50,11 @@ class StoredBinGrid:
     Attributes:
         key: Identifies the grid in its store, for example an OSDU record-id.
         parameters: The grid's P6 parameters.
-        crs: The projected CRS the parameters are in; anything
+        crs: The projected CRS the parameters are in. Give anything
             :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`
-            accepts, resolved on construction.
+            accepts; it is held as a
+            :class:`~geodetic_engine.geodesy.CoordinateReferenceSystem` once
+            constructed.
 
     Raises:
         UnsupportedCRSError: On construction, if the CRS cannot carry a bin grid.
@@ -60,7 +62,7 @@ class StoredBinGrid:
 
     key: str
     parameters: P6Parameters
-    crs: CoordinateReferenceSystem
+    crs: Any
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "crs", map_grid_crs(self.crs, "stored grid's "))
@@ -74,7 +76,8 @@ class BinGridMatch:
         grid: The stored grid.
         distance: Largest distance between a corner of the dataset and where the
             grid puts that corner's numbers, in the dataset CRS's linear unit.
-        same_crs: Whether the grid is in the dataset's own CRS.
+        same_crs: Whether the grid is on the dataset's own map grid: the same
+            projected CRS, whether or not either is bound to WGS 84.
         same_increments: Whether the grid is stored at the dataset's increments.
     """
 
@@ -155,7 +158,8 @@ def match_bin_grid(
         assign, or None when the dataset needs a grid of its own.
 
     Raises:
-        InvalidCornersError: If the corners are not those of a bin grid.
+        InvalidCornersError: If the corners are not those of a bin grid, or
+            their spans are not multiples of the increments.
         DegenerateBinGridError: If their coordinates cannot be.
         InvalidParameterError: If an increment is not a positive integer.
         UnsupportedCRSError: If the dataset's CRS cannot carry a bin grid.
@@ -186,7 +190,7 @@ def match_bin_grid(
 
     matches = []
     for grid in grids:
-        same_crs = grid.crs == working
+        same_crs = same_map_grid(grid.crs, working)
         if not same_crs and not _same_datum(grid.crs, working):
             logger.debug(
                 "not comparing %s: %s is not on the datum of %s",

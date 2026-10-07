@@ -13,12 +13,14 @@ import json
 
 import numpy as np
 import pytest
-from pyproj import Transformer
+from pyproj import CRS, Transformer
+from pyproj.crs import BoundCRS, CoordinateOperation
 
 from geodetic_engine import bingrid
 from geodetic_engine.bingrid import (
     BinGridCorners,
     Handedness,
+    InvalidCornersError,
     P6Parameters,
     UnsupportedCRSError,
     corners_from_p6,
@@ -151,6 +153,43 @@ def test_a_grid_on_another_datum_is_never_compared() -> None:
 
     assert result.best is None
     assert result.matches == ()
+
+
+NAD27_UTM_15N_BOUND = BoundCRS(
+    CRS.from_epsg(26715),
+    CRS.from_epsg(4326),
+    CoordinateOperation.from_authority("EPSG", 15851),
+)
+
+
+@pytest.mark.parametrize(
+    ("dataset_crs", "stored_crs"),
+    [
+        pytest.param(NAD27_UTM_15N, NAD27_UTM_15N_BOUND, id="stored-bound"),
+        pytest.param(NAD27_UTM_15N_BOUND, NAD27_UTM_15N, id="dataset-bound"),
+    ],
+)
+def test_the_bound_form_of_the_datasets_crs_is_its_own_map_grid(
+    dataset_crs: object, stored_crs: object
+) -> None:
+    """OSDU stores grids in BoundProjected CRSs: the binding changes no coordinate."""
+    bound = StoredBinGrid("bound-copy", GRID, stored_crs)
+    near = StoredBinGrid("one-metre-off", _moved(GRID, 1.0), dataset_crs)
+
+    result = match_bin_grid(_volume(), dataset_crs, [near, bound], increment_j=4)
+
+    assert [match.grid.key for match in result.matches] == [
+        "bound-copy",
+        "one-metre-off",
+    ]
+    assert all(match.same_crs for match in result.matches)
+    assert result.matches[0].distance < 1e-6
+
+
+def test_a_dataset_whose_corners_are_not_whole_increments_apart_is_refused() -> None:
+    """Corners 2000 crosslines apart cannot both be traces loaded every 7."""
+    with pytest.raises(InvalidCornersError, match=r"2000 apart.*increment 7"):
+        match_bin_grid(_volume(), NAD27_UTM_15N, [STORED], increment_j=7)
 
 
 def test_the_grid_in_the_datasets_own_crs_is_preferred() -> None:

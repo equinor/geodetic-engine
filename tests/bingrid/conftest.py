@@ -4,6 +4,12 @@ Test data lives in ``tests/bingrid/data``; every file states its source. Corner
 coordinates of the synthetic grids are not stored but generated from their P6
 parameters by :mod:`tests.bingrid._epsg_reference`, an independent transcription
 of the EPSG formulas, so that they are exact rectangles by construction.
+
+The Hypothesis property tests run deterministic examples by default, so that a
+run reproduces on every machine. Pass ``--hypothesis-profile=geodetic-engine-random``
+to draw fresh examples instead, as CI does in a separate step: a strategy or
+tolerance that only holds for the fixed examples is found there, not when a
+Hypothesis or Python upgrade changes which examples the fixed seed gives.
 """
 
 from __future__ import annotations
@@ -25,6 +31,13 @@ DATA = Path(__file__).parent / "data"
 # examples on every run and machine, and no example database written to disk.
 settings.register_profile(
     "geodetic-engine", derandomize=True, database=None, deadline=None
+)
+settings.register_profile(
+    "geodetic-engine-random",
+    derandomize=False,
+    database=None,
+    deadline=None,
+    max_examples=300,
 )
 settings.load_profile("geodetic-engine")
 

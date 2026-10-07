@@ -12,8 +12,15 @@ left-handed), as given in IOGP Guidance Note 7-2:
 with ``h`` +1 for a right-handed grid and -1 for a left-handed one, ``t`` the
 map grid bearing of the J-axis, ``k`` the bin grid scale factor, ``dI`` and
 ``dJ`` the bin widths and ``incI`` and ``incJ`` the bin node increments. The
-bin widths are ground distances; ``k`` scales them onto the map grid. PROJ (9.9
-or later) runs both methods; this module holds and checks their parameters.
+bin widths are ground distances; ``k`` scales them onto the map grid.
+
+PROJ runs the conversion, as its ``affine`` operation with the coefficients
+PROJ itself gives these two methods (see its affine documentation). The
+operation is built from those coefficients at full precision rather than from
+the EPSG method definition: a conversion PROJ instantiates from one goes
+through its PROJ-string export, which rounds every coefficient lying within
+1e-9 of a tenth to that tenth, so a J-axis bearing within about a millionth of
+a degree of a cardinal direction would be applied as exactly cardinal.
 
 The inline number is ``I`` and the crossline number is ``J`` throughout, so the
 J-axis is the direction of a constant inline and its bearing is the "inline
@@ -23,7 +30,6 @@ bearing" of the seismic industry.
 from __future__ import annotations
 
 import dataclasses
-import json
 import logging
 import math
 import numbers
@@ -46,20 +52,6 @@ _METHODS = {
     "right": (9666, "P6 I=J+90 seismic bin grid coordinate operation", 1),
     "left": (1049, "P6 I=J-90 seismic bin grid coordinate operation", -1),
 }
-
-# Lengths are in the grid's own unit: stated as metre, PROJ converts nothing.
-_PARAMETERS = (
-    (8733, "Bin grid origin I", "origin_i", "unity"),
-    (8734, "Bin grid origin J", "origin_j", "unity"),
-    (8735, "Bin grid origin Easting", None, "metre"),
-    (8736, "Bin grid origin Northing", None, "metre"),
-    (8737, "Scale factor of bin grid", "scale_factor", "unity"),
-    (8738, "Bin width on I-axis", "bin_width_i", "metre"),
-    (8739, "Bin width on J-axis", "bin_width_j", "metre"),
-    (8740, "Map grid bearing of bin grid J-axis", "bearing_j", "degree"),
-    (8741, "Bin node increment on I-axis", "increment_i", "unity"),
-    (8742, "Bin node increment on J-axis", "increment_j", "unity"),
-)
 
 
 class Handedness(StrEnum):
@@ -368,28 +360,36 @@ def _listed(values: Any) -> Any:
     return values
 
 
-@lru_cache(maxsize=256)
 def _offsets_to_bin(parameters: P6Parameters) -> Transformer:
-    """PROJ's EPSG 9666 or 1049 conversion of map grid offsets from the origin."""
-    conversion = {
-        "type": "Conversion",
-        "name": "P6 bin grid",
-        "method": {
-            "name": parameters.handedness.method_name,
-            "id": {"authority": "EPSG", "code": parameters.method_code},
-        },
-        # Offsets keep the digits PROJ's affine loses on whole map coordinates.
-        "parameters": [
-            {
-                "name": name,
-                "value": 0.0 if attribute is None else getattr(parameters, attribute),
-                "unit": unit,
-                "id": {"authority": "EPSG", "code": code},
-            }
-            for code, name, attribute, unit in _PARAMETERS
-        ],
-    }
-    return Transformer.from_pipeline(json.dumps(conversion))
+    """PROJ's affine from map grid offsets off the origin to bin grid numbers.
+
+    The coefficients are those PROJ documents for EPSG methods 9666 and 1049,
+    with the origin's easting and northing left out: the offsets are taken in
+    Python, which keeps the digits an affine on whole map coordinates loses.
+    """
+    theta = math.radians(parameters.bearing_j)
+    sign = parameters.handedness.sign
+    bins_per_unit_i = 1.0 / parameters.grid_step_i
+    bins_per_unit_j = 1.0 / parameters.grid_step_j
+    return _affine(
+        parameters.origin_i,
+        parameters.origin_j,
+        sign * bins_per_unit_i * math.cos(theta),
+        -sign * bins_per_unit_i * math.sin(theta),
+        bins_per_unit_j * math.sin(theta),
+        bins_per_unit_j * math.cos(theta),
+    )
+
+
+@lru_cache(maxsize=256)
+def _affine(
+    xoff: float, yoff: float, s11: float, s12: float, s21: float, s22: float
+) -> Transformer:
+    # repr() round-trips every double; PROJ parses the string without rounding.
+    return Transformer.from_pipeline(
+        f"+proj=affine +xoff={xoff!r} +yoff={yoff!r} "
+        f"+s11={s11!r} +s12={s12!r} +s21={s21!r} +s22={s22!r}"
+    )
 
 
 def _handedness(value: Any) -> Handedness:

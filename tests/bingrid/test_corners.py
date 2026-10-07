@@ -175,6 +175,23 @@ def test_p6_corner_ranges_must_be_increasing_integers(
         )
 
 
+def test_p6_corner_ranges_must_span_whole_node_increments() -> None:
+    """The SDU note's grid numbers crosslines every 4: 5161 to 9410 has no node at 9410."""
+    grid = p6(
+        next(g for g in GRIDS if g["case_id"] == "sdu_note_increments_1_4")[
+            "parameters"
+        ]
+    )
+
+    with pytest.raises(InvalidCornersError, match=r"4249 numbers.*increment 4"):
+        corners_from_p6(grid, inline_range=(14100, 17700), crossline_range=(5161, 9410))
+
+    corners = corners_from_p6(
+        grid, inline_range=(14100, 17700), crossline_range=(5161, 9409)
+    )
+    assert corners.crossline_range == (5161, 9409)
+
+
 def test_json_rendering_is_labelled() -> None:
     rendered = BinGridCorners.from_corners(corner_tuples(NOTE)).to_json_dict()
 

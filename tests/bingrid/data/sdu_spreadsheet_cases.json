@@ -1,7 +1,7 @@
 {
   "source": {
-    "file": "local/crs-conversion-service/docs/v3/tutorial/SDU_geometric_aspects_of_bin_grids.xlsx",
-    "repository": "OSDU crs-conversion-service (local clone)",
+    "file": "docs/v3/tutorial/SDU_geometric_aspects_of_bin_grids.xlsx",
+    "repository": "OSDU crs-conversion-service, https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service",
     "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
     "author": "Bert Kampes (Shell), spreadsheet version 1, 2019-09-06",
     "note": "Cached cell values of an independent implementation (MS Excel) of the SDU four-corner method with P6ScaleFactorOfBinGrid = 1. Residuals are input minus model; max_mislocation is in inline/crossline-number units."

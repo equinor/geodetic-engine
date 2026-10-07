@@ -4,6 +4,15 @@ Round trips must be exact to floating point, and the squaring QC must measure
 the shape of the corners and nothing else: not where they are, how the map
 grid is rotated, the unit they are in, which way round the grid is, the order
 they were given in, or the scale factor declared for the grid.
+
+The generated grids have bins of at least 5 units and sides within 100 to 1 of
+each other. Coordinates of 1e7 carry about 2e-9 of floating-point noise, and
+the bearing the squaring takes from a short side is applied along the long
+one, so a 1 m bin on a 10 m by 1000 km sliver would turn that noise into
+1e-5 bins of misfit: a property of floating point, not of the method, and
+outside anything a survey is laid out as. The tolerances below are set for
+those bounds; run with ``--hypothesis-profile=geodetic-engine-random`` to
+check them on fresh examples.
 """
 
 from __future__ import annotations
@@ -28,7 +37,7 @@ from tests.bingrid.conftest import signed_area
 
 @st.composite
 def grids(draw: st.DrawFn) -> tuple[P6Parameters, tuple[int, int], tuple[int, int]]:
-    """A P6 grid with an extent of whole node steps."""
+    """A P6 grid with an extent of whole node steps and sides within 100 to 1."""
     increment_i = draw(st.integers(1, 8))
     increment_j = draw(st.integers(1, 8))
     parameters = P6Parameters(
@@ -36,8 +45,8 @@ def grids(draw: st.DrawFn) -> tuple[P6Parameters, tuple[int, int], tuple[int, in
         origin_j=draw(st.integers(-1000, 100000)),
         origin_easting=draw(st.floats(-1e6, 4e6)),
         origin_northing=draw(st.floats(0.0, 1.1e7)),
-        bin_width_i=draw(st.floats(1.0, 500.0)),
-        bin_width_j=draw(st.floats(1.0, 500.0)),
+        bin_width_i=draw(st.floats(5.0, 500.0)),
+        bin_width_j=draw(st.floats(5.0, 500.0)),
         bearing_j=draw(st.floats(0.0, 360.0, exclude_max=True)),
         handedness=draw(st.sampled_from(Handedness)),
         scale_factor=draw(st.floats(0.98, 1.02)),
@@ -46,9 +55,19 @@ def grids(draw: st.DrawFn) -> tuple[P6Parameters, tuple[int, int], tuple[int, in
     )
     i_min = int(parameters.origin_i) + increment_i * draw(st.integers(-50, 50))
     j_min = int(parameters.origin_j) + increment_j * draw(st.integers(-50, 50))
-    i_span = increment_i * draw(st.integers(10, 3000))
-    j_span = increment_j * draw(st.integers(10, 3000))
-    return parameters, (i_min, i_min + i_span), (j_min, j_min + j_span)
+    nodes_i = draw(st.integers(10, 3000))
+    side_ratio = nodes_i * parameters.bin_width_i / parameters.bin_width_j
+    nodes_j = draw(
+        st.integers(
+            max(10, math.ceil(side_ratio / 100.0)),
+            min(3000, math.floor(side_ratio * 100.0)),
+        )
+    )
+    return (
+        parameters,
+        (i_min, i_min + increment_i * nodes_i),
+        (j_min, j_min + increment_j * nodes_j),
+    )
 
 
 @st.composite
@@ -235,11 +254,12 @@ def test_the_declared_scale_factor_does_not_change_the_misfit(
     plain = _fit(corners)
     scaled = _fit(corners, scale_factor=scale_factor)
 
+    # The misfit is a difference of numbers up to 1e5 apart: compare to 1e-8.
     assert math.isclose(
-        plain.max_mislocation.di, scaled.max_mislocation.di, abs_tol=1e-9
+        plain.max_mislocation.di, scaled.max_mislocation.di, abs_tol=1e-8
     )
     assert math.isclose(
-        plain.max_mislocation.dj, scaled.max_mislocation.dj, abs_tol=1e-9
+        plain.max_mislocation.dj, scaled.max_mislocation.dj, abs_tol=1e-8
     )
     assert math.isclose(
         scaled.parameters.bin_width_i * scale_factor,

@@ -2,9 +2,9 @@
 
 The cases are the OSDU acceptance tests' grid: 100 inlines by 1000 crosslines of
 1000 x 100 m bins in WGS 84 / UTM zone 15N, and the same grid converted to
-NAD27 / BLM 14N (ftUS) bound to WGS 84 by NAD27 to WGS 84 (79). Converting it
-six degrees west of its own zone's central meridian bends it enough to measure:
-0.38 of a crossline at the worst corner.
+NAD27 / BLM 14N (ftUS) bound to WGS 84 by NAD27 to WGS 84 (79). The grid lies
+six degrees east of that zone's central meridian, which bends it enough to
+measure: 0.38 of a crossline at the worst corner.
 """
 
 from __future__ import annotations
@@ -15,18 +15,24 @@ from typing import Any
 import numpy as np
 import pytest
 from pyproj import CRS, Geod, Proj, Transformer
-from pyproj.crs import BoundCRS, CoordinateOperation
+from pyproj.crs import BoundCRS, CoordinateOperation, ProjectedCRS
+from pyproj.crs.coordinate_operation import UTMConversion
 
 from geodetic_engine.bingrid import (
     BinGridCorners,
     BinGridResult,
     Handedness,
+    InvalidCornersError,
     P6Parameters,
     UnsupportedCRSError,
     convert_bin_grid,
     corners_from_p6,
 )
-from geodetic_engine.geodesy import AmbiguousOperationError, OperationRoute
+from geodetic_engine.geodesy import (
+    AmbiguousOperationError,
+    MissingCoordinateEpochError,
+    OperationRoute,
+)
 from tests.bingrid.conftest import corner_tuples, load, osdu_outcome, signed_area
 
 ACCEPTANCE = corner_tuples(
@@ -173,7 +179,12 @@ def test_the_bin_widths_are_the_ground_spacing_of_the_bins_at_the_centre(
 def test_the_scale_factor_is_the_projections_scale_at_the_grid(
     keywords: dict[str, Any], crs: CRS
 ) -> None:
-    """EPSG's bin grid scale factor: the point scale factor at the grid centre."""
+    """EPSG's bin grid scale factor: the point scale factor at the grid centre.
+
+    A consistency check against PROJ's own factors, which the implementation
+    also reads; the independent check of the derived widths is the geodesic one
+    above.
+    """
     result = convert_bin_grid(ACCEPTANCE, "EPSG:32615", wgs84=False, **keywords)
 
     to_lonlat = Transformer.from_crs(crs, crs.geodetic_crs, always_xy=True)
@@ -358,6 +369,217 @@ def test_an_operation_without_a_target_is_a_mistake() -> None:
         convert_bin_grid(ACCEPTANCE, "EPSG:32615", operation="EPSG:15851")
 
 
+def test_a_wgs84_operation_without_wgs84_coordinates_is_a_mistake() -> None:
+    with pytest.raises(ValueError, match="wgs84=False"):
+        convert_bin_grid(
+            ACCEPTANCE, "EPSG:32615", wgs84=False, wgs84_operation="EPSG:15851"
+        )
+
+
+NAD27_UTM_15N_BOUND = BoundCRS(
+    CRS.from_epsg(26715),
+    CRS.from_epsg(4326),
+    CoordinateOperation.from_authority("EPSG", 15851),
+)
+
+
+def test_the_bound_form_of_the_grids_crs_is_the_same_map_grid() -> None:
+    """A BoundProjected target of the grid's own projected CRS converts nothing;
+    its binding is what the WGS 84 step then applies.
+    """
+    with pytest.raises(AmbiguousOperationError):
+        convert_bin_grid(ACCEPTANCE, "EPSG:26715")
+
+    result = convert_bin_grid(ACCEPTANCE, "EPSG:26715", target_crs=NAD27_UTM_15N_BOUND)
+
+    assert not result.converted
+    assert result.conversion is None
+    assert result.converted_corners is None
+    assert result.crs.crs.is_bound
+    assert result.wgs84_conversion is not None
+    assert result.wgs84_conversion.operation.route is OperationRoute.BOUND
+    assert result.wgs84_conversion.operation.authority_code == "EPSG:15851"
+    assert (
+        result.squaring
+        == convert_bin_grid(ACCEPTANCE, "EPSG:26715", wgs84=False).squaring
+    )
+    with pytest.raises(ValueError, match="target_crs"):
+        convert_bin_grid(
+            ACCEPTANCE,
+            "EPSG:26715",
+            target_crs=NAD27_UTM_15N_BOUND,
+            operation="EPSG:15851",
+        )
+
+
+def test_a_grid_in_a_bound_crs_needs_no_conversion_to_the_unbound_one() -> None:
+    result = convert_bin_grid(ACCEPTANCE, NAD27_UTM_15N_BOUND, target_crs="EPSG:26715")
+
+    assert not result.converted
+    assert result.crs is result.source_crs
+    assert result.crs.crs.is_bound
+    assert result.wgs84_conversion is not None
+    assert result.wgs84_conversion.operation.authority_code == "EPSG:15851"
+
+
+def test_node_increments_pass_through_to_the_squared_grid() -> None:
+    """Numbered every 2 inlines and 5 crosslines: widths per node, misfit unchanged."""
+    single = convert_bin_grid(ACCEPTANCE, "EPSG:32615", target_crs=BLM_14N, wgs84=False)
+
+    stepped = convert_bin_grid(
+        ACCEPTANCE,
+        "EPSG:32615",
+        target_crs=BLM_14N,
+        increment_i=2,
+        increment_j=5,
+        wgs84=False,
+    )
+
+    p, q = stepped.parameters, single.parameters
+    assert (p.increment_i, p.increment_j) == (2, 5)
+    assert p.bin_width_i == pytest.approx(2 * q.bin_width_i, rel=1e-12)
+    assert p.bin_width_j == pytest.approx(5 * q.bin_width_j, rel=1e-12)
+    assert (p.grid_step_i, p.grid_step_j) == pytest.approx(
+        (q.grid_step_i, q.grid_step_j), rel=1e-12
+    )
+    assert stepped.max_mislocation.dj == pytest.approx(
+        single.max_mislocation.dj, abs=1e-9
+    )
+    assert stepped.max_mislocation.dj_bins == pytest.approx(
+        single.max_mislocation.dj / 5, abs=1e-9
+    )
+    assert (
+        stepped.max_mislocation.increment_i,
+        stepped.max_mislocation.increment_j,
+    ) == (2, 5)
+    with pytest.raises(InvalidCornersError, match=r"100 apart.*increment 3"):
+        convert_bin_grid(ACCEPTANCE, "EPSG:32615", increment_i=3, wgs84=False)
+
+
+def test_a_northing_first_crs_is_handled_in_xy_order_throughout() -> None:
+    """ETRS89-extended / LCC Europe declares northing before easting."""
+    lcc = CRS.from_epsg(3034)
+    assert [axis.direction for axis in lcc.axis_info] == ["north", "east"]
+    easting, northing = Transformer.from_crs(4258, 3034, always_xy=True).transform(
+        10.0, 52.0
+    )
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=easting, origin_northing=northing,
+        bin_width_i=25.0, bin_width_j=25.0, bearing_j=10.0, handedness=Handedness.RIGHT,
+    )  # fmt: skip
+    corners = corners_from_p6(grid, inline_range=(1, 401), crossline_range=(1, 401))
+
+    squared = convert_bin_grid(corners, "EPSG:3034", wgs84=False)
+    converted = convert_bin_grid(
+        corners, "EPSG:3034", target_crs="EPSG:25832", wgs84=False
+    )
+
+    centre = Transformer.from_crs(3034, 4258, always_xy=True).transform(
+        *corners.coordinates.mean(axis=0)
+    )
+    assert squared.parameters.scale_factor == pytest.approx(
+        Proj(lcc).get_factors(*centre).meridional_scale, rel=1e-9
+    )
+    assert (squared.max_mislocation.di, squared.max_mislocation.dj) == pytest.approx(
+        (0.0, 0.0), abs=1e-8
+    )
+    assert converted.converted_corners is not None
+    np.testing.assert_allclose(
+        converted.converted_corners.coordinates,
+        [
+            Transformer.from_crs(3034, 25832, always_xy=True).transform(e, n)
+            for e, n in corners.coordinates.tolist()
+        ],
+        rtol=0,
+        atol=1e-6,
+    )
+    # The same ground spacing in both CRSs: the 25 m map grid bins of a
+    # projection at scale k are 25 / k on the ground, to the 2e-7 a 10 km
+    # grid's scale varies by.
+    assert converted.parameters.bin_width_i == pytest.approx(
+        squared.parameters.bin_width_i, rel=1e-6
+    )
+    assert squared.parameters.bin_width_i == pytest.approx(
+        25.0 / squared.parameters.scale_factor, rel=1e-9
+    )
+
+
+def test_a_left_handed_grid_across_the_antimeridian_keeps_its_ring_order() -> None:
+    """The ring is A, B, D, C for a left-handed grid; across 180 it continues east.
+
+    Left-handed and north-up, the I-axis points west: C and D lie west of A
+    and B, so the origin is placed beyond 180 for the grid to straddle it.
+    """
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=690000.0, origin_northing=6650000.0,
+        bin_width_i=25.0, bin_width_j=25.0, bearing_j=0.0, handedness=Handedness.LEFT,
+    )  # fmt: skip
+    corners = corners_from_p6(grid, inline_range=(1, 1601), crossline_range=(1, 1601))
+
+    result = convert_bin_grid(corners, "EPSG:32660")
+
+    assert result.outline.labels == ("A", "B", "D", "C", "A")
+    assert result.wgs84_corners is not None
+    a, b, c, d = result.wgs84_corners
+    assert a[0] < -179.0 and b[0] < -179.0  # as PROJ gives it
+    assert c[0] > 179.0 and d[0] > 179.0
+    ring = result.wgs84_outline
+    assert ring is not None
+    assert ring.labels == ("A", "B", "D", "C", "A")
+    assert ring.coordinates == tuple((lon % 360.0, lat) for lon, lat in (a, b, d, c, a))
+    assert signed_area(ring.coordinates) > 0
+
+
+def test_the_coordinate_epoch_reaches_both_conversions() -> None:
+    result = convert_bin_grid(
+        ACCEPTANCE, "EPSG:32615", target_crs=BLM_14N, coordinate_epoch=2015.5
+    )
+
+    assert result.conversion is not None
+    assert result.conversion.coordinate_epoch == 2015.5
+    assert result.wgs84_conversion is not None
+    assert result.wgs84_conversion.coordinate_epoch == 2015.5
+
+
+def test_a_time_dependent_conversion_needs_the_coordinate_epoch() -> None:
+    """ITRF2014 to ETRF2014 (1), EPSG:8366, carries rates: the epoch enters."""
+    itrf = ProjectedCRS(
+        name="ITRF2014 / UTM zone 32N",
+        conversion=UTMConversion(32),
+        geodetic_crs=CRS.from_epsg(9000),
+    )
+    etrf = ProjectedCRS(
+        name="ETRF2014 / UTM zone 32N",
+        conversion=UTMConversion(32),
+        geodetic_crs=CRS.from_epsg(9069),
+    )
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=500000.0, origin_northing=6650000.0,
+        bin_width_i=25.0, bin_width_j=25.0, bearing_j=20.0, handedness=Handedness.RIGHT,
+    )  # fmt: skip
+    corners = corners_from_p6(grid, inline_range=(1, 401), crossline_range=(1, 401))
+
+    with pytest.raises(MissingCoordinateEpochError):
+        convert_bin_grid(
+            corners, itrf, target_crs=etrf, operation="EPSG:8366", wgs84=False
+        )
+
+    early = convert_bin_grid(
+        corners, itrf, target_crs=etrf, operation="EPSG:8366", wgs84=False,
+        coordinate_epoch=2000.0,
+    )  # fmt: skip
+    late = convert_bin_grid(
+        corners, itrf, target_crs=etrf, operation="EPSG:8366", wgs84=False,
+        coordinate_epoch=2020.0,
+    )  # fmt: skip
+
+    assert early.conversion is not None and early.conversion.coordinate_epoch == 2000.0
+    shift = np.abs(
+        late.squared_corners.coordinates - early.squared_corners.coordinates
+    ).max()
+    assert 0.1 < shift < 1.0  # a few cm per year of plate motion
+
+
 @pytest.mark.parametrize("crs", ["EPSG:2065"], ids=["krovak-south-west"])
 def test_a_projected_crs_without_easting_and_northing_axes_is_refused(crs: str) -> None:
     with pytest.raises(UnsupportedCRSError, match="east"):
@@ -424,3 +646,17 @@ def test_result_renders_as_json() -> None:
     assert rendered["outline"]["labels"] == ["A", "C", "D", "B", "A"]
     assert rendered["conversion"]["operation"]["applied"] == "EPSG:15851"
     assert rendered["applied_operations"] == list(result.applied_operations())
+
+
+def test_result_without_conversions_renders_as_json_too() -> None:
+    result = convert_bin_grid(ACCEPTANCE, "EPSG:32221", wgs84=False)
+
+    rendered = json.loads(json.dumps(result.to_json_dict()))
+
+    assert rendered["converted"] is False
+    assert rendered["converted_corners"] is None
+    assert rendered["conversion"] is None
+    assert rendered["wgs84_corners"] is None
+    assert rendered["wgs84_outline"] is None
+    assert rendered["wgs84_conversion"] is None
+    assert len(rendered["applied_operations"]) == 1

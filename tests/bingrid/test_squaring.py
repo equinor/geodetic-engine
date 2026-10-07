@@ -11,6 +11,7 @@ import pytest
 from geodetic_engine.bingrid import (
     BinGridCorners,
     Handedness,
+    InvalidCornersError,
     InvalidParameterError,
     MaxMislocation,
     corners_from_p6,
@@ -198,7 +199,12 @@ def test_squaring_agrees_with_the_java_service_on_distorted_grids(
 
 
 def test_one_displaced_corner_spreads_its_error_over_all_four() -> None:
-    """25 m bins at 30 degrees, corner A moved 3 m east: about 1/20 of a bin."""
+    """25 m bins at 30 degrees, corner A moved 3 m east: about 1/20 of a bin.
+
+    The expected values come from the independent scalar transcription of the
+    method (checked against the SDU spreadsheet in test_reference_oracles), not
+    from this implementation.
+    """
     parameters = {
         "origin_i": 1000, "origin_j": 2000, "origin_easting": 450000.0,
         "origin_northing": 6500000.0, "bin_width_i": 25.0, "bin_width_j": 25.0,
@@ -212,14 +218,44 @@ def test_one_displaced_corner_spreads_its_error_over_all_four() -> None:
     corners = _perturbed(
         exact_corners(grid), [(3.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]
     )
+    reference = java.squaring(corners)
 
     result = square_up(BinGridCorners.from_corners(corners))
 
-    assert round(result.max_mislocation.di, 2) == 0.03
-    assert round(result.max_mislocation.dj, 2) == 0.05
-    # The fit absorbs more than half of the 3 m.
-    assert result.max_mislocation.distance == pytest.approx(1.426, abs=0.001)
-    assert result.parameters.bearing_j == pytest.approx(30.0, abs=0.01)
+    assert result.max_mislocation.di == pytest.approx(reference["di"], abs=1e-9)
+    assert result.max_mislocation.dj == pytest.approx(reference["dj"], abs=1e-9)
+    assert result.parameters.bearing_j == pytest.approx(
+        reference["bearing_j"], abs=1e-9
+    )
+    np.testing.assert_allclose(
+        result.squared_corners.coordinates, reference["squared"], rtol=0, atol=1e-6
+    )
+    # The 3 m land on every corner: the largest is less than the 3 m moved.
+    assert 0.04 < result.max_mislocation.dj < 0.06
+    assert 0.02 < result.max_mislocation.di < 0.04
+    assert 1.0 < result.max_mislocation.distance < 3.0
+    assert all(math.hypot(r.easting, r.northing) > 0.5 for r in result.residuals)
+
+
+def test_an_exact_rectangle_a_hair_off_north_has_no_misfit() -> None:
+    """B is 1 mm east of A on a 100 km side: a J bearing of 5.7e-7 degrees.
+
+    A conversion built from the EPSG method definition would apply it as
+    exactly north-up and report 2e-5 bins of misfit on a perfect rectangle.
+    """
+    corners = [
+        (1, 1, 500000.0, 6000000.0),
+        (1, 4001, 500000.001, 6100000.0),
+        (401, 1, 510000.0, 6000000.0 - 0.0001),
+        (401, 4001, 510000.001, 6100000.0 - 0.0001),
+    ]
+
+    result = square_up(BinGridCorners.from_corners(corners))
+
+    assert result.parameters.bearing_j == pytest.approx(5.729577889943e-07, rel=1e-9)
+    assert result.max_mislocation.di < 1e-9
+    assert result.max_mislocation.dj < 1e-9
+    assert result.max_mislocation.distance < 1e-7
 
 
 def test_the_acceptance_grid_is_square_with_1000_by_100_m_bins() -> None:
@@ -307,6 +343,23 @@ def test_parameters_of_the_fit_are_validated(keyword: str, value: Any) -> None:
 
     with pytest.raises(InvalidParameterError, match=keyword):
         square_up(corners, **{keyword: value})
+
+
+@pytest.mark.parametrize(
+    ("keyword", "value", "span"),
+    [("increment_i", 3, 100), ("increment_j", 7, 1000), ("increment_j", 400, 1000)],
+)
+def test_corners_must_be_whole_node_increments_apart(
+    keyword: str, value: int, span: int
+) -> None:
+    """Inlines 1 and 101 cannot both be nodes of a grid numbered every 3."""
+    corners = BinGridCorners.from_corners(corner_tuples(SDU[1]))
+
+    with pytest.raises(InvalidCornersError, match=rf"{span} apart.*increment {value}"):
+        derive_p6(corners, **{keyword: value})
+    with pytest.raises(InvalidCornersError):
+        square_up(corners, **{keyword: value})
+    assert square_up(corners, increment_i=4, increment_j=8).parameters.increment_j == 8
 
 
 def test_squaring_result_renders_as_plain_data() -> None:

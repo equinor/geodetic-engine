@@ -1,8 +1,8 @@
 {
   "source": {
-    "repository": "OSDU crs-conversion-service (local clone)",
+    "repository": "OSDU crs-conversion-service, https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service",
     "commit": "c28d6028a176fd636fe9f0cfa5efb866277190f2",
-    "note": "Expected outcome of the OSDU acceptance test grid, squared without and with a toCRS, as ported from the crs-conversion-service's acceptance tests (crs-converter_acceptance_test/v3/data) and Java unit tests. Reference values marked 'java' are the Java service's (Apache SIS) output; values marked 'sdu' come from the SDU spreadsheet (Excel), case Test1d, whose converted corners are rounded to 2 decimals."
+    "note": "Expected outcome of the OSDU acceptance test grid, squared without and with a toCRS, as ported from the crs-conversion-service's acceptance tests (crs-converter_acceptance_test/v3/data) and Java unit tests, paths relative to the root of that repository. Reference values marked 'java' are the Java service's (Apache SIS) output; values marked 'sdu' come from the SDU spreadsheet (Excel), case Test1d, whose converted corners are rounded to 2 decimals."
   },
   "tolerances": {
     "map": 0.001,
@@ -12,7 +12,7 @@
     "bearing": 1e-08,
     "mislocation": 0.0001
   },
-  "tolerance_rationale": "Measured on the first run against PROJ 9.8.1, with the CRSs built from their EPSG definitions: the squared corners agree with the Java output to within its 3-decimal rounding (largest difference 0.0004 ftUS), the P6 origin to 2e-6 ftUS, bin widths to 2e-8, bearing to 6e-10 degree and WGS 84 corners to within its 8-decimal rounding (5e-9 degree).",
+  "tolerance_rationale": "Measured against PROJ 9.9.0 with EPSG v13.102, the CRSs built from their EPSG definitions: the squared corners agree with the Java output to within its 3-decimal rounding (largest difference 0.0004 ftUS), the P6 origin to 4.1e-6 ftUS, bin widths to 1.7e-8, bearing to 5.3e-10 degree, WGS 84 corners to within their 8-decimal rounding (4.9e-9 degree), and the converted corners with the SDU spreadsheet's 2-decimal values to 0.0043 ftUS.",
   "cases": [
     {
       "case_id": "without_to_crs",

@@ -12,10 +12,12 @@ The method is the one of the SDU note "Geometric aspects of bin grids"
   so that 359 and 1 degrees give 0 rather than 180;
 * handedness: which side of the J-axis C lies on.
 
-The grid these parameters define is the best-fitting rectangle through the
-corners. Converting each corner's coordinates back to bin grid numbers with it
-and comparing them with the corner's own numbers gives the mis-location: how
-far the corners are from forming a rectangle, in inline and crossline numbers.
+The grid these parameters define is the note's rectangle through the corners:
+a construction, not a least-squares fit, which would spread the residuals
+differently. Converting each corner's coordinates back to bin grid numbers
+with it and comparing them with the corner's own numbers gives the
+mis-location: how far the corners are from forming a rectangle, in inline and
+crossline numbers.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from geodetic_engine.bingrid.corners import LABELS, BinGridCorners
-from geodetic_engine.bingrid.errors import DegenerateBinGridError
+from geodetic_engine.bingrid.errors import DegenerateBinGridError, InvalidCornersError
 from geodetic_engine.bingrid.p6 import (
     Handedness,
     P6Parameters,
@@ -133,7 +135,7 @@ def derive_p6(
     increment_i: int = 1,
     increment_j: int = 1,
 ) -> P6Parameters:
-    """Derive the P6 parameters of the rectangle that best fits four corners.
+    """Derive the P6 parameters of the SDU note's rectangle through four corners.
 
     Args:
         corners: The corners.
@@ -146,6 +148,8 @@ def derive_p6(
         The parameters, with the centre of the corners as origin.
 
     Raises:
+        InvalidCornersError: If the corners' inline or crossline span is not a
+            multiple of the node increment, so that they cannot all be nodes.
         DegenerateBinGridError: If the corners coincide, or their outline
             A-B-D-C is not convex.
         InvalidParameterError: If the scale factor or an increment is out of
@@ -157,6 +161,8 @@ def derive_p6(
     (ax, ay), (bx, by), (cx, cy), (dx, dy) = _checked_coordinates(corners)
     span_i = corners.c.inline - corners.a.inline
     span_j = corners.b.crossline - corners.a.crossline
+    _on_node_lattice("inline", span_i, increment_i)
+    _on_node_lattice("crossline", span_j, increment_j)
 
     # The SDU note's widths are map grid distances; dividing by k makes them
     # the ground distances that EPSG 9666/1049 multiply by k again.
@@ -195,7 +201,7 @@ def square_up(
     increment_i: int = 1,
     increment_j: int = 1,
 ) -> SquaringResult:
-    """Fit a rectangle through four corners and measure how far they are from it.
+    """Fit the SDU note's rectangle through four corners and measure the misfit.
 
     Args:
         corners: The corners.
@@ -207,6 +213,7 @@ def square_up(
         The fitted grid, the squared corners and the residuals.
 
     Raises:
+        InvalidCornersError: As for :func:`derive_p6`.
         DegenerateBinGridError: As for :func:`derive_p6`.
         InvalidParameterError: As for :func:`derive_p6`.
     """
@@ -250,6 +257,20 @@ def square_up(
             increment_j=anchored.increment_j,
         ),
     )
+
+
+def _on_node_lattice(axis: str, span: int, increment: int) -> None:
+    """Check that corners ``span`` numbers apart can both be bin nodes.
+
+    Raises:
+        InvalidCornersError: If ``span`` is not a multiple of ``increment``.
+    """
+    if span % increment:
+        raise InvalidCornersError(
+            f"the corners' {axis} numbers are {span} apart, which is not a "
+            f"multiple of the {axis} node increment {increment}: the corners "
+            "cannot all be bin nodes of this grid"
+        )
 
 
 def _checked_coordinates(corners: BinGridCorners) -> list[tuple[float, float]]:

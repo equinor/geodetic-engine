@@ -207,3 +207,4 @@ collapse_concatenated(CoordinateOperation.from_epsg(1612))  # a single step: not
 | `persistablereference` | {class}`~geodetic_engine.persistablereference.PersistableReferenceError` | Malformed payloads, unsupported methods, unresolvable grids ({doc}`/user-guide/persistable-reference`) |
 | `georepository` | {class}`~geodetic_engine.georepository.GeorepositoryError` | Configuration, authentication, HTTP, truncated pagination ({doc}`/user-guide/georepository`) |
 | `projdb`, `osdudb` | {class}`~geodetic_engine.projdb.ProjDbBuildError` | Anything that stops a database build ({doc}`/user-guide/projdb`) |
+| `bingrid` | {class}`~geodetic_engine.bingrid.BinGridError` | Corners that are not a bin grid's, coordinates that cannot be theirs, a parameter out of range, a CRS that cannot carry a grid ({doc}`/user-guide/bingrid`) |

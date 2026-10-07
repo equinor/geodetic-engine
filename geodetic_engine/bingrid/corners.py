@@ -212,10 +212,12 @@ def corners_from_p6(
         The corners, at the map grid coordinates the parameters give them.
 
     Raises:
-        InvalidCornersError: If a range is not two integers, minimum first.
+        InvalidCornersError: If a range is not two integers, minimum first, or
+            spans a number of inlines or crosslines that is not a multiple of
+            the grid's node increment, so that its ends cannot both be nodes.
     """
-    i_min, i_max = _range("inline_range", inline_range)
-    j_min, j_max = _range("crossline_range", crossline_range)
+    i_min, i_max = _range("inline_range", inline_range, parameters.increment_i)
+    j_min, j_max = _range("crossline_range", crossline_range, parameters.increment_j)
     nodes = [(i_min, j_min), (i_min, j_max), (i_max, j_min), (i_max, j_max)]
     a, b, c, d = (
         BinGridCorner(i, j, easting, northing)
@@ -253,7 +255,7 @@ def _coordinate(name: str, value: Any) -> float:
     return number
 
 
-def _range(name: str, value: tuple[int, int]) -> tuple[int, int]:
+def _range(name: str, value: tuple[int, int], increment: int) -> tuple[int, int]:
     try:
         low, high = value
     except (TypeError, ValueError):
@@ -263,6 +265,12 @@ def _range(name: str, value: tuple[int, int]) -> tuple[int, int]:
     low, high = _integer(f"{name} minimum", low), _integer(f"{name} maximum", high)
     if low >= high:
         raise InvalidCornersError(f"{name} must be (minimum, maximum), not {value!r}")
+    if (high - low) % increment:
+        raise InvalidCornersError(
+            f"{name} {value!r} spans {high - low} numbers, which is not a multiple "
+            f"of the grid's node increment {increment}: its ends cannot both be "
+            "bin nodes"
+        )
     return low, high
 
 

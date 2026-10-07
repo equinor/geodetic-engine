@@ -73,6 +73,15 @@ jobs:
         run: |
           $DOCKER_RUN uv run --no-sync pytest -n logical -q --cov=geodetic_engine --cov-report=
 
+      # The bin grid property tests run fixed Hypothesis examples above, for a
+      # reproducible run. Here they draw fresh ones, so a strategy or tolerance
+      # that only holds for the fixed examples is caught before a Hypothesis or
+      # Python upgrade changes which examples the fixed seed gives.
+      - name: Property tests with fresh examples
+        if: ${{ !cancelled() }}
+        run: |
+          $DOCKER_RUN uv run --no-sync pytest tests/bingrid/test_properties.py -q --hypothesis-profile=geodetic-engine-random
+
       # The exhaustive sweep over tests/testdataset: every recorded case is
       # transformed with this package and compared with its expected values.
       # It runs even when the step above failed, so a reviewer sees both results.

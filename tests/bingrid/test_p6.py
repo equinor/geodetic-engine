@@ -84,6 +84,38 @@ def test_both_directions_agree_with_the_independent_reference(
         assert epsg.to_bin(grid["parameters"], e, n) == pytest.approx((i, j), abs=1e-8)
 
 
+@pytest.mark.parametrize(
+    ("bearing_j", "bin_width_i"),
+    [
+        pytest.param(1e-7, 25.0, id="bearing-a-tenth-of-a-microdegree"),
+        pytest.param(5.729577889943251e-07, 25.0, id="bearing-1-mm-per-100-km"),
+        pytest.param(0.0, 1 / (0.1 + 5e-10), id="coefficient-near-a-tenth"),
+        pytest.param(0.0, 1 / (0.2 - 3e-10), id="coefficient-near-two-tenths"),
+    ],
+)
+def test_tiny_bearings_and_coefficients_near_a_tenth_are_applied_exactly(
+    bearing_j: float, bin_width_i: float
+) -> None:
+    """A conversion PROJ builds from the EPSG method definition rounds affine
+    coefficients within 1e-9 of a tenth, so these grids would be applied as
+    north-up with 10 m or 5 m bins. Built from full-precision coefficients,
+    they are applied as stated: 100 km out, the reference agrees to 1e-9.
+    """
+    parameters = {
+        "origin_i": 1, "origin_j": 1, "origin_easting": 500000.0,
+        "origin_northing": 6000000.0, "bin_width_i": bin_width_i,
+        "bin_width_j": 25.0, "bearing_j": bearing_j, "handedness": "right",
+    }  # fmt: skip
+    grid = p6(parameters)
+    nodes = [(1, 4001), (4001, 1), (4001, 4001)]
+
+    mapped = grid.to_map(nodes)
+
+    expected = [epsg.to_map(parameters, i, j) for i, j in nodes]
+    np.testing.assert_allclose(mapped, expected, rtol=0, atol=1e-9)
+    np.testing.assert_allclose(grid.to_bin(mapped), nodes, rtol=0, atol=1e-9)
+
+
 def test_positions_can_be_given_in_every_shape_transform_accepts() -> None:
     grid = p6(NORTH_UP)
     nodes = [(1, 1000), (101, 2000)]

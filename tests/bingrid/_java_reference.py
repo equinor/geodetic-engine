@@ -6,7 +6,9 @@ test suite, what the Java implementation computes where it is wrong (defect D2,
 scale factor), and to check that the package agrees with it wherever it is
 right (scale factor 1). It is never used as the expected value of a test of the
 correct behaviour. Line numbers refer to
-``local/crs-conversion-service/crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java``
+``crs-converter-core/src/main/java/org/opengroup/osdu/crs/converter/CRSConverter.java``
+in the OSDU crs-conversion-service repository
+(https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service)
 at commit c28d6028a176fd636fe9f0cfa5efb866277190f2.
 
 The Java rounding of its results (3 decimals for coordinates, 2 for dI and dJ)
