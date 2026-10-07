@@ -1,8 +1,10 @@
-{
+ {
 	"name": "geodetic-engine",
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
+	// Copies host-trusted CAs (e.g. a TLS-intercepting proxy's) into certs/ for the build.
+	"initializeCommand": "bash .devcontainer/collect-host-certs.sh",
 	"features": {
 		// moby-cli has no Debian 13 (trixie) packages; use upstream Docker CE instead.
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
