@@ -186,6 +186,46 @@ def test_the_bound_form_of_the_datasets_crs_is_its_own_map_grid(
     assert result.matches[0].distance < 1e-6
 
 
+LCC_EUROPE_ESRI = CRS.from_epsg(3034).to_wkt("WKT1_ESRI")
+
+
+@pytest.mark.parametrize(
+    ("dataset_crs", "stored_crs"),
+    [
+        pytest.param("EPSG:3034", LCC_EUROPE_ESRI, id="stored-as-esri-wkt"),
+        pytest.param(LCC_EUROPE_ESRI, "EPSG:3034", id="dataset-as-esri-wkt"),
+    ],
+)
+def test_a_grid_in_either_axis_order_of_the_datasets_crs_is_its_own_map_grid(
+    dataset_crs: str, stored_crs: str
+) -> None:
+    """EPSG:3034 declares northing first and its ESRI WKT easting first; both
+    give easting and northing as xy, so a grid in either is the same grid.
+    """
+    easting, northing = Transformer.from_crs(4258, 3034, always_xy=True).transform(
+        10.0, 52.0
+    )
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=easting, origin_northing=northing,
+        bin_width_i=25.0, bin_width_j=25.0, bearing_j=10.0, handedness=Handedness.RIGHT,
+    )  # fmt: skip
+    stored = StoredBinGrid("other-axis-order", grid, stored_crs)
+    near = StoredBinGrid("one-metre-off", _moved(grid, 1.0), dataset_crs)
+
+    result = match_bin_grid(
+        _volume(grid, inlines=(101, 301), crosslines=(51, 351)),
+        dataset_crs,
+        [near, stored],
+    )
+
+    assert [match.grid.key for match in result.matches] == [
+        "other-axis-order",
+        "one-metre-off",
+    ]
+    assert all(match.same_crs for match in result.matches)
+    assert result.matches[0].distance < 1e-6
+
+
 def test_a_dataset_whose_corners_are_not_whole_increments_apart_is_refused() -> None:
     """Corners 2000 crosslines apart cannot both be traces loaded every 7."""
     with pytest.raises(InvalidCornersError, match=r"2000 apart.*increment 7"):

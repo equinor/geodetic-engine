@@ -28,6 +28,7 @@ from geodetic_engine.bingrid import (
     convert_bin_grid,
     corners_from_p6,
 )
+from geodetic_engine.bingrid.conversion import map_grid_crs, same_map_grid
 from geodetic_engine.geodesy import (
     AmbiguousOperationError,
     MissingCoordinateEpochError,
@@ -420,6 +421,57 @@ def test_a_grid_in_a_bound_crs_needs_no_conversion_to_the_unbound_one() -> None:
     assert result.crs.crs.is_bound
     assert result.wgs84_conversion is not None
     assert result.wgs84_conversion.operation.authority_code == "EPSG:15851"
+
+
+def _esri_wkt(code: int) -> str:
+    """The CRS as an OSDU persistableReference carries it: easting first."""
+    return CRS.from_epsg(code).to_wkt("WKT1_ESRI")
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "same"),
+    [
+        pytest.param("EPSG:3034", _esri_wkt(3034), True, id="lcc-europe-n-e-vs-esri"),
+        pytest.param("EPSG:2193", _esri_wkt(2193), True, id="nztm-n-e-vs-esri"),
+        pytest.param("EPSG:32065", _esri_wkt(32065), True, id="blm-ftus-vs-esri"),
+        pytest.param("EPSG:26715", NAD27_UTM_15N_BOUND, True, id="bound"),
+        pytest.param("EPSG:32615", "EPSG:32616", False, id="another-zone"),
+        pytest.param("EPSG:26715", "EPSG:32065", False, id="metre-vs-ftus"),
+        pytest.param("EPSG:26715", "EPSG:32615", False, id="another-datum"),
+    ],
+)
+def test_a_map_grid_is_its_datum_projection_and_unit_whatever_the_axis_order(
+    first: Any, second: Any, same: bool
+) -> None:
+    """PROJ's own equality, even ignoring axis order, tells an EPSG CRS that
+    declares northing first from its ESRI WKT; their xy values are the same.
+    """
+    a, b = map_grid_crs(first, ""), map_grid_crs(second, "")
+
+    assert same_map_grid(a, b) is same
+    assert same_map_grid(b, a) is same
+
+
+def test_the_esri_wkt_of_a_northing_first_crs_needs_no_conversion() -> None:
+    """EPSG:3034 declares northing first, its ESRI WKT easting first."""
+    easting, northing = Transformer.from_crs(4258, 3034, always_xy=True).transform(
+        10.0, 52.0
+    )
+    grid = P6Parameters(
+        origin_i=1, origin_j=1, origin_easting=easting, origin_northing=northing,
+        bin_width_i=25.0, bin_width_j=25.0, bearing_j=10.0, handedness=Handedness.RIGHT,
+    )  # fmt: skip
+    corners = corners_from_p6(grid, inline_range=(1, 401), crossline_range=(1, 401))
+
+    result = convert_bin_grid(
+        corners, "EPSG:3034", target_crs=_esri_wkt(3034), wgs84=False
+    )
+
+    assert not result.converted
+    assert result.crs is result.source_crs
+    assert (
+        result.squaring == convert_bin_grid(corners, "EPSG:3034", wgs84=False).squaring
+    )
 
 
 def test_node_increments_pass_through_to_the_squared_grid() -> None:

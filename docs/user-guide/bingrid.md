@@ -111,10 +111,13 @@ so it follows the same rules: a datum change needs a named operation or a
 bound CRS, ballpark results and missing grids are refused, an operation that
 reads the coordinate epoch needs `coordinate_epoch`, and both conversions are
 kept on the result as {class}`~geodetic_engine.geodesy.TransformationResult`
-objects. A target CRS on the grid's own map grid -- the same projected CRS,
-bound to WGS 84 or not -- means no conversion; a bound target then names the
-operation the WGS 84 step applies, which is how an OSDU `BoundProjected`
-reference of the grid's CRS is meant to be used.
+objects. A target CRS on the grid's own map grid -- the same datum, projection
+and linear unit, whatever its axis order and whether or not it is bound to WGS
+84 -- means no conversion; a bound target then names the operation the WGS 84
+step applies, which is how an OSDU `BoundProjected` reference of the grid's CRS
+is meant to be used. An EPSG CRS that declares northing first and its ESRI WKT,
+which declares easting first, are one map grid: values are in `xy` order
+whichever is given.
 
 `result.wgs84_outline` visits the corners in the order of `result.outline`,
 each edge the short way round in longitude. For a grid across the antimeridian
@@ -203,8 +206,9 @@ result.best.grid.key   # result.best: the BinGridMatch to assign, or None to def
 A stored grid matches if it puts every dataset corner within half of the
 smaller real spacing between the dataset's loaded traces. When several match,
 the order of preference is: a grid on the dataset's own map grid (the same
-projected CRS, bound to WGS 84 or not), then a grid stored at the dataset's
-increments, then the smallest distance.
+datum, projection and linear unit, whatever the axis order and whether or not
+bound to WGS 84), then a grid stored at the dataset's increments, then the
+smallest distance.
 
 The note makes one exception to comparing in the dataset's own CRS: NAD27 data
 in US survey feet against grids stored in metres. This module allows the

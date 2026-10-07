@@ -77,7 +77,8 @@ class BinGridMatch:
         distance: Largest distance between a corner of the dataset and where the
             grid puts that corner's numbers, in the dataset CRS's linear unit.
         same_crs: Whether the grid is on the dataset's own map grid: the same
-            projected CRS, whether or not either is bound to WGS 84.
+            datum, projection and linear unit, whatever the axis order and
+            whether or not either CRS is bound to WGS 84.
         same_increments: Whether the grid is stored at the dataset's increments.
     """
 

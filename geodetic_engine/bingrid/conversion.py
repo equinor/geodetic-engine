@@ -182,10 +182,11 @@ def convert_bin_grid(
             :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`
             accepts. Must be projected, optionally bound.
         target_crs: CRS to convert the grid to. Omitted, or on the same map
-            grid as ``crs`` -- the same projected CRS, whether or not either
-            is bound -- the grid is squared up where it is; a bound
-            ``target_crs`` then names the operation to WGS 84, an unbound one
-            leaves the grid's own CRS in place.
+            grid as ``crs`` -- the same datum, projection and linear unit,
+            whatever the axis order and whether or not either is bound -- the
+            grid is squared up where it is; a bound ``target_crs`` then names
+            the operation to WGS 84, an unbound one leaves the grid's own CRS
+            in place.
         operation: Coordinate operation for the conversion to ``target_crs``,
             as :class:`~geodetic_engine.geodesy.Transformation` takes it.
             Needed when the conversion changes datum and neither CRS is bound.
@@ -390,12 +391,25 @@ def unbound_crs(crs: CoordinateReferenceSystem) -> CRS:
 def same_map_grid(
     first: CoordinateReferenceSystem, second: CoordinateReferenceSystem
 ) -> bool:
-    """Whether two CRSs are the same projected CRS, bound to WGS 84 or not.
+    """Whether two CRSs that :func:`map_grid_crs` accepts are one map grid.
 
-    Coordinates in one are coordinates in the other: a bin grid defined in
-    either is the same grid.
+    They are when they share the datum, the projection and the linear unit,
+    whatever the order they declare their axes in and whether either is bound
+    to WGS 84: their easting and northing, which is what this package passes
+    as ``xy``, are then the same numbers, and a bin grid in either is the same
+    grid. EPSG:3034 and its ESRI WKT, say, differ in axis order alone.
     """
-    return bool(unbound_crs(first) == unbound_crs(second))
+    a, b = unbound_crs(first), unbound_crs(second)
+    # PROJ's ignore_axis_order reaches the base geographic CRS only, not these axes.
+    return (
+        a.geodetic_crs is not None
+        and b.geodetic_crs is not None
+        and a.geodetic_crs.equals(b.geodetic_crs, ignore_axis_order=True)
+        and a.coordinate_operation is not None
+        and a.coordinate_operation == b.coordinate_operation
+        and a.axis_info[0].unit_conversion_factor
+        == b.axis_info[0].unit_conversion_factor
+    )
 
 
 def _geographic_ring(
