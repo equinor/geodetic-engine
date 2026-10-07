@@ -41,6 +41,8 @@ type FloatArray = NDArray[np.float64]
 _SMALL_DOGLEG = 1e-4
 # Near a U-turn the arc plane is ill-conditioned; at a U-turn it is undetermined.
 _REVERSAL = 1e-6
+# A step that would give more points than this is taken for a mistake.
+_MAX_POINTS = 1_000_000
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -219,12 +221,18 @@ class MinimumCurvature:
             The points, in order of MD. The last station is always included.
 
         Raises:
-            InvalidSurveyError: If ``step`` is not positive and finite.
+            InvalidSurveyError: If ``step`` is not positive and finite, or so
+                small that it would give more than a million points.
         """
         if not (np.isfinite(step) and step > 0):
             raise InvalidSurveyError(f"a resampling step must be positive, not {step}")
         md = self._stations.md
-        count = int(np.floor((md[-1] - md[0]) / step + 1e-9)) + 1
+        intervals = float(md[-1] - md[0]) / float(step)
+        if not intervals < _MAX_POINTS:
+            raise InvalidSurveyError(
+                f"a resampling step of {step:g} gives more than {_MAX_POINTS:,} points"
+            )
+        count = int(np.floor(intervals + 1e-9)) + 1
         grid = md[0] + step * np.arange(count)
         # Snap onto a station that floating point arithmetic only nearly hits.
         right = np.searchsorted(md, grid).clip(1, len(md) - 1)

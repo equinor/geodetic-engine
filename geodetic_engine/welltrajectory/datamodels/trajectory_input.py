@@ -33,7 +33,7 @@ from geodetic_engine.welltrajectory.errors import (
     UnitError,
 )
 from geodetic_engine.welltrajectory.methods import LocalFrame, Method, MethodName
-from geodetic_engine.welltrajectory.minimum_curvature import _validated
+from geodetic_engine.welltrajectory.minimum_curvature import _MAX_POINTS, _validated
 from geodetic_engine.welltrajectory.survey import (
     NorthReference,
     Survey,
@@ -188,6 +188,12 @@ class TrajectoryInput:
         _validated(
             survey.md_metres, survey.inclination_radians, np.zeros(len(survey.md))
         )
+        span = float(survey.md[-1] - survey.md[0])
+        if self.md_step is not None and not span / self.md_step < _MAX_POINTS:
+            raise InvalidInputError(
+                f"md_step {self.md_step:g} gives more than {_MAX_POINTS:,} points "
+                f"between MD {survey.md[0]:g} and {survey.md[-1]:g}"
+            )
         outside = (self.md_points < survey.md[0]) | (self.md_points > survey.md[-1])
         if np.any(outside):
             raise InvalidSurveyError(

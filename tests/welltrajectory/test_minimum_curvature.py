@@ -146,6 +146,14 @@ def test_resampling_keeps_both_ends_and_optionally_the_survey() -> None:
     assert model.resample(0.1).md[1050] == 105.0
 
 
+@pytest.mark.parametrize("step", [1e-4, 1e-320])
+def test_a_step_giving_too_many_points_is_refused(step: float) -> None:
+    model = MinimumCurvature([0, 2500], [0, 0.5], [0, 0])
+
+    with pytest.raises(InvalidSurveyError, match="more than 1,000,000 points"):
+        model.resample(step)
+
+
 @pytest.mark.parametrize(
     ("md", "inclination", "match"),
     [

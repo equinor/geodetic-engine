@@ -122,6 +122,7 @@ def test_settings_given_as_text_are_read_in_any_case() -> None:
         ({"z_unit": "cubit"}, UnitError, "cubit"),
         ({"md_unit": "deg"}, UnitError, "deg"),
         ({"md_step": 0}, InvalidInputError, "md_step"),
+        ({"md_step": 1e-6}, InvalidInputError, "1,000,000 points"),
         ({"md_points": [[1.0, 2.0]]}, InvalidInputError, "md_points"),
         ({"md_points": [2600.0]}, InvalidSurveyError, "outside"),
         ({"colour": "red"}, TypeError, "colour"),
