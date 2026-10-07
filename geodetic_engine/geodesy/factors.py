@@ -33,6 +33,7 @@ from pyproj.exceptions import ProjError
 
 from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 from geodetic_engine.geodesy.errors import (
+    CoordinateOutOfRangeError,
     TransformationFailedError,
     UnsupportedCRSError,
 )
@@ -180,9 +181,11 @@ def projection_factors(
         UnsupportedCRSError: If the CRS has no projected or geographic
             horizontal part: geocentric, engineering or vertical.
         ValueError: If the points are not two or three values each.
+        CoordinateOutOfRangeError: If a longitude or latitude is outside its
+            range; a :class:`TransformationFailedError`, like the next.
         TransformationFailedError: If a horizontal coordinate is not finite,
-            a geographic coordinate is out of range, or PROJ cannot evaluate
-            finite factors. Projected factors are undefined at the poles.
+            or PROJ cannot evaluate finite factors. Projected factors are
+            undefined at the poles.
 
     Example:
         >>> factors = projection_factors("EPSG:32631", (500000.0, 6600000.0))
@@ -215,7 +218,7 @@ def projection_factors(
     if np.any(
         np.abs(lonlat * angular_units) > np.array([2 * np.pi, np.pi / 2]) + 1e-12
     ):
-        raise TransformationFailedError(
+        raise CoordinateOutOfRangeError(
             f"longitude or latitude is outside the range of {geographic_crs.name}"
         )
 

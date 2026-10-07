@@ -18,6 +18,7 @@ from pyproj import CRS, Transformer
 from pyproj.crs import BoundCRS, CoordinateOperation
 
 from geodetic_engine.geodesy import (
+    CoordinateOutOfRangeError,
     ProjectionFactors,
     TransformationFailedError,
     UnsupportedCRSError,
@@ -245,7 +246,7 @@ def test_nonfinite_horizontal_coordinates_are_refused(
 def test_geographic_ranges_use_the_crs_angular_units(
     crs: str, point: tuple[float, float], geographic: bool
 ) -> None:
-    with pytest.raises(TransformationFailedError, match="range"):
+    with pytest.raises(CoordinateOutOfRangeError, match="range"):
         projection_factors(crs, point, geographic=geographic)
 
 

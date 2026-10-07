@@ -279,8 +279,10 @@ projected or geographic horizontal part:
 projection_factors("EPSG:4978", (3194419.0, 194311.0, 5470000.0))  # geocentric
 ```
 
-{class}`~geodetic_engine.geodesy.TransformationFailedError` for a point that is
-not finite, out of range, or at a pole:
+{class}`~geodetic_engine.geodesy.CoordinateOutOfRangeError` for a point out of
+range, and its base class
+{class}`~geodetic_engine.geodesy.TransformationFailedError` for one that is not
+finite or is at a pole:
 
 ```{code-cell} python
 :tags: [raises-exception]
