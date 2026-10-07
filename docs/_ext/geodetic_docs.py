@@ -26,11 +26,17 @@ DOCS = REPO / "docs"
 SUBPACKAGES: tuple[tuple[str, str], ...] = (
     (
         "geodetic_engine.geodesy",
-        "Transform coordinates, choose operations, read provenance.",
+        "Transform coordinates, choose operations, read provenance, and "
+        "evaluate projection factors.",
     ),
     (
         "geodetic_engine.geodesy.utils",
         "Helmert algebra and abridged-Molodensky helpers.",
+    ),
+    (
+        "geodetic_engine.welltrajectory",
+        "Well trajectories from directional surveys: minimum curvature, "
+        "georeferencing in a CRS, 3D plots.",
     ),
     (
         "geodetic_engine.persistablereference",
@@ -266,6 +272,11 @@ def _public_candidates(target: str) -> list[str]:
     return [".".join((package, *parts[i:])) for i in range(1, len(parts))]
 
 
+def _is_float_array(target: str) -> bool:
+    """A module's own ``type FloatArray = NDArray[np.float64]``, named by autodoc."""
+    return target.startswith("geodetic_engine.") and target.endswith(".FloatArray")
+
+
 def resolve_private_paths(
     app: Sphinx, env: Any, node: Any, contnode: Any
 ) -> Any | None:
@@ -276,12 +287,13 @@ def resolve_private_paths(
     builder = app.builder
     reftype = node["reftype"]
 
-    if target in ALIASES:
+    if target in ALIASES or _is_float_array(target):
         from sphinx.ext.intersphinx import missing_reference
 
-        node["reftarget"] = ALIASES[target]
+        node["reftarget"] = ALIASES.get(target, "numpy.typing.NDArray")
+        node["reftype"] = "obj"
         resolved = missing_reference(app, env, node, contnode)
-        node["reftarget"] = target
+        node["reftarget"], node["reftype"] = target, reftype
         return resolved
 
     candidates = _public_candidates(target)

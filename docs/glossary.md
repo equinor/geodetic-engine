@@ -244,6 +244,51 @@ Value order
   the CRS has such axes; a CRS without an east/north pair keeps its declared
   order.
 
+Grid convergence
+  The angle between true north and grid north at a point of a conformal
+  projected CRS. In this package it is measured from true north to grid north,
+  positive clockwise, so a grid azimuth is the true azimuth less the
+  convergence. See {doc}`/user-guide/geodesy/projection-factors`.
+
+Point scale factor
+  The ratio of a short distance on the grid to the same distance on the
+  ellipsoid, at a point of a projected CRS. For a conformal projection it is
+  the same in every direction. See {doc}`/user-guide/geodesy/projection-factors`.
+
+Measured depth (MD)
+  The length along the wellbore from its reference point, as drilled. It is
+  what a survey station is located by.
+
+True vertical depth (TVD)
+  The vertical distance of a point of the wellbore below its reference point,
+  positive down.
+
+Wellhead
+  Where a well's survey starts: the position of its first station, from which
+  true vertical depth and the offsets count, in the trajectory CRS, with its
+  elevation. For a survey that does not start at measured depth 0, it is the
+  tie-in point.
+
+Inclination
+  The angle of the wellbore from vertical at a survey station: 0 is straight
+  down, 90 degrees horizontal.
+
+Survey azimuth
+  The direction of the wellbore in the horizontal plane at a survey station,
+  clockwise from north. It is measured against grid north or true north, which
+  differ by the {term}`grid convergence`.
+
+Dogleg severity (DLS)
+  How sharply the wellbore turns: the angle between the directions at two
+  survey stations, per length of measured depth, usually in degrees per 30 m
+  or per 100 ft.
+
+Minimum curvature
+  The standard way of reducing a directional survey to positions: between two
+  stations, the wellbore follows the one circular arc tangent to both
+  stations' directions. See {doc}`/user-guide/welltrajectory/minimum-curvature`.
+
+
 Bin grid
   The regular grid of a 3D seismic survey, numbering its traces by
   {term}`inline and crossline <Inline, crossline>`, placed on the map grid of a

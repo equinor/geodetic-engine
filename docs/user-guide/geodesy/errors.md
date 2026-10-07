@@ -27,6 +27,7 @@ flowchart LR
     GE --> GR[GeorepositoryError]
     GE --> PB[ProjDbBuildError]
     GD --> U[UnresolvableCRSError]
+    GD --> UC[UnsupportedCRSError]
     GD --> A[AmbiguousOperationError]
     GD --> N[OperationNotAvailableError]
     GD --> B[BallparkTransformationError]
@@ -57,6 +58,21 @@ rather than "not found".
 from geodetic_engine.geodesy import Transformation
 
 Transformation("EPSG:not-a-crs", "EPSG:4326")
+```
+
+### `UnsupportedCRSError`
+
+The CRS resolves, but what is asked of it does not apply to it: projection
+factors in a CRS with no map projection, or grid azimuths in one whose
+projection does not preserve angles. The bin grid module's
+{class}`~geodetic_engine.bingrid.UnsupportedCRSError` is one too.
+
+```{code-cell} python
+:tags: [raises-exception]
+
+from geodetic_engine.geodesy import projection_factors
+
+projection_factors("EPSG:4978", (3194419.0, 194311.0, 5470000.0))  # geocentric
 ```
 
 ### `AmbiguousOperationError`

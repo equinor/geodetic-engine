@@ -7,6 +7,40 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `geodetic_engine.geodesy.projection_factors`: grid convergence, point scale
+  factor, meridional and areal scale and angular distortion at any point of a
+  projected CRS, read through a bound CRS's base and a compound CRS's
+  horizontal part, with the sign convention stated. Web Mercator's scales are
+  given on its ellipsoid rather than PROJ's sphere.
+  `ProjectionFactors.conformal` says whether the projection preserves angles,
+  and the helpers that turn azimuths between grid and true north refuse one
+  that does not. A CRS with no map projection raises the new
+  `UnsupportedCRSError`, which the bin grid module's own `UnsupportedCRSError`
+  also is. Documented in the geodesy user guide.
+- `geodetic_engine.welltrajectory`: well trajectories from directional
+  surveys, by minimum curvature, georeferenced in a CRS on its own datum by
+  one of four methods, with dogleg severity, interpolation along the arcs and
+  3D plots. A survey whose first station is not at MD 0 is tied in there, at
+  the wellhead. Azimuths against grid north need a projection that preserves
+  angles at the wellhead, as does `GridNorthLocal`; azimuths against true
+  north are placed in any geographic or projected CRS. LMP integrates from
+  the surveyed stations, so points added between them never move them, and a
+  step giving more than a million points is refused. The input is a
+  `TrajectoryInput`, built from arrays, rows, a pandas DataFrame, a CSV survey
+  file, or an OSDU `convertTrajectory` request body read as the service reads
+  it, and the result a `WellTrajectory`. The CSV reader finds the survey
+  columns by their usual names or by name given as an argument, ignores other
+  columns, detects the delimiter, takes the unit from a name such as
+  `MD (ft)`, and reads the wellhead and the settings from a header under
+  their usual names; a unit it cannot read, or one that disagrees with a
+  column's own, is refused, never defaulted. It also reads a survey report as
+  it is: free text above a table lined up with spaces, with a line of units,
+  in UTF-8 or Latin-1, taking only the name and the north reference from the
+  free text. A synthetic survey file and the survey report of Volve F-1, a
+  real well, ship in `example_data`. Plotting needs the new `plot` extra,
+  which the `docs` extra includes; `open_in_browser` serves a figure at an
+  unguessable local address. Documented in a user guide section of its own,
+  the API reference and an example notebook.
 - Documentation site built with Sphinx and published to GitHub Pages: getting
   started, a user guide for every module, executed examples, a generated API
   and command-line reference, background, and a list of known issues and

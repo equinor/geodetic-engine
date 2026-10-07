@@ -85,6 +85,8 @@ ED50 to WGS 84 transformations exist and they disagree by metres. The
 |---|---|
 | Transform coordinates and choose an operation | {doc}`/user-guide/geodesy/index` |
 | Understand why a transformation was refused | {doc}`/user-guide/geodesy/errors` |
+| Get the grid convergence or scale factor at a point | {doc}`/user-guide/geodesy/projection-factors` |
+| Position a well from its directional survey | {doc}`/user-guide/welltrajectory/index` |
 | Read or write an OSDU `persistableReference` | {doc}`/user-guide/persistable-reference` |
 | Add my organisation's CRSs and transformations to PROJ | {doc}`/user-guide/custom-database` |
 | See worked examples | {doc}`/examples/index` |

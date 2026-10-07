@@ -5,10 +5,12 @@ can tell "these are not the corners of a grid" apart from "this CRS cannot carry
 a grid" apart from "this parameter is out of range". Failures of the coordinate
 conversion itself are the :mod:`geodetic_engine.geodesy` exceptions, raised
 unchanged. Both hierarchies share
-:class:`~geodetic_engine.errors.GeodeticEngineError`.
+:class:`~geodetic_engine.errors.GeodeticEngineError`, and
+:class:`UnsupportedCRSError` belongs to both.
 """
 
 from geodetic_engine.errors import GeodeticEngineError
+from geodetic_engine.geodesy import errors as geodesy_errors
 
 
 class BinGridError(GeodeticEngineError):
@@ -46,7 +48,7 @@ class InvalidParameterError(BinGridError):
     """
 
 
-class UnsupportedCRSError(BinGridError):
+class UnsupportedCRSError(BinGridError, geodesy_errors.UnsupportedCRSError):
     """The CRS is not one a bin grid can be defined on.
 
     A bin grid is designed on a map grid: its bearing is measured from grid
@@ -58,4 +60,7 @@ class UnsupportedCRSError(BinGridError):
     derived from a projection that is not conformal at the grid: its scale
     there depends on direction, so no one scale factor makes both bin widths
     ground distances.
+
+    It is a :class:`geodetic_engine.geodesy.UnsupportedCRSError` as well, so
+    one handler catches a CRS refused by either module.
     """

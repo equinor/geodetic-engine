@@ -1,0 +1,48 @@
+{
+  "summary": "Mixed Units - MD in meters, TVD in feet",
+  "description": "Demonstrates using different units for Measured Depth (MD) and vertical depth (TVD/Z). This is useful when survey data is recorded in meters along the wellbore but vertical depths need to be reported in feet. The unitMD parameter specifies the unit for MD values in inputStations, while unitZ specifies the unit for vertical (TVD) output. When unitMD differs from unitZ, the service converts MD values internally and reports results in the respective units.",
+  "value": {
+    "trajectoryCRS": "EPSG:32631",
+    "azimuthReference": "GN",
+    "unitZ": "ft",
+    "unitMD": "m",
+    "referencePoint": {
+      "x": 500000,
+      "y": 6500000,
+      "z": 0
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 340
+      },
+      {
+        "md": 500,
+        "inclination": 15,
+        "azimuth": 340
+      },
+      {
+        "md": 1000,
+        "inclination": 45,
+        "azimuth": 320
+      },
+      {
+        "md": 1500,
+        "inclination": 60,
+        "azimuth": 300
+      },
+      {
+        "md": 2000,
+        "inclination": 75,
+        "azimuth": 280
+      }
+    ],
+    "method": "AzimuthalEquidistant",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": false,
+    "MD_i": {
+      "md_interval": 250
+    }
+  }
+}

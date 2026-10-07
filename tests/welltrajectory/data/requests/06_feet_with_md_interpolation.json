@@ -1,0 +1,43 @@
+{
+  "summary": "Feet Units with MD Interpolation",
+  "description": "Using feet for depth measurements with specific MD interpolation points requested",
+  "value": {
+    "trajectoryCRS": "EPSG:32615",
+    "azimuthReference": "GN",
+    "unitZ": "ft",
+    "unitMD": "ft",
+    "referencePoint": {
+      "x": 400000,
+      "y": 6500000,
+      "z": 0
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 0
+      },
+      {
+        "md": 3280,
+        "inclination": 15,
+        "azimuth": 45
+      },
+      {
+        "md": 6560,
+        "inclination": 45,
+        "azimuth": 45
+      },
+      {
+        "md": 9840,
+        "inclination": 45,
+        "azimuth": 45
+      }
+    ],
+    "method": "AzimuthalEquidistant",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": false,
+    "MD_i": {
+      "md_i": [1640, 4920, 8200]
+    }
+  }
+}

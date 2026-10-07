@@ -1,0 +1,54 @@
+{
+  "summary": "Deviated Well with Build Section",
+  "description": "Typical deviated well with kickoff, build section, and tangent section heading northeast",
+  "value": {
+    "trajectoryCRS": "EPSG:32631",
+    "azimuthReference": "GN",
+    "unitZ": "m",
+    "referencePoint": {
+      "x": 500000,
+      "y": 6600000,
+      "z": 50
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 0
+      },
+      {
+        "md": 500,
+        "inclination": 0,
+        "azimuth": 45
+      },
+      {
+        "md": 800,
+        "inclination": 15,
+        "azimuth": 45
+      },
+      {
+        "md": 1100,
+        "inclination": 30,
+        "azimuth": 45
+      },
+      {
+        "md": 1400,
+        "inclination": 45,
+        "azimuth": 45
+      },
+      {
+        "md": 2000,
+        "inclination": 45,
+        "azimuth": 45
+      },
+      {
+        "md": 3000,
+        "inclination": 45,
+        "azimuth": 45
+      }
+    ],
+    "method": "AzimuthalEquidistant",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": false
+  }
+}

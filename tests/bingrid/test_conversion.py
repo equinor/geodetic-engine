@@ -18,8 +18,10 @@ from pyproj import CRS, Geod, Proj, Transformer
 from pyproj.crs import BoundCRS, CoordinateOperation, ProjectedCRS
 from pyproj.crs.coordinate_operation import UTMConversion
 
+from geodetic_engine import geodesy
 from geodetic_engine.bingrid import (
     BinGridCorners,
+    BinGridError,
     BinGridResult,
     Handedness,
     InvalidCornersError,
@@ -636,6 +638,13 @@ def test_a_time_dependent_conversion_needs_the_coordinate_epoch() -> None:
 def test_a_projected_crs_without_easting_and_northing_axes_is_refused(crs: str) -> None:
     with pytest.raises(UnsupportedCRSError, match="east"):
         convert_bin_grid(ACCEPTANCE, crs, wgs84=False)
+
+
+def test_a_refused_crs_is_a_bin_grid_and_a_geodesy_error() -> None:
+    with pytest.raises(geodesy.UnsupportedCRSError) as refused:
+        convert_bin_grid(ACCEPTANCE, "EPSG:4326", wgs84=False)
+
+    assert isinstance(refused.value, BinGridError)
 
 
 def _utm_15n_with_second_axis_in(unit: dict[str, Any], *, of_base: bool = False) -> CRS:

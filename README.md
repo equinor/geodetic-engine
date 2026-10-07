@@ -24,6 +24,11 @@ exactly as specified is refused with an error rather than approximated.
   envelope, and transform with exactly what it states.
 - **Custom PROJ databases.** Add a Georepository register's or an OSDU
   catalogue's own CRSs and transformations to a copy of PROJ's `proj.db`.
+- **Projection factors.** Grid convergence and scale factor of any projected
+  CRS, with `geodetic_engine.geodesy.projection_factors`.
+- **Well trajectories.** Minimum-curvature trajectories from directional
+  surveys, placed in a CRS; see the
+  [`welltrajectory` README](geodetic_engine/welltrajectory/README.md).
 - **Seismic bin grids.** Convert between bin grid and map grid with P6
   parameters, check and square up a four-corner grid, convert it to another
   CRS, and match a legacy dataset to a stored grid.

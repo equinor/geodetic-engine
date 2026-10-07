@@ -34,8 +34,18 @@ dev = [
     "mypy>=1.11",
     "ipykernel>=6.29",
     "pandas-stubs>=2.0",
+    "plotly>=6.1",
+    "nbformat>=5.10",
+    "kaleido>=1.0",
+    "matplotlib>=3.9",
+]
+plot = [
+    "kaleido>=1.0",
+    "nbformat>=5.10",
+    "plotly>=6.1",
 ]
 docs = [
+    "geodetic-engine[plot]",
     "sphinx>=8.1",
     "furo>=2024.8",
     "myst-nb>=1.2",
@@ -90,3 +100,8 @@ strict = true
 [[tool.mypy.overrides]]
 module = ["pyproj.*"]
 implicit_reexport = true
+
+# plotly ships no py.typed marker.
+[[tool.mypy.overrides]]
+module = ["plotly.*"]
+ignore_missing_imports = true

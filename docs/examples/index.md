@@ -30,6 +30,16 @@ operations, Norwegian NN54 heights with and without a datum change, an
 engineering CRS, operation discovery by area of use, coordinate export, and
 ten OSDU `persistableReference` scenarios.
 :::
+
+:::{grid-item-card} Well trajectories
+:link: notebooks/welltrajectory_examples
+:link-type: doc
+
+Read the synthetic survey file, compute the trajectory, add points between the
+stations, convert to WGS 84 and plot it in 3D. Then one short example of each
+other way to build the input: arrays, rows, a DataFrame and an OSDU request
+body. Last, a real well, Volve F-1, checked against its survey report.
+:::
 ::::
 
 ## Examples by topic
@@ -47,7 +57,14 @@ examples:
 | Provenance | {doc}`/user-guide/geodesy/results` | Applied operation, route, pipeline replay in plain pyproj, database fingerprints, JSON |
 | Refusals | {doc}`/user-guide/geodesy/errors` | Triggering every `GeodesyError` subclass, including a simulated missing grid |
 | Helmert algebra | {doc}`/user-guide/geodesy/helmert` | Reading, composing and collapsing Helmerts; restating ppb scales |
+| Projection factors | {doc}`/user-guide/geodesy/projection-factors` | Grid convergence and scale factor at one point and many, turning azimuths, scaling distances, figures across a UTM zone, a non-conformal projection |
 | OSDU payloads | {doc}`/user-guide/persistable-reference` | All six payload kinds, transforming with payloads, stated operations, units, writing payloads, method support tables |
+| Building the input | {doc}`/user-guide/welltrajectory/input` | A trajectory input from arrays, rows, a DataFrame, a survey file and an OSDU request body; the survey file format; checks; changing and saving an input |
+| Surveys | {doc}`/user-guide/welltrajectory/surveys` | Stations, units in every accepted form, inclination-only surveys, the wellhead, malformed surveys |
+| Trajectories | {doc}`/user-guide/welltrajectory/trajectories` | Results and their units, dogleg severity, interpolation, grid azimuths, a geographic CRS, moving to WGS 84 |
+| Minimum curvature | {doc}`/user-guide/welltrajectory/minimum-curvature` | The method on its own, points on the arcs, resampling that reproduces the survey |
+| Georeferencing methods | {doc}`/user-guide/welltrajectory/georeferencing` | The four methods side by side, and their geometric differences at depth |
+| Plotting | {doc}`/user-guide/welltrajectory/plotting` | One well, several wells, colouring and shadows |
 | Seismic bin grids | {doc}`/user-guide/bingrid` | P6 conversion both ways, four-corner squaring with a datum change, matching a dataset to a stored grid |
 
 ```{toctree}
@@ -55,4 +72,5 @@ examples:
 
 notebooks/geodesy_quickstart
 notebooks/geodetic-engine-examples
+notebooks/welltrajectory_examples
 ```

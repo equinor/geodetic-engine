@@ -13,6 +13,9 @@ from pyproj.database import get_database_metadata
 
 DOCS = Path(__file__).resolve().parent
 sys.path.insert(0, str(DOCS / "_ext"))
+# ipykernel runs PYTHONSTARTUP at start (IPython's exec_PYTHONSTARTUP), so every
+# kernel that executes a page runs this file; see it for what it sets up.
+os.environ["PYTHONSTARTUP"] = str(DOCS / "_ext" / "kernel_startup.py")
 
 import geodetic_engine  # noqa: E402
 
@@ -78,6 +81,8 @@ autosummary_generate = True
 autosummary_ignore_module_all = False
 autosummary_imported_members = True
 autodoc_member_order = "bysource"
+# StrEnum's __new__ would otherwise be listed among an enum's members.
+autodoc_default_options = {"exclude-members": "__new__"}
 autoclass_content = "both"
 autodoc_class_signature = "separated"
 autodoc_preserve_defaults = True

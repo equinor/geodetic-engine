@@ -47,6 +47,11 @@ RUN chmod +x /tmp/install-proj.sh \
     && /tmp/install-proj.sh \
     && rm /tmp/install-proj.sh
 
+# Chromium renders the well trajectory plots' still images, through kaleido.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium \
+    && rm -rf /var/lib/apt/lists/*
+
 # PROJ_DIR makes pyproj build against this PROJ instead of vendoring its own.
 ENV PROJ_DIR=/usr/local \
     PROJ_DATA=/usr/local/share/proj \

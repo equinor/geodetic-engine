@@ -15,7 +15,16 @@ is for, when to use it, and when not to.
 :link-type: doc
 
 `geodetic_engine.geodesy`: resolve CRSs, list and choose operations, transform
-coordinates, and read provenance. The module most users need.
+coordinates, read provenance, and get the grid convergence and scale factor.
+The module most users need.
+:::
+
+:::{grid-item-card} Well trajectories
+:link: welltrajectory/index
+:link-type: doc
+
+`geodetic_engine.welltrajectory`: position a wellbore from its directional
+survey by minimum curvature, place it in a CRS, and plot it in 3D.
 :::
 
 :::{grid-item-card} Persistable references

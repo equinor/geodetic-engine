@@ -1,0 +1,64 @@
+{
+  "summary": "Extended Reach Well",
+  "description": "Extended reach drilling (ERD) well with very long horizontal section",
+  "value": {
+    "trajectoryCRS": "EPSG:32631",
+    "azimuthReference": "GN",
+    "unitZ": "m",
+    "referencePoint": {
+      "x": 500000,
+      "y": 6600000,
+      "z": 30
+    },
+    "inputStations": [
+      {
+        "md": 0,
+        "inclination": 0,
+        "azimuth": 270
+      },
+      {
+        "md": 500,
+        "inclination": 0,
+        "azimuth": 270
+      },
+      {
+        "md": 1000,
+        "inclination": 30,
+        "azimuth": 270
+      },
+      {
+        "md": 1500,
+        "inclination": 60,
+        "azimuth": 270
+      },
+      {
+        "md": 2000,
+        "inclination": 85,
+        "azimuth": 270
+      },
+      {
+        "md": 4000,
+        "inclination": 85,
+        "azimuth": 270
+      },
+      {
+        "md": 6000,
+        "inclination": 85,
+        "azimuth": 270
+      },
+      {
+        "md": 8000,
+        "inclination": 85,
+        "azimuth": 270
+      },
+      {
+        "md": 10000,
+        "inclination": 85,
+        "azimuth": 270
+      }
+    ],
+    "method": "AzimuthalEquidistant",
+    "inputKind": "MD_Incl_Azim",
+    "interpolate": true
+  }
+}

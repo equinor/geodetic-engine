@@ -57,7 +57,8 @@ class StoredBinGrid:
             constructed.
 
     Raises:
-        UnsupportedCRSError: On construction, if the CRS cannot carry a bin grid.
+        geodetic_engine.bingrid.UnsupportedCRSError: On construction, if the
+            CRS cannot carry a bin grid.
     """
 
     key: str
@@ -163,7 +164,8 @@ def match_bin_grid(
             their spans are not multiples of the increments.
         DegenerateBinGridError: If their coordinates cannot be.
         InvalidParameterError: If an increment is not a positive integer.
-        UnsupportedCRSError: If the dataset's CRS cannot carry a bin grid.
+        geodetic_engine.bingrid.UnsupportedCRSError: If the dataset's CRS
+            cannot carry a bin grid.
 
     Example:
         >>> from geodetic_engine.bingrid import Handedness, corners_from_p6

@@ -90,6 +90,8 @@ If `sphinx-build` fails at startup with `unsupported locale setting`, set
 | `docs/conf.py` | Sphinx configuration: the [Furo](https://pradyunsg.me/furo/) theme, extensions, cross-reference checking |
 | `docs/_static/custom.css`, `logo.svg`, `favicon.svg` | Site styling on top of Furo, and the logo |
 | `docs/_ext/geodetic_docs.py` | Local extension: generates the API pages from `__all__`, copies the notebooks, resolves references to private module paths |
+| `docs/_ext/kernel_startup.py` | Runs first in every kernel that executes a page: plotly figures as HTML a static page can show, and no browser tabs |
+| `docs/figure/` | Figures as SVG files, with the scripts that draw them: `uv run python docs/figure/across_a_zone.py` |
 | `docs/_templates/autosummary/` | Layout of each generated API page |
 | `docs/getting-started/`, `docs/user-guide/`, `docs/background/` | Hand-written pages |
 | `docs/api/` | **Generated** on every build from each subpackage's `__all__`; gitignored |
@@ -100,7 +102,8 @@ Pages with a `file_format: mystnb` header are notebooks written as Markdown.
 Their `{code-cell}` blocks run during the build, and the output is included in
 the page. A cell expected to raise is tagged `raises-exception`. Any other
 error fails the build. Results are cached in `docs/_build/.jupyter_cache`, so
-only changed pages are re-run.
+only changed pages are re-run. The cache keys on a page's code alone, so after
+changing `docs/_ext/kernel_startup.py`, delete it to re-run every page.
 
 ### Adding to the API reference
 

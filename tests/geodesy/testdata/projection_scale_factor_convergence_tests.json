@@ -1,0 +1,128 @@
+[
+  {
+    "test_name": "TM_UTM32N_Oslo",
+    "source_crs": "EPSG:4326",
+    "target_crs": "EPSG:32632",
+    "method": "Transverse Mercator",
+    "input": {
+      "lat": 59.9139,
+      "lon": 10.7522
+    },
+    "expected": {
+      "scale_factor": 0.99971765,
+      "grid_convergence": 1.51629469
+    }
+  },
+  {
+    "test_name": "LCC2SP_LCCEurope_Madrid",
+    "source_crs": "EPSG:4258",
+    "target_crs": "EPSG:3034",
+    "method": "Lambert Conic Conformal (2SP)",
+    "input": {
+      "lat": 40.4168,
+      "lon": -3.7038
+    },
+    "expected": {
+      "scale_factor": 0.98071527,
+      "grid_convergence": -10.62567434
+    }
+  },
+  {
+    "test_name": "LCC1SP_JamaicaMetricGrid_Kingston",
+    "source_crs": "EPSG:4758",
+    "target_crs": "EPSG:3448",
+    "method": "Lambert Conic Conformal (1SP)",
+    "input": {
+      "lat": 17.9714,
+      "lon": -76.7931
+    },
+    "expected": {
+      "scale_factor": 1.0000001,
+      "grid_convergence": 0.06393562
+    }
+  },
+  {
+    "test_name": "AlbersEA_ConusAlbers_Denver",
+    "source_crs": "EPSG:4269",
+    "target_crs": "EPSG:5070",
+    "method": "Albers Equal Area",
+    "input": {
+      "lat": 39.7392,
+      "lon": -104.9903
+    },
+    "expected": {
+      "scale_factor": 0.99081056,
+      "grid_convergence": -5.42027678
+    }
+  },
+  {
+    "test_name": "PolarStereoA_NorwayPolarStereo_Longyearbyen",
+    "source_crs": "EPSG:4326",
+    "target_crs": "EPSG:5939",
+    "method": "Polar Stereographic (variant A)",
+    "input": {
+      "lat": 78.2232,
+      "lon": 15.6267
+    },
+    "expected": {
+      "scale_factor": 1.00457158,
+      "grid_convergence": -2.37329995
+    }
+  },
+  {
+    "test_name": "ObliqueStereo_RD_Groningen",
+    "source_crs": "EPSG:4289",
+    "target_crs": "EPSG:28992",
+    "method": "Oblique Stereographic",
+    "input": {
+      "lat": 53.2194,
+      "lon": 6.5665
+    },
+    "expected": {
+      "scale_factor": 1.00003275,
+      "grid_convergence": 0.93767159
+    }
+  },
+  {
+    "test_name": "HotineOMB_LV95_Geneva",
+    "source_crs": "EPSG:4150",
+    "target_crs": "EPSG:2056",
+    "method": "Hotine Oblique Mercator (variant B)",
+    "input": {
+      "lat": 46.2044,
+      "lon": 6.1432
+    },
+    "expected": {
+      "scale_factor": 1.00008327,
+      "grid_convergence": -0.94742045
+    }
+  },
+  {
+    "test_name": "MercatorA_WorldMercator_Sydney",
+    "source_crs": "EPSG:4326",
+    "target_crs": "EPSG:3395",
+    "method": "Mercator (variant A)",
+    "input": {
+      "lat": -33.8688,
+      "lon": 151.2093
+    },
+    "expected": {
+      "scale_factor": 1.20310828,
+      "grid_convergence": 0.00000000
+    }
+  },
+  {
+    "test_name": "KrovakNO_KrovakEastNorth_Prague",
+    "source_crs": "EPSG:4156",
+    "target_crs": "EPSG:5514",
+    "method": "Krovak (North Orientated)",
+    "input": {
+      "lat": 50.0755,
+      "lon": 14.4378
+    },
+    "expected": {
+      "scale_factor": 0.99990348,
+      "grid_convergence": -7.82056200
+    }
+  }
+]

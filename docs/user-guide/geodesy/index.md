@@ -2,7 +2,8 @@
 
 `geodetic_engine.geodesy` transforms coordinates. It is a layer over
 pyproj's `Transformer`: PROJ does the computation, and this module checks the
-result can be trusted before returning it.
+result can be trusted before returning it. It also gives the grid convergence
+and scale factor at points of a projected CRS; see {doc}`projection-factors`.
 
 **Use it when** you need coordinates in another CRS and have to be able to say
 which operation produced them, with what accuracy, from which database.
@@ -21,6 +22,8 @@ refuses to do that. See {doc}`/background/guarantees`.
 | Inspect a CRS's axes, units, dimension, dynamism | {class}`~geodetic_engine.geodesy.CoordinateReferenceSystem` |
 | Read coordinates and provenance from a result | {class}`~geodetic_engine.geodesy.TransformationResult` |
 | Compose or collapse Helmert transformations | {mod}`geodetic_engine.geodesy.utils` |
+| Get the grid convergence and scale factor at points | {func}`~geodetic_engine.geodesy.projection_factors` |
+| Turn azimuths between true and grid north | {class}`~geodetic_engine.geodesy.ProjectionFactors` |
 
 ## Rules this module enforces
 
@@ -50,4 +53,5 @@ input-and-output
 results
 errors
 helmert
+projection-factors
 ```
