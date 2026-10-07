@@ -28,15 +28,17 @@ horizontally.
 
 | Method | Model | CRS |
 |---|---|---|
-| `AzimuthalEquidistant` (default) | The offsets are coordinates of an azimuthal equidistant projection centred on the wellhead. | Geographic or conformal projected |
+| `AzimuthalEquidistant` (default) | The offsets are coordinates of an azimuthal equidistant projection centred on the wellhead. | Geographic or projected |
 | `GridNorthLocal` | The offsets turned by the grid convergence and scaled by the point scale factor, both taken at the wellhead. | Conformal projected |
-| `ENU` | The offsets are a local tangent plane at the wellhead, through geocentric coordinates. | Geographic or conformal projected |
-| `LMP` | Each step laid on the ellipsoid with the radii of curvature at its own latitude and elevation. | Geographic or conformal projected |
+| `ENU` | The offsets are a local tangent plane at the wellhead, through geocentric coordinates. | Geographic or projected |
+| `LMP` | Each step laid on the ellipsoid with the radii of curvature at its own latitude and elevation. | Geographic or projected |
 
-A projected CRS must be conformal, preserving angles, for every method: each
-trajectory reports grid azimuths, and turning true azimuths onto the grid with
-the grid convergence alone needs a conformal projection. Other projections are
-refused with {class}`~geodetic_engine.geodesy.UnsupportedCRSError`.
+In a projected CRS that does not preserve angles at the wellhead, such as an
+equal-area one, only what needs grid north is refused, with
+{class}`~geodetic_engine.geodesy.UnsupportedCRSError`: `GridNorthLocal`, and
+azimuths against grid north. Turning them with the grid convergence alone
+needs a conformal projection. Azimuths against true north are placed by the
+other three methods as anywhere else, and `azimuth_grid` is NaN there.
 
 Choose with `method=` on any
 {class}`~geodetic_engine.welltrajectory.TrajectoryInput` constructor or on

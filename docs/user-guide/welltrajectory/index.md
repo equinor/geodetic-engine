@@ -76,9 +76,10 @@ flowchart LR
    {class}`~geodetic_engine.geodesy.Transformation`, so the operation must be
    named, or come with a {term}`bound CRS`, as for any other datum change.
 3. **Grid azimuths need a grid.** Azimuths against grid north in a geographic
-   CRS raise {class}`~geodetic_engine.geodesy.UnsupportedCRSError`.
-   A projected trajectory CRS must preserve angles at the wellhead, since
-   grid convergence alone cannot account for angular distortion.
+   CRS raise {class}`~geodetic_engine.geodesy.UnsupportedCRSError`, and so
+   do they in a projected CRS that does not preserve angles at the wellhead,
+   since grid convergence alone cannot account for angular distortion. There,
+   azimuths against true north still work, without grid azimuths.
 4. **Points between stations lie on the arcs.** Interpolation follows the same
    circular arcs as the stations, never straight lines between them.
 5. **A survey that cannot describe a wellbore is refused**, with

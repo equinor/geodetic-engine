@@ -176,10 +176,11 @@ md,inclination,azimuth
 | Units | Symbols (`m`, `ft`, `ftUS`), OSDU unit ids, or OSDU unit persistableReferences. An unknown unit raises `UnitError`; nothing defaults. |
 
 Grid azimuths are turned onto true north with the convergence at the wellhead,
-so they assume it does not change across the well. Projected trajectory CRSs
-must preserve angles at the wellhead; grid convergence alone is not enough
-when the projection distorts them. Grid azimuths in a geographic CRS are
-refused, since there is no grid.
+so they assume it does not change across the well. They need a projection that
+preserves angles at the wellhead, since grid convergence alone is not enough
+when it distorts them: there, azimuths against true north are placed, but not
+by `GridNorthLocal`, and `azimuth_grid` is NaN. Grid azimuths in a geographic
+CRS are refused, since there is no grid.
 
 ## Minimum curvature
 

@@ -234,9 +234,42 @@ def test_grid_north_local_refuses_angular_distortion(crs: str) -> None:
         PLACEMENTS[Method.GRID_NORTH_LOCAL](np.zeros((2, 3)), frame)
 
 
-@pytest.mark.parametrize("method", list(Method))
-def test_every_method_refuses_a_projection_that_distorts_angles(
+@pytest.mark.parametrize(
+    "method", [Method.AZIMUTHAL_EQUIDISTANT, Method.ENU, Method.LMP]
+)
+def test_true_azimuths_are_placed_where_the_projection_distorts_angles(
     method: Method,
+) -> None:
+    """The CRS changes how the positions are written, not where they are."""
+    from pyproj import CRS, Transformer
+
+    laea = CRS("EPSG:3035")
+    to_laea = Transformer.from_crs(laea.geodetic_crs, laea, always_xy=True)
+    survey = Survey([0, 1000, 3000], [0, 30, 60], [45, 45, 90])
+
+    projected = compute_trajectory(
+        survey, to_laea.transform(20.0, 60.0), laea, north="TN", method=method
+    )
+    geographic = compute_trajectory(
+        survey, (20.0, 60.0), laea.geodetic_crs, north="TN", method=method
+    )
+
+    expected = np.column_stack(to_laea.transform(geographic.x, geographic.y))
+    assert np.column_stack([projected.x, projected.y]) == pytest.approx(
+        expected, abs=1e-6
+    )
+    assert projected.azimuth_true == pytest.approx(geographic.azimuth_true)
+    assert np.isnan(projected.azimuth_grid).all()
+    assert any("does not preserve angles" in step for step in projected.operations)
+
+
+@pytest.mark.parametrize(
+    ("method", "north"),
+    [(Method.GRID_NORTH_LOCAL, "TN"), (Method.AZIMUTHAL_EQUIDISTANT, "GN")],
+    ids=["grid-north-local", "grid-azimuths"],
+)
+def test_what_needs_grid_north_is_refused_where_angles_are_distorted(
+    method: Method, north: str
 ) -> None:
     from pyproj import CRS, Transformer
 
@@ -246,5 +279,5 @@ def test_every_method_refuses_a_projection_that_distorts_angles(
     ).transform(20.0, 60.0)
     survey = Survey([0, 1000], [0, 30], [45, 45])
 
-    with pytest.raises(UnsupportedCRSError, match="conformal"):
-        compute_trajectory(survey, wellhead, projected, north="TN", method=method)
+    with pytest.raises(UnsupportedCRSError, match="preserve angles"):
+        compute_trajectory(survey, wellhead, projected, north=north, method=method)

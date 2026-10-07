@@ -87,8 +87,8 @@ def compute_trajectory(
         UnitError: If a unit is not recognised.
         geodetic_engine.geodesy.UnsupportedCRSError: If the CRS has no
             geographic or projected horizontal part, grid azimuths are given
-            in a geographic CRS, or the projection does not preserve angles
-            at the wellhead.
+            in a geographic CRS or in one whose projection does not preserve
+            angles at the wellhead, or ``GridNorthLocal`` is asked for there.
 
     Example:
         >>> survey = Survey([0, 1000, 2000], [0, 30, 60], [45, 45, 45])
@@ -102,16 +102,16 @@ def compute_trajectory(
     north = NorthReference(north)
     method = Method(method)
     frame = LocalFrame.at(crs, point.x, point.y, point.z * length_factor(z_unit))
-    if not frame.factors.conformal:
-        # Grid azimuths are reported for every method, and need a conformal grid.
-        raise UnsupportedCRSError(
-            f"{frame.horizontal_crs.name} does not preserve angles at the "
-            "wellhead; grid azimuths need a conformal projection"
-        )
     if north is NorthReference.GRID and not frame.factors.projected:
         raise UnsupportedCRSError(
             f"azimuths are given against grid north, but {frame.crs.name} is "
             "geographic and has no grid; give them against true north"
+        )
+    if north is NorthReference.GRID and not frame.factors.conformal:
+        raise UnsupportedCRSError(
+            f"azimuths are given against grid north, but {frame.horizontal_crs.name} "
+            "does not preserve angles at the wellhead, so no grid convergence "
+            "turns them onto true north; give them against true north"
         )
 
     azimuth = survey.azimuth_degrees

@@ -46,7 +46,9 @@ class WellTrajectory:
         inclination: Inclination from vertical, in degrees.
         azimuth_true: Azimuth from true north, in degrees.
         azimuth_grid: Azimuth from grid north, in degrees; equal to
-            :attr:`azimuth_true` in a geographic CRS.
+            :attr:`azimuth_true` in a geographic CRS, and NaN in a projected
+            one that does not preserve angles at the wellhead, where no one
+            convergence turns azimuths onto the grid.
         east: Offset east of the wellhead, against true north.
         north: Offset north of the wellhead, against true north.
         tvd: True vertical depth below the wellhead.
@@ -218,6 +220,12 @@ def _georeferenced(
     )
     z_factor = length_factor(z_unit)
     azimuth = np.degrees(stations.azimuth)
+    factors = frame.factors
+    grid = (
+        factors.to_grid_azimuth(azimuth)
+        if factors.conformal
+        else np.full_like(azimuth, np.nan)
+    )
     return WellTrajectory(
         crs=frame.crs,
         method=method,
@@ -227,7 +235,7 @@ def _georeferenced(
         md=stations.md / length_factor(md_unit),
         inclination=np.degrees(stations.inclination),
         azimuth_true=azimuth,
-        azimuth_grid=frame.factors.to_grid_azimuth(azimuth),
+        azimuth_grid=grid,
         east=stations.east / z_factor,
         north=stations.north / z_factor,
         tvd=stations.tvd / z_factor,
@@ -256,10 +264,16 @@ def _describe(frame: LocalFrame, north: NorthReference, z_unit: str) -> tuple[st
         f"trajectory CRS {frame.crs.authority_code or frame.crs.name}; wellhead "
         f"at ({x:.12g}, {y:.12g}), elevation {height:g} {z_unit}"
     ]
-    if frame.factors.projected:
+    if frame.factors.projected and frame.factors.conformal:
         described.append(
             f"grid convergence {frame.factors.grid_convergence[0]:.9f} deg and "
             f"scale factor {frame.factors.scale_factor[0]:.9f} at the wellhead"
+        )
+    elif frame.factors.projected:
+        described.append(
+            f"angular distortion {frame.factors.angular_distortion[0]:.6f} deg at "
+            "the wellhead: the projection does not preserve angles, so no grid "
+            "azimuths are given"
         )
     described.append(
         "azimuths against grid north, turned onto true north by the grid convergence"

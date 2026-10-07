@@ -58,7 +58,7 @@ wellhead's 25 m less the true vertical depth.
 |---|---|
 | `survey` | The {class}`~geodetic_engine.welltrajectory.Survey`; see {doc}`surveys`. |
 | `wellhead` | The position of the first station, which TVD and the offsets count from: a {class}`~geodetic_engine.welltrajectory.Wellhead`, or `(x, y)` or `(x, y, z)` in the CRS, with `z` its elevation in `z_unit`. |
-| `crs` | The trajectory CRS: anything {meth}`CoordinateReferenceSystem.from_user_input <geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input>` accepts, such as an EPSG code, WKT, PROJJSON, an OSDU `persistableReference`, or a {term}`bound CRS`. Geographic, or projected with a conformal projection. |
+| `crs` | The trajectory CRS: anything {meth}`CoordinateReferenceSystem.from_user_input <geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input>` accepts, such as an EPSG code, WKT, PROJJSON, an OSDU `persistableReference`, or a {term}`bound CRS`. Geographic or projected; azimuths against grid north need a conformal projection. |
 | `north` | What the azimuths are measured from: `"GN"`, grid north, the default, or `"TN"`, true north. |
 | `method` | How the offsets are georeferenced in the CRS; see {doc}`georeferencing`. `"AzimuthalEquidistant"` by default. |
 | `z_unit` | The unit of the wellhead elevation and of every depth, elevation and offset reported. Metres by default. |
@@ -76,7 +76,7 @@ One array entry per point, surveyed or interpolated:
 | Attribute | Content |
 |---|---|
 | `md` | Measured depth, in `md_unit`. |
-| `inclination`, `azimuth_true`, `azimuth_grid` | The hole's direction, in degrees. `azimuth_grid` equals `azimuth_true` in a geographic CRS. |
+| `inclination`, `azimuth_true`, `azimuth_grid` | The hole's direction, in degrees. `azimuth_grid` equals `azimuth_true` in a geographic CRS, and is NaN in a projected one that does not preserve angles at the wellhead. |
 | `east`, `north`, `tvd` | Offsets from the wellhead against true north, TVD positive down, in `z_unit`. |
 | `x`, `y` | Position in the CRS, in its own units. |
 | `z` | Elevation, the wellhead's `z` less `tvd`, in `z_unit`. |
@@ -192,7 +192,9 @@ pd.DataFrame(
 
 The convergence is taken at the wellhead and held for the whole well.
 This calculation needs a projection that preserves angles at the wellhead;
-otherwise it raises {class}`~geodetic_engine.geodesy.UnsupportedCRSError`.
+otherwise azimuths against grid north raise
+{class}`~geodetic_engine.geodesy.UnsupportedCRSError`, while azimuths against
+true north are placed, with no grid azimuths.
 {meth}`~geodetic_engine.welltrajectory.WellTrajectory.projection_factors`
 shows how much it changes along the well:
 
