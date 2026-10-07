@@ -287,4 +287,46 @@ Minimum curvature
   The standard way of reducing a directional survey to positions: between two
   stations, the wellbore follows the one circular arc tangent to both
   stations' directions. See {doc}`/user-guide/welltrajectory/minimum-curvature`.
+
+
+Bin grid
+  The regular grid of a 3D seismic survey, numbering its traces by
+  {term}`inline and crossline <Inline, crossline>`, placed on the map grid of a
+  projected CRS. Stated either by its {term}`P6 parameters <P6>` or by its
+  {term}`four corners <Four-corner definition>`. See {doc}`user-guide/bingrid`.
+
+Inline, crossline
+  The two numbers of a bin grid position, `I` and `J`. A constant inline runs
+  along the J-axis, so the J-axis bearing is the seismic industry's "inline
+  bearing"; the node increments are how the numbers step between adjacent
+  bin nodes.
+
+P6
+  The IOGP P6/11 exchange format for bin grids, whose parameters EPSG methods
+  9666 (`P6 I=J+90`, right-handed) and 1049 (`P6 I=J-90`, left-handed) take:
+  origin node and its map coordinates, bin widths, the J-axis bearing, node
+  increments and the {term}`bin grid scale factor <Bin grid scale factor>`.
+
+Handedness
+  Which side of the J-axis the I-axis points to: right-handed when the I-axis
+  bearing is the J-axis bearing plus 90 degrees (EPSG 9666), left-handed when
+  it is minus 90 (EPSG 1049). On an easting/northing map grid the ring
+  A, B, D, C of a right-handed grid runs clockwise.
+
+Bin grid scale factor
+  `k` in the P6 formulas: the map grid's point scale factor at a chosen
+  reference point, here the grid centre. The P6 bin widths are ground
+  distances; `k` scales them onto the map grid, so the same grid has the same
+  widths in any CRS and `k` alone changes.
+
+Four-corner definition
+  The OSDU and loadsheet way of stating a bin grid: the inline, crossline,
+  easting and northing of corners A (min, min), B (min, max), C (max, min)
+  and D (max, max). D is redundant, which is what makes a QC possible.
+
+Mis-location
+  How far four corners are from forming a rectangle: each corner's numbers
+  minus the numbers its coordinates convert to on the SDU note's rectangle
+  through the corners, in inline and crossline numbers (`dI`, `dJ`), in bins,
+  and as a map grid distance.
 ```

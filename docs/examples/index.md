@@ -65,6 +65,7 @@ examples:
 | Minimum curvature | {doc}`/user-guide/welltrajectory/minimum-curvature` | The method on its own, points on the arcs, resampling that reproduces the survey |
 | Georeferencing methods | {doc}`/user-guide/welltrajectory/georeferencing` | The four methods side by side, and their geometric differences at depth |
 | Plotting | {doc}`/user-guide/welltrajectory/plotting` | One well, several wells, colouring and shadows |
+| Seismic bin grids | {doc}`/user-guide/bingrid` | P6 conversion both ways, four-corner squaring with a datum change, matching a dataset to a stored grid |
 
 ```{toctree}
 :hidden:

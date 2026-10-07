@@ -628,9 +628,10 @@ class TrajectoryInput:
 
         Raises:
             UnresolvableCRSError: If the CRS cannot be resolved.
-            UnsupportedCRSError: If the CRS has no geographic or projected
-                horizontal part, its projection does not preserve angles at
-                the wellhead, or grid azimuths are given in a geographic CRS.
+            geodetic_engine.geodesy.UnsupportedCRSError: If the CRS has no
+                geographic or projected horizontal part, its projection does
+                not preserve angles at the wellhead, or grid azimuths are given
+                in a geographic CRS.
             DegenerateSurveyError: If two consecutive stations point in
                 opposite directions.
         """

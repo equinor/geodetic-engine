@@ -86,9 +86,10 @@ def compute_trajectory(
         InvalidSurveyError: If the survey cannot describe a wellbore, or a
             depth in ``md_points`` is outside it.
         UnitError: If a unit is not recognised.
-        UnsupportedCRSError: If the CRS has no geographic or projected
-            horizontal part, grid azimuths are given in a geographic CRS, or
-            the projection does not preserve angles at the wellhead.
+        geodetic_engine.geodesy.UnsupportedCRSError: If the CRS has no
+            geographic or projected horizontal part, grid azimuths are given
+            in a geographic CRS, or the projection does not preserve angles
+            at the wellhead.
 
     Example:
         >>> survey = Survey([0, 1000, 2000], [0, 30, 60], [45, 45, 45])

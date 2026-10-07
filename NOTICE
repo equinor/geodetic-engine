@@ -1,0 +1,29 @@
+geodetic-engine
+Copyright 2026 Equinor ASA
+Licensed under the Apache License, Version 2.0; see LICENSE.
+
+This product includes third-party material in its test suite, tests/bingrid,
+where it serves as test references only. The geodetic_engine.bingrid package
+is an independent implementation and contains none of it.
+
+OSDU crs-conversion-service
+https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service
+Commit c28d6028a176fd636fe9f0cfa5efb866277190f2
+Licensed under the Apache License, Version 2.0.
+- tests/bingrid/_java_reference.py: a port of CRSConverter.squaring and the
+  methods it calls, to compare the package with the Java service.
+- tests/bingrid/data/osdu_expected_outcomes.json and outline_cases.json: test
+  cases and expected results of the service and of its tutorial.
+- tests/bingrid/data/java_defects.json: descriptions of, and references to,
+  the service's source code and documentation.
+
+Geometric Aspects of Bin Grids, version 2.3, and its workbook, version 1
+Bert Kampes, Shell, as published in the OSDU crs-conversion-service
+repository (docs/v3/tutorial).
+- tests/bingrid/data/sdu_note_examples.json and sdu_spreadsheet_cases.json:
+  the note's worked examples and the workbook's cached cell values.
+
+IOGP Publication 373-7-2, Geomatics Guidance Note 7, part 2 (EPSG Guidance
+Note 7-2), as published with the EPSG Dataset.
+- tests/bingrid/data/epsg_p6_examples.json: the worked examples of EPSG
+  methods 9666 and 1049.

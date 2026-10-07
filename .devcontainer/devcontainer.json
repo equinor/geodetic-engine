@@ -3,6 +3,8 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
+	// Copies host-trusted CAs (e.g. a TLS-intercepting proxy's) into certs/ for the build.
+	"initializeCommand": "bash .devcontainer/collect-host-certs.sh",
 	"features": {
 		// moby-cli has no Debian 13 (trixie) packages; use upstream Docker CE instead.
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
@@ -20,9 +22,14 @@
 	// database on the path, so it is the stock one and build-projdb.sh finds
 	// its base unambiguously. The Dockerfile's PROJ_DATA, the installed
 	// directory alone, is what CI runs with.
+	//
+	// uv, httpx and requests ship their own CA bundles; point them at the system
+	// store so the proxy CAs the Dockerfile installs from certs/ apply.
 	"remoteEnv": {
 		"LC_ALL": "C.UTF-8",
-		"PROJ_DATA": "/usr/local/share/proj:${containerWorkspaceFolder}/local/grids"
+		"PROJ_DATA": "/usr/local/share/proj:${containerWorkspaceFolder}/local/grids",
+		"REQUESTS_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt",
+		"SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt"
 	},
 	"postCreateCommand": "uv sync --extra dev --extra docs && uv run pytest tests/test_environment.py -q",
 	"postStartCommand": "bash .devcontainer/link-local-grids.sh",

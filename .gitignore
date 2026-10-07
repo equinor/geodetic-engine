@@ -235,6 +235,10 @@ local/
 # Local environment overrides / secrets
 .env
 
+# Corporate TLS-interception certificates (machine-specific)
+.devcontainer/certs/*
+!.devcontainer/certs/.gitkeep
+
 # Local build settings; holds no secrets, but is specific to whoever ran it.
 geodetic-projdb.toml
 geodetic-osdudb.toml

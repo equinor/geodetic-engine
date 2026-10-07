@@ -56,11 +56,13 @@ operation needs a coordinate epoch.
 | {mod}`geodetic_engine.georepository` | Authenticated client for a Georepository API |
 | {mod}`geodetic_engine.projdb` | Build a `proj.db` from a Georepository register (`geodetic-projdb`) |
 | {mod}`geodetic_engine.osdudb` | Build a `proj.db` from an OSDU catalogue (`geodetic-osdudb`) |
+| {mod}`geodetic_engine.bingrid` | Seismic bin grids: P6 conversion, four-corner squaring and QC, outlines |
 
-PROJ does all the numerical work. The package is a layer over pyproj that
-decides which operation runs, checks the result, and records how it was
-produced. It is a library, not a service: transformations run locally and never
-contact the Georepository. See {doc}`background/architecture`.
+For coordinate transformations, PROJ does all the numerical work, and the
+package is a layer over pyproj that decides which operation runs, checks the
+result, and records how it was produced. It is a library, not a service:
+transformations run locally and never contact the Georepository. See
+{doc}`background/architecture`.
 
 ## When to use it
 
@@ -97,8 +99,8 @@ ideas the rest of the documentation assumes you know.
 :link-type: doc
 
 Task-oriented guides for every module: transformations, projection factors,
-well trajectories, OSDU persistableReferences, the Georepository client, and
-custom `proj.db` builds.
+well trajectories, OSDU persistableReferences, the Georepository client,
+custom `proj.db` builds, and seismic bin grids.
 :::
 
 :::{grid-item-card} {octicon}`beaker` Examples
@@ -144,6 +146,7 @@ each workaround can be removed.
 | Position a well from its directional survey | {doc}`user-guide/welltrajectory/input` |
 | Read or write an OSDU `persistableReference` | {doc}`user-guide/persistable-reference` |
 | Add my organisation's CRSs and transformations to PROJ | {doc}`user-guide/custom-database` |
+| Square up a seismic bin grid, or convert it to another CRS | {doc}`user-guide/bingrid` |
 | Know what the package does differently from plain pyproj | {doc}`background/guarantees` |
 | Look up a term such as *bound CRS* or *ballpark* | {doc}`glossary` |
 
@@ -164,6 +167,7 @@ user-guide/welltrajectory/index
 user-guide/persistable-reference
 user-guide/georepository
 user-guide/custom-database
+user-guide/bingrid
 ```
 
 ```{toctree}
