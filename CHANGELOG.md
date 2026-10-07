@@ -9,23 +9,38 @@ All notable changes to this project are documented here. The format follows
 
 - `geodetic_engine.geodesy.projection_factors`: grid convergence, point scale
   factor, meridional and areal scale and angular distortion at any point of a
-  projected CRS, with the sign convention stated, and helpers that turn
-  azimuths between grid and true north. Documented in the geodesy user guide.
+  projected CRS, read through a bound CRS's base and a compound CRS's
+  horizontal part, with the sign convention stated. Web Mercator's scales are
+  given on its ellipsoid rather than PROJ's sphere.
+  `ProjectionFactors.conformal` says whether the projection preserves angles,
+  and the helpers that turn azimuths between grid and true north refuse one
+  that does not. A CRS with no map projection raises the new
+  `UnsupportedCRSError`, which the bin grid module's own `UnsupportedCRSError`
+  also is. Documented in the geodesy user guide.
 - `geodetic_engine.welltrajectory`: well trajectories from directional
   surveys, by minimum curvature, georeferenced in a CRS on its own datum by
   one of four methods, with dogleg severity, interpolation along the arcs and
-  3D plots. The input is a `TrajectoryInput`, built from arrays, rows, a
-  pandas DataFrame, a CSV survey file, or an OSDU `convertTrajectory` request
-  body, and the result a `WellTrajectory`. The CSV reader finds the survey
+  3D plots. A survey whose first station is not at MD 0 is tied in there, at
+  the wellhead. Azimuths against grid north need a projection that preserves
+  angles at the wellhead, as does `GridNorthLocal`; azimuths against true
+  north are placed in any geographic or projected CRS. LMP integrates from
+  the surveyed stations, so points added between them never move them, and a
+  step giving more than a million points is refused. The input is a
+  `TrajectoryInput`, built from arrays, rows, a pandas DataFrame, a CSV survey
+  file, or an OSDU `convertTrajectory` request body read as the service reads
+  it, and the result a `WellTrajectory`. The CSV reader finds the survey
   columns by their usual names or by name given as an argument, ignores other
   columns, detects the delimiter, takes the unit from a name such as
   `MD (ft)`, and reads the wellhead and the settings from a header under
-  their usual names. It also reads a survey report as it is: free text above
-  a table lined up with spaces, with a line of units, in UTF-8 or Latin-1.
-  A synthetic survey file and the survey report of Volve F-1, a real well,
-  ship in `example_data`.
-  Documented in a user guide section of its own, the API reference and an
-  example notebook.
+  their usual names; a unit it cannot read, or one that disagrees with a
+  column's own, is refused, never defaulted. It also reads a survey report as
+  it is: free text above a table lined up with spaces, with a line of units,
+  in UTF-8 or Latin-1, taking only the name and the north reference from the
+  free text. A synthetic survey file and the survey report of Volve F-1, a
+  real well, ship in `example_data`. Plotting needs the new `plot` extra,
+  which the `docs` extra includes; `open_in_browser` serves a figure at an
+  unguessable local address. Documented in a user guide section of its own,
+  the API reference and an example notebook.
 - Documentation site built with Sphinx and published to GitHub Pages: getting
   started, a user guide for every module, executed examples, a generated API
   and command-line reference, background, and a list of known issues and
@@ -65,35 +80,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- Web Mercator scale factors are corrected from the sphere to the base
-  ellipsoid. GridNorthLocal retains scale factor and grid convergence, with
-  native axis order and directions respected. Angular distortion that these
-  calculations cannot handle is refused, as are non-finite and out-of-range inputs.
-- LMP interpolation and resampling retain the original survey anchors;
-  query order and extra points no longer change surveyed positions.
-- CSV unit annotations no longer silently default when unsupported. Shared
-  trajectory plots normalize MD and vertical units to the first well's units.
-- Horizontal conversion preserves bindings inside compound CRSs. Corrected
-  the trajectory README quickstart and the explanation of reversal geometry.
-- Every georeferencing method refuses a projected CRS that does not preserve
-  angles at the wellhead, not only GridNorthLocal. OSDU request bodies with a
-  malformed nested field or a zero `md_interval`, and units with a non-positive
-  scale, raise the module's own errors. `plot_trajectory` refuses an unknown
-  `color_by` instead of labelling it as dogleg severity.
-- An OSDU payload that is not a JSON object, or whose `interpolate` is not a
-  boolean, raises `InvalidInputError`. `compute_trajectory` reads method and
-  north reference names in any case and refuses a wellhead that is not finite.
-  Interpolated and resampled trajectories keep the provenance of their model.
-  `ProjectionFactors.to_json_dict()` names the CRS of its coordinates. The
-  `docs` extra installs plotly.
-- A survey whose first station is not at MD 0 is placed with that station at
-  the wellhead, as a tie-in point; the documentation now says so and the
-  provenance records it.
-- An OSDU payload's `unitXY` is checked against an angular unit for a
-  geographic CRS, so `degree` with `EPSG:4326` is accepted; `MD_i.md_i` must be
-  a list. An unknown `inputKind` is refused, and `unitMD` falls back to `unitZ`
-  only when it is absent: an empty or null `unitMD` or `unitXY` raises
-  `UnitError`.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order
