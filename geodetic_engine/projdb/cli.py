@@ -10,6 +10,7 @@ from contextlib import closing
 from pathlib import Path
 
 from geodetic_engine.projdb.report import BuildReport, log_summary
+from geodetic_engine.projdb.schema import IDENTIFIER_TABLE
 from geodetic_engine.projdb.settings import DatabaseSettings
 
 
@@ -20,7 +21,11 @@ def sidecar(output_db: Path, suffix: str, *, source: str | None = None) -> Path:
 
 
 def inspect_database(database: Path) -> dict[str, object]:
-    """Read a database's version metadata and authority inventory."""
+    """Read a database's version metadata and authority inventory.
+
+    The identifiers another scheme gives its objects, OSDU record ids for
+    example, are counted by scheme when the database records any.
+    """
     with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         metadata = dict(connection.execute("SELECT key, value FROM metadata"))
         authorities = {
@@ -30,11 +35,26 @@ def inspect_database(database: Path) -> dict[str, object]:
                 "GROUP BY auth_name ORDER BY auth_name"
             )
         }
+        identifiers = (
+            {
+                str(scheme): int(count)
+                for scheme, count in connection.execute(
+                    f"SELECT scheme, COUNT(*) FROM {IDENTIFIER_TABLE} "
+                    "GROUP BY scheme ORDER BY scheme"
+                )
+            }
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (IDENTIFIER_TABLE,),
+            ).fetchone()
+            else {}
+        )
     return {
         "database": str(database),
         "proj_version": metadata.get("PROJ.VERSION"),
         "epsg_version": metadata.get("EPSG.VERSION"),
         "crs_by_authority": authorities,
+        "identifiers_by_scheme": identifiers,
     }
 
 

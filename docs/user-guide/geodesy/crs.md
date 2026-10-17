@@ -45,6 +45,22 @@ A string that is a `persistableReference` is recognised automatically. Use
 to require one, so any other input is refused. See
 {doc}`/user-guide/persistable-reference`.
 
+The id of an OSDU CRS record is recognised too, with or without its data
+partition:
+
+```python
+CoordinateReferenceSystem.from_user_input(
+    "opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031"
+)
+```
+
+It is looked up exactly in the ids a database built by `geodetic-osdudb`
+records, so it needs such a database on PROJ's data path, and an id one
+character off is refused rather than matched approximately.
+{meth}`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_osdu_id`
+requires one, and also accepts a bare `data.ID` such as `Projected:EPSG::23031`.
+See {ref}`osdu-record-ids`.
+
 An unresolvable input raises
 {class}`~geodetic_engine.geodesy.UnresolvableCRSError`, not a raw pyproj error:
 

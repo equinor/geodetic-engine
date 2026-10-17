@@ -262,8 +262,8 @@ print(transform("EPSG:5800", "EPSG:4221", (10000.0, 20000.0), operation="EPSG:10
 
 A {term}`bound CRS` carries its transformation to a hub, so no operation needs
 naming. It can be built with pyproj, parsed from an OSDU payload
-({doc}`/user-guide/persistable-reference`), or looked up by code in a
-{doc}`custom database </user-guide/projdb>`:
+({doc}`/user-guide/persistable-reference`), or looked up by code or by
+{term}`OSDU record id` in a {doc}`custom database </user-guide/projdb>`:
 
 ```{code-cell} python
 from pyproj import CRS
@@ -291,6 +291,27 @@ Instead of a code, the operation can be given in full as an OSDU
 {class}`~geodetic_engine.persistablereference.OperationReference`. It is then
 applied exactly as written, parameters and all, not looked up in PROJ's
 database. See {ref}`persistable-reference-stated-operation`.
+
+### An operation by OSDU record id
+
+`operation=` also takes the id of an OSDU `CoordinateTransformation` record,
+with or without its data partition, wherever it takes a code:
+
+```python
+transform(
+    "EPSG:23031",
+    "EPSG:4326",
+    [(500000.0, 6600000.0)],
+    operation="opendes:reference-data--CoordinateTransformation:EPSG::1612",
+)
+```
+
+The id is looked up exactly in a database built by `geodetic-osdudb`, and the
+operation it names is then applied and checked like one named by its code. An
+id that names a CRS rather than a transformation is refused with a
+`ValueError`; one the database does not record raises
+{class}`~geodetic_engine.geodesy.OperationNotAvailableError`. See
+{ref}`osdu-record-ids`.
 
 ## Choosing between `transform` and `Transformation`
 

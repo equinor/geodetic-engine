@@ -71,6 +71,32 @@ _GRID_SUFFIXES = frozenset(
 # on this package and must not be depended on in return.
 _BUILD_HISTORY_TABLE = "geodetic_engine_build_history"
 
+# Where a build records the identifiers another scheme gives an object, an OSDU
+# record id for one. Spelled here for the same reason as the history table.
+_IDENTIFIER_TABLE = "geodetic_engine_object_identifier"
+
+# The object_view vocabulary an identifier can point into, split by what kind
+# of object a caller asked for.
+CRS_OBJECT_TABLES = frozenset(
+    {
+        "geodetic_crs",
+        "projected_crs",
+        "vertical_crs",
+        "compound_crs",
+        "engineering_crs",
+        "derived_projected_crs",
+    }
+)
+OPERATION_OBJECT_TABLES = frozenset(
+    {
+        "conversion",
+        "helmert_transformation",
+        "grid_transformation",
+        "other_transformation",
+        "concatenated_operation",
+    }
+)
+
 type DatabaseIdentity = tuple[tuple[str, int, int, int, int, int], ...]
 _context = local()
 
@@ -195,8 +221,9 @@ def skip_reason(definition: str) -> str | None:
     says nothing about a definition that was deliberately not written.
 
     Args:
-        definition: What the caller named the CRS by, either its name or
-            ``"AUTH:CODE"``.
+        definition: What the caller named the CRS by: its name, ``"AUTH:CODE"``,
+            or an identifier another scheme gives it, such as an OSDU record
+            id without its partition.
 
     Returns:
         A sentence naming the object and the reason, or None when the build
@@ -245,9 +272,176 @@ def _read_skips_into(found: dict[str, str], database: Path) -> None:
                     f"the build that wrote this database left out {identifier} "
                     f"because {entry['reason']}"
                 )
-                for key in (entry.get("name"), identifier):
+                for key in (entry.get("name"), identifier, entry.get("identifier")):
                     if key:
                         found[str(key).strip().casefold()] = explanation
+
+
+@dataclass(frozen=True, slots=True)
+class IdentifiedObject:
+    """The object an identifier from another scheme names in proj.db.
+
+    Attributes:
+        table_name: The object's table, in the vocabulary of PROJ's
+            ``object_view``, for example ``"projected_crs"`` or
+            ``"helmert_transformation"``.
+        auth_name: The object's authority, for example ``"EPSG"``.
+        code: The object's code.
+        deprecated: Whether the identifying scheme marks it inactive. This is
+            the scheme's own flag, independent of whether the authority has
+            deprecated the object.
+    """
+
+    table_name: str
+    auth_name: str
+    code: str
+    deprecated: bool
+
+    @property
+    def authority_code(self) -> str:
+        """``"AUTH:CODE"``, as PROJ resolves it."""
+        return f"{self.auth_name}:{self.code}"
+
+    @property
+    def is_crs(self) -> bool:
+        """Whether the object is a coordinate reference system."""
+        return self.table_name in CRS_OBJECT_TABLES
+
+    @property
+    def is_operation(self) -> bool:
+        """Whether the object is a coordinate operation."""
+        return self.table_name in OPERATION_OBJECT_TABLES
+
+
+def identified_object(scheme: str, identifier: str) -> IdentifiedObject | None:
+    """The object an identifier names in the active database, if it names one.
+
+    The identifier is matched exactly. Nothing is normalized here beyond what
+    the caller has already done, and nothing is matched approximately: an
+    identifier one character away from another names a different object, or
+    none.
+
+    Args:
+        scheme: The identifying scheme, for example ``"OSDU"``.
+        identifier: The identifier, as the build recorded it.
+
+    Returns:
+        The object, or None when the active database records no such
+        identifier, or records none at all.
+
+    Example:
+        >>> identified_object(
+        ...     "OSDU",
+        ...     "reference-data--CoordinateReferenceSystem:Projected:EPSG::23031",
+        ... )  # doctest: +SKIP
+        IdentifiedObject(table_name='projected_crs', auth_name='EPSG', ...)
+    """
+    return _identified(database_identity(), scheme, identifier)
+
+
+def identifier_scheme_present(scheme: str) -> bool:
+    """Whether the active database records any identifier of a scheme.
+
+    Tells "this database was never built to answer such identifiers" apart
+    from "it was, and this one is not among them".
+    """
+    return scheme in _schemes(database_identity())
+
+
+def object_identifiers(
+    table_name: str, auth_name: str, code: str, *, scheme: str
+) -> tuple[str, ...]:
+    """Every identifier of a scheme recorded for one object.
+
+    Args:
+        table_name: The object's table, in ``object_view`` vocabulary.
+        auth_name: The object's authority.
+        code: The object's code.
+        scheme: The identifying scheme, for example ``"OSDU"``.
+
+    Returns:
+        The identifiers, sorted; empty when there are none.
+    """
+    return _identifiers_of(
+        database_identity(), scheme, table_name, auth_name, str(code)
+    )
+
+
+@lru_cache(maxsize=1024)
+def _identified(
+    identity: DatabaseIdentity, scheme: str, identifier: str
+) -> IdentifiedObject | None:
+    """Look one identifier up in the active database, once per database."""
+    rows = _query_identifiers(
+        identity,
+        "SELECT table_name, auth_name, code, deprecated FROM {table} "
+        "WHERE scheme = ? AND identifier = ?",
+        (scheme, identifier),
+    )
+    if not rows:
+        return None
+    table_name, auth_name, code, deprecated = rows[0]
+    return IdentifiedObject(
+        table_name=str(table_name),
+        auth_name=str(auth_name),
+        code=str(code),
+        deprecated=bool(deprecated),
+    )
+
+
+@lru_cache(maxsize=8)
+def _schemes(identity: DatabaseIdentity) -> frozenset[str]:
+    """The identifier schemes the active database records."""
+    rows = _query_identifiers(identity, "SELECT DISTINCT scheme FROM {table}", ())
+    return frozenset(str(scheme) for (scheme,) in rows)
+
+
+@lru_cache(maxsize=1024)
+def _identifiers_of(
+    identity: DatabaseIdentity,
+    scheme: str,
+    table_name: str,
+    auth_name: str,
+    code: str,
+) -> tuple[str, ...]:
+    """The identifiers recorded for one object, through the reverse index."""
+    rows = _query_identifiers(
+        identity,
+        "SELECT identifier FROM {table} WHERE table_name = ? AND auth_name = ? "
+        "AND code = ? AND scheme = ? ORDER BY identifier",
+        (table_name, auth_name, code, scheme),
+    )
+    return tuple(str(identifier) for (identifier,) in rows)
+
+
+def _query_identifiers(
+    identity: DatabaseIdentity, statement: str, parameters: tuple[str, ...]
+) -> list[tuple[object, ...]]:
+    """Run a query against the identifier table of the first database PROJ reads.
+
+    A database without the table, which is every database not built by this
+    package and every one built before identifiers were recorded, answers with
+    nothing rather than failing.
+    """
+    for path, *_ in identity:
+        database = Path(path)
+        if not database.is_file():
+            continue
+        try:
+            with closing(
+                sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+            ) as connection:
+                if not _has_table(connection, _IDENTIFIER_TABLE):
+                    return []
+                return list(
+                    connection.execute(
+                        statement.format(table=_IDENTIFIER_TABLE), parameters
+                    )
+                )
+        except sqlite3.Error as error:
+            logger.debug("could not read identifiers of %s: %s", database, error)
+            return []
+    return []
 
 
 def _has_table(connection: sqlite3.Connection, table: str) -> bool:

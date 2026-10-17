@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from geodetic_engine.projdb.errors import ProjDbBuildError
+from geodetic_engine.projdb.schema import IDENTIFIER_TABLE, identifier_alias_source
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,8 @@ def _validate_in_process(
     with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         _check_integrity(connection)
         _check_foreign_keys(connection)
-        logger.info("integrity and foreign key checks passed")
+        identifiers = _check_identifiers(connection)
+        logger.info("integrity, foreign key and identifier checks passed")
         if imported is None:
             crs_keys = _custom_objects(connection, _CRS_TABLES, authority_list)
             operation_keys = _custom_objects(
@@ -158,6 +160,7 @@ def _validate_in_process(
     return {
         "crs_checked": len(crs_keys),
         "operations_checked": len(operation_keys),
+        "identifiers_checked": identifiers,
         "grids": grids,
         "missing_grids": missing,
     }
@@ -178,6 +181,66 @@ def _check_foreign_keys(connection: sqlite3.Connection) -> None:
         raise ProjDbBuildError(
             f"{len(violations)} foreign key violations in the built database: {sample}"
         )
+
+
+def _check_identifiers(connection: sqlite3.Connection) -> int:
+    """Check every recorded identifier names an object the database defines.
+
+    The table's insert trigger already refuses a dangling row, but nothing
+    stops a later build replacing or removing the object one names. An
+    identifier alias must also still agree with the identifier it mirrors, or
+    PROJ's name search would resolve the identifier to a different object
+    than this package does.
+
+    Returns:
+        How many identifiers were checked; 0 when the database records none.
+    """
+    if not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (IDENTIFIER_TABLE,),
+    ).fetchone():
+        return 0
+    dangling = connection.execute(
+        f"SELECT i.scheme, i.identifier, i.table_name, i.auth_name, i.code "
+        f"FROM {IDENTIFIER_TABLE} i WHERE NOT EXISTS (SELECT 1 FROM object_view o "
+        "WHERE o.table_name = i.table_name AND o.auth_name = i.auth_name "
+        "AND o.code = i.code)"
+    ).fetchall()
+    if dangling:
+        sample = "; ".join(
+            f"{scheme} {identifier!r} -> {table} {auth}:{code}"
+            for scheme, identifier, table, auth, code in dangling[:5]
+        )
+        raise ProjDbBuildError(
+            f"{len(dangling)} identifiers name objects the database does not "
+            f"define: {sample}"
+        )
+    stray: list[str] = []
+    schemes = [
+        str(scheme)
+        for (scheme,) in connection.execute(
+            f"SELECT DISTINCT scheme FROM {IDENTIFIER_TABLE}"
+        )
+    ]
+    for scheme in schemes:
+        rows = connection.execute(
+            "SELECT a.alt_name, a.table_name, a.auth_name, a.code FROM alias_name a "
+            f"WHERE a.source = ? AND NOT EXISTS (SELECT 1 FROM {IDENTIFIER_TABLE} i "
+            "WHERE i.scheme = ? AND i.identifier = a.alt_name "
+            "AND i.table_name = a.table_name AND i.auth_name = a.auth_name "
+            "AND i.code = a.code)",
+            (identifier_alias_source(scheme), scheme),
+        )
+        stray.extend(
+            f"{alias!r} -> {table} {auth}:{code}" for alias, table, auth, code in rows
+        )
+    if stray:
+        raise ProjDbBuildError(
+            f"{len(stray)} identifier aliases disagree with the identifiers they "
+            f"mirror: {'; '.join(stray[:5])}"
+        )
+    (count,) = connection.execute(f"SELECT COUNT(*) FROM {IDENTIFIER_TABLE}").fetchone()
+    return int(count)
 
 
 def _custom_objects(

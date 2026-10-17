@@ -202,3 +202,41 @@ def test_a_second_build_without_append_starts_over(
         assert connection.execute(
             "SELECT COUNT(*) FROM geodetic_crs WHERE auth_name = ?", (AUTHORITY,)
         ).fetchone() == (0,)
+
+
+def _identified(tmp_path: Path) -> Path:
+    """A catalogue whose one record carries its OSDU id."""
+    record = geographic() | {
+        "id": "{{NAMESPACE}}:reference-data--CoordinateReferenceSystem:"
+        "Geographic2D:OSDU::4100"
+    }
+    return write_catalog(tmp_path / "identified.json", record)
+
+
+def test_inspect_counts_the_osdu_ids(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output = tmp_path / "out" / "proj.db"
+    main(["build", str(_identified(tmp_path)), "--output", str(output)])
+    capsys.readouterr()
+
+    assert main(["inspect", str(output)]) == 0
+    assert json.loads(capsys.readouterr().out)["identifiers_by_scheme"] == {"OSDU": 1}
+
+
+def test_osdu_id_aliases_can_be_turned_off_on_the_command_line(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "out" / "proj.db"
+    catalog = _identified(tmp_path)
+    assert (
+        main(["build", str(catalog), "--output", str(output), "--no-osdu-id-aliases"])
+        == 0
+    )
+    with closing(sqlite3.connect(output)) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM alias_name WHERE source = 'OSDU_ID'"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM geodetic_engine_object_identifier"
+        ).fetchone() == (1,)

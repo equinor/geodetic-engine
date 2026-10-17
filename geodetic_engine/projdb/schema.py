@@ -437,6 +437,61 @@ OBJECT_TABLE_NAME: Final[Mapping[str, str]] = {
 # that contributed to a database.
 BUILD_HISTORY_TABLE: Final = "geodetic_engine_build_history"
 
+# Written by this package, not by PROJ: identifiers that another scheme gives
+# an object, an OSDU record id for one, keyed by scheme and identifier. Rows
+# name their object in the vocabulary of PROJ's object_view, so the table joins
+# with crs_view, coordinate_operation_view and usage the way alias_name does,
+# and an object of any authority can be identified, EPSG's included.
+IDENTIFIER_TABLE: Final = "geodetic_engine_object_identifier"
+
+IDENTIFIER_COLUMNS: Final[tuple[str, ...]] = (
+    "scheme",
+    "identifier",
+    "table_name",
+    "auth_name",
+    "code",
+    "deprecated",
+    "source",
+)
+
+# Not in TABLE_COLUMNS: verify_schema requires those tables to exist in the
+# base proj.db, and this one only ever exists once a build has created it. The
+# trigger is PROJ's own alias_name_insert_trigger, applied to this table.
+IDENTIFIER_DDL: Final[tuple[str, ...]] = (
+    f"""CREATE TABLE IF NOT EXISTS {IDENTIFIER_TABLE}(
+    scheme TEXT NOT NULL CHECK (length(scheme) >= 1),
+    identifier TEXT NOT NULL CHECK (length(identifier) >= 1),
+    table_name TEXT NOT NULL CHECK (length(table_name) >= 1),
+    auth_name TEXT NOT NULL CHECK (length(auth_name) >= 1),
+    code INTEGER_OR_TEXT NOT NULL CHECK (length(code) >= 1),
+    deprecated BOOLEAN NOT NULL CHECK (deprecated IN (0, 1)),
+    source TEXT,
+    CONSTRAINT pk_{IDENTIFIER_TABLE} PRIMARY KEY (scheme, identifier)
+) WITHOUT ROWID""",
+    f"CREATE INDEX IF NOT EXISTS idx_{IDENTIFIER_TABLE}_object "
+    f"ON {IDENTIFIER_TABLE}(table_name, auth_name, code)",
+    f"""CREATE TRIGGER IF NOT EXISTS {IDENTIFIER_TABLE}_insert_trigger
+BEFORE INSERT ON {IDENTIFIER_TABLE}
+FOR EACH ROW BEGIN
+    SELECT RAISE(ABORT, 'insert on {IDENTIFIER_TABLE} violates constraint: new entry refers to unexisting code')
+        WHERE NOT EXISTS (SELECT 1 FROM object_view o WHERE o.table_name = NEW.table_name AND o.auth_name = NEW.auth_name AND o.code = NEW.code);
+END""",  # noqa: E501
+)
+
+
+def identifier_alias_source(scheme: str) -> str:
+    """The ``alias_name.source`` an identifier scheme's aliases are written under.
+
+    Kept apart from the naming systems a source's own aliases come from, so
+    refreshing an object's aliases never removes its identifiers, and the
+    reverse.
+
+    Example:
+        >>> identifier_alias_source("OSDU")
+        'OSDU_ID'
+    """
+    return f"{scheme}_ID"
+
 
 def verify_schema(connection: sqlite3.Connection) -> None:
     """Check that every table and column this builder writes exists.

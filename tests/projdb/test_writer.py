@@ -8,16 +8,22 @@ import sqlite3
 import stat
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.errors import (
     ForeignAuthorityCollision,
+    MissingReferencedObjectError,
     OutputWouldBeDiscarded,
     SchemaDriftError,
 )
-from geodetic_engine.projdb.schema import BUILD_HISTORY_TABLE, verify_schema
+from geodetic_engine.projdb.schema import (
+    BUILD_HISTORY_TABLE,
+    IDENTIFIER_TABLE,
+    verify_schema,
+)
 from geodetic_engine.projdb.writer import ProjDbWriter
 from tests.projdb.conftest import make_config
 
@@ -371,3 +377,126 @@ def test_schema_drift_is_detected(copy_of_proj_db: Path) -> None:
     with pytest.raises(SchemaDriftError, match="inv_flattening"):
         verify_schema(connection)
     connection.close()
+
+
+def _identifier(code: str = "23031", **row: Any) -> dict[str, Any]:
+    """An OSDU id recorded against an EPSG projected CRS PROJ ships."""
+    return {
+        "scheme": "OSDU",
+        "identifier": "reference-data--CoordinateReferenceSystem:Projected:EPSG::23031",
+        "table_name": "projected_crs",
+        "auth_name": "EPSG",
+        "code": code,
+        "deprecated": 0,
+        "source": "CRS_CT.json",
+    } | row
+
+
+def _identifiers(database: Path) -> list[tuple[Any, ...]]:
+    with closing(sqlite3.connect(database)) as connection:
+        return connection.execute(
+            f"SELECT identifier, table_name, auth_name, code FROM {IDENTIFIER_TABLE}"
+        ).fetchall()
+
+
+def _identifier_aliases(database: Path) -> list[tuple[Any, ...]]:
+    with closing(sqlite3.connect(database)) as connection:
+        return connection.execute(
+            "SELECT alt_name, table_name, auth_name, code FROM alias_name "
+            "WHERE source = 'OSDU_ID'"
+        ).fetchall()
+
+
+def test_an_identifier_may_name_another_authoritys_object(
+    config: ProjDbBuildConfig,
+) -> None:
+    """It annotates the EPSG object rather than defining one, like an alias."""
+    with ProjDbWriter(config) as writer:
+        assert writer.write_identifiers([_identifier()], aliases=True) == (1, 1)
+        writer.commit()
+    identifier = _identifier()["identifier"]
+    assert _identifiers(config.output_db) == [
+        (identifier, "projected_crs", "EPSG", 23031)
+    ]
+    assert _identifier_aliases(config.output_db) == [
+        (identifier, "projected_crs", "EPSG", 23031)
+    ]
+
+
+def test_aliases_are_only_written_when_asked_for(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        assert writer.write_identifiers([_identifier()]) == (1, 0)
+        writer.commit()
+    assert _identifier_aliases(config.output_db) == []
+
+
+def test_an_identifier_for_an_absent_object_is_refused(
+    config: ProjDbBuildConfig,
+) -> None:
+    with (
+        ProjDbWriter(config) as writer,
+        pytest.raises(MissingReferencedObjectError, match="does not define"),
+    ):
+        writer.write_identifiers([_identifier(code="99999999")])
+
+
+def test_recording_an_identifier_again_changes_nothing(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()], aliases=True)
+        writer.commit()
+    appending = make_config(config.base_proj_db, config.output_db, append=True)
+    with ProjDbWriter(appending) as writer:
+        assert writer.write_identifiers([_identifier()], aliases=True) == (0, 0)
+        writer.commit()
+    assert len(_identifiers(config.output_db)) == 1
+    assert len(_identifier_aliases(config.output_db)) == 1
+
+
+def test_an_identifier_is_not_silently_moved_to_another_object(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()], aliases=True)
+        writer.commit()
+    appending = make_config(config.base_proj_db, config.output_db, append=True)
+    with (
+        ProjDbWriter(appending) as writer,
+        pytest.raises(ForeignAuthorityCollision, match="already names"),
+    ):
+        writer.write_identifiers([_identifier(code="23032")], aliases=True)
+
+
+def test_a_changed_inactive_flag_is_a_collision_too(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_identifiers([_identifier()])
+        with pytest.raises(ForeignAuthorityCollision, match="inactive"):
+            writer.write_identifiers([_identifier(deprecated=1)])
+
+
+def test_overwriting_moves_the_identifier_and_its_alias(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()], aliases=True)
+        writer.commit()
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        assert writer.write_identifiers([_identifier(code="23032")], aliases=True) == (
+            1,
+            1,
+        )
+        writer.commit()
+    identifier = _identifier()["identifier"]
+    assert _identifiers(config.output_db) == [
+        (identifier, "projected_crs", "EPSG", 23032)
+    ]
+    assert _identifier_aliases(config.output_db) == [
+        (identifier, "projected_crs", "EPSG", 23032)
+    ]

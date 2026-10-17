@@ -179,7 +179,13 @@ class OsduBuildContext:
         deprecated = tr.is_deprecated(record.data)
         self.skipped.append(
             SkippedObject(
-                table, record.auth_name, record.code, record.name, reason, deprecated
+                table,
+                record.auth_name,
+                record.code,
+                record.name,
+                reason,
+                deprecated,
+                identifier=record.osdu_id,
             )
         )
         logger.info(

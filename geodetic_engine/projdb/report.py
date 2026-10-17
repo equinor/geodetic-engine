@@ -42,6 +42,12 @@ class BuildReport:
             it.
         overwrite_rows: Whether a colliding row of this build's own
             authorities was replaced rather than reported as a collision.
+        identifiers: The identifiers another scheme gives objects, an OSDU
+            record id for one, as this build recorded them: the scheme, how
+            many were recorded and how many of those this build wrote, how many
+            were also written as aliases, every identifier that names nothing
+            in the database and why, and where the source and proj.db disagree
+            about an identified object. Empty for a source that has none.
     """
 
     built_at: str
@@ -67,6 +73,7 @@ class BuildReport:
     supersessions_written: int = 0
     supersessions_dropped: list[dict[str, str]] = field(default_factory=list)
     authority_preferences: list[dict[str, str]] = field(default_factory=list)
+    identifiers: dict[str, Any] = field(default_factory=dict)
     validation: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -103,6 +110,8 @@ class BuildReport:
                 "supersessions_written": self.supersessions_written,
                 "supersessions_dropped": len(self.supersessions_dropped),
                 "missing_grids": len(self.validation.get("missing_grids", [])),
+                "identifiers_recorded": int(self.identifiers.get("mapped", 0)),
+                "identifiers_unmapped": len(self.identifiers.get("unmapped", [])),
             },
             "skipped": data.pop("skipped"),
             "supersessions_dropped": data.pop("supersessions_dropped"),
@@ -183,6 +192,25 @@ def log_summary(report: BuildReport) -> None:
             "%d grid file(s) referenced but not installed here: %s",
             len(missing),
             missing,
+        )
+
+    if identifiers := report.identifiers:
+        scheme = identifiers.get("scheme", "")
+        if unmapped := identifiers.get("unmapped"):
+            logger.warning(
+                "%d %s id(s) name nothing in this database:", len(unmapped), scheme
+            )
+            for item in unmapped:
+                logger.warning("  %s", item["identifier"] or item["name"])
+                logger.warning("      %s", item["reason"])
+        for item in identifiers.get("warnings") or ():
+            logger.info("  %s: %s", item["identifier"], item["warning"])
+        logger.info(
+            "%d %s id(s) recorded, %d written by this build, %d as aliases",
+            identifiers.get("mapped", 0),
+            scheme,
+            identifiers.get("written", 0),
+            identifiers.get("aliases_written", 0),
         )
 
     if error := report.validation.get("error"):

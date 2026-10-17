@@ -22,11 +22,18 @@ from typing import Any
 
 from filelock import FileLock
 
-from geodetic_engine.projdb.errors import ForeignAuthorityCollision
+from geodetic_engine.projdb.errors import (
+    ForeignAuthorityCollision,
+    MissingReferencedObjectError,
+)
 from geodetic_engine.projdb.schema import (
     AUTHORITY_COLUMN,
     FOREIGN_AUTHORITY_ALLOWED,
+    IDENTIFIER_COLUMNS,
+    IDENTIFIER_DDL,
+    IDENTIFIER_TABLE,
     TABLE_COLUMNS,
+    identifier_alias_source,
     verify_schema,
 )
 from geodetic_engine.projdb.settings import (
@@ -299,6 +306,124 @@ class ProjDbWriter:
 
         self.inserted[table] += len(rows)
         return len(rows)
+
+    def write_identifiers(
+        self, rows: Sequence[Row], *, aliases: bool = False
+    ) -> tuple[int, int]:
+        """Record identifiers another scheme gives objects in this database.
+
+        An identifier annotates an object rather than defining one, so it may
+        point at an object of any authority, EPSG's included, and the authority
+        guard does not apply. The object must exist: the table's insert
+        trigger refuses an identifier for an absent one, as PROJ's own
+        ``alias_name`` trigger does.
+
+        Recording an identifier again against the same object changes nothing,
+        so the same source can be appended twice. Recording it against a
+        different object is a collision, refused unless ``overwrite_rows`` is
+        configured, because a caller already resolving that identifier would
+        otherwise silently get a different object.
+
+        Args:
+            rows: Mappings with every column of ``IDENTIFIER_COLUMNS``; the
+                ``table_name`` in PROJ's ``object_view`` vocabulary.
+            aliases: Also record each identifier as an ``alias_name`` row under
+                :func:`~geodetic_engine.projdb.schema.identifier_alias_source`,
+                so that PROJ's own name search finds it. An existing identical
+                alias is not duplicated.
+
+        Returns:
+            How many identifiers and how many aliases were written.
+
+        Raises:
+            ForeignAuthorityCollision: If an identifier already names a
+                different object, or the same object with a different
+                deprecation flag, and ``overwrite_rows`` is not configured.
+            MissingReferencedObjectError: If a row names an object the database
+                does not define.
+        """
+        for statement in IDENTIFIER_DDL:
+            self.connection.execute(statement)
+        written = aliased = 0
+        for row in rows:
+            scheme, identifier = str(row["scheme"]), str(row["identifier"])
+            target = (str(row["table_name"]), str(row["auth_name"]), str(row["code"]))
+            existing = self.connection.execute(
+                f"SELECT table_name, auth_name, code, deprecated FROM "
+                f"{IDENTIFIER_TABLE} WHERE scheme = ? AND identifier = ?",
+                (scheme, identifier),
+            ).fetchone()
+            if existing is None:
+                self._insert_identifier(row)
+                written += 1
+            else:
+                previous = (str(existing[0]), str(existing[1]), str(existing[2]))
+                unchanged = previous == target and bool(existing[3]) == bool(
+                    row["deprecated"]
+                )
+                if not unchanged:
+                    if not self._config.overwrite_rows:
+                        raise ForeignAuthorityCollision(
+                            f"{scheme} identifier {identifier!r} already names "
+                            f"{previous[0]} {previous[1]}:{previous[2]}"
+                            f"{' (inactive)' if existing[3] else ''}; refusing to "
+                            f"record it against {target[0]} {target[1]}:{target[2]}"
+                            f"{' (inactive)' if row['deprecated'] else ''}. The "
+                            "build is aborted rather than changing what the "
+                            "identifier resolves to."
+                        )
+                    self.connection.execute(
+                        f"DELETE FROM {IDENTIFIER_TABLE} "
+                        "WHERE scheme = ? AND identifier = ?",
+                        (scheme, identifier),
+                    )
+                    self.connection.execute(
+                        "DELETE FROM alias_name WHERE table_name = ? AND "
+                        "auth_name = ? AND code = ? AND alt_name = ? AND source = ?",
+                        (*previous, identifier, identifier_alias_source(scheme)),
+                    )
+                    self._insert_identifier(row)
+                    written += 1
+            if aliases and self._add_identifier_alias(scheme, identifier, target):
+                aliased += 1
+
+        if written:
+            self.inserted[IDENTIFIER_TABLE] += written
+        if aliased:
+            self.inserted["alias_name"] += aliased
+        return written, aliased
+
+    def _insert_identifier(self, row: Row) -> None:
+        values = tuple(row.get(column) for column in IDENTIFIER_COLUMNS)
+        try:
+            self.connection.execute(
+                f"INSERT INTO {IDENTIFIER_TABLE} ({', '.join(IDENTIFIER_COLUMNS)}) "
+                f"VALUES ({', '.join('?' * len(IDENTIFIER_COLUMNS))})",
+                values,
+            )
+        except sqlite3.IntegrityError as exc:
+            raise MissingReferencedObjectError(
+                f"{row.get('scheme')} identifier {row.get('identifier')!r} names "
+                f"{row.get('table_name')} {row.get('auth_name')}:{row.get('code')}, "
+                f"which this database does not define: {exc}"
+            ) from exc
+
+    def _add_identifier_alias(
+        self, scheme: str, identifier: str, target: tuple[str, str, str]
+    ) -> bool:
+        source = identifier_alias_source(scheme)
+        if self.connection.execute(
+            "SELECT 1 FROM alias_name WHERE table_name = ? AND auth_name = ? "
+            "AND code = ? AND alt_name = ? AND source = ?",
+            (*target, identifier, source),
+        ).fetchone():
+            return False
+        self.connection.execute(
+            "INSERT INTO alias_name (table_name, auth_name, code, alt_name, source) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (*target, identifier, source),
+        )
+        return True
 
     def upsert_authority_preferences(self, rows: Sequence[Row]) -> int:
         """Replace rows in ``authority_to_authority_preference``.

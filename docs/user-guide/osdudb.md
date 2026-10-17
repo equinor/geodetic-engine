@@ -5,7 +5,10 @@ enriched `proj.db` as {doc}`projdb`, from an OSDU coordinate reference
 catalogue instead of a Georepository API. No credentials or network are needed.
 
 **Use it when** your data names CRSs by OSDU code, for example
-`OSDU:23032023`, an OSDU bound CRS, and you want those codes to resolve in PROJ.
+`OSDU:23032023`, an OSDU bound CRS, or by the id of the OSDU record that
+publishes it, for example
+`opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031`
+({ref}`osdu-record-ids`), and you want those to resolve.
 
 **You may not need it**: if your records carry full `persistableReference`
 payloads, {doc}`persistable-reference` transforms with them directly, with no
@@ -127,6 +130,98 @@ OSDU gives a bound CRS's extent as the intersection of the CRS's and the
 transformation's extents, with no code of its own. It is recorded under the
 importing authority rather than dropped, because it is the area the bound CRS
 is actually valid in.
+
+(osdu-record-ids)=
+## OSDU record ids
+
+OSDU data rarely names a CRS by authority code. It names the reference data
+record that publishes the CRS:
+
+```text
+opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031
+opendes:reference-data--CoordinateReferenceSystem:BoundProjected:EPSG::23031_EPSG::1133
+opendes:reference-data--CoordinateTransformation:EPSG::1612
+```
+
+A build records the id of **every** record in the catalogue against the object
+it names. That includes the EPSG records the base `proj.db` already defines,
+which the build does not import but which are most of the ids a caller will
+use. After a build, those ids work wherever an authority code does:
+
+```python
+from geodetic_engine.geodesy import CoordinateReferenceSystem, transform
+
+bound = CoordinateReferenceSystem.from_user_input(
+    "opendes:reference-data--CoordinateReferenceSystem:"
+    "BoundProjected:EPSG::23031_EPSG::1133"
+)
+bound.crs.is_bound  # True: the CRS carries EPSG:1133
+
+result = transform(
+    "opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031",
+    "EPSG:4326",
+    [(500000.0, 6600000.0)],
+    operation="opendes:reference-data--CoordinateTransformation:EPSG::1612",
+)
+```
+
+{meth}`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_osdu_id` also
+accepts a record's bare `data.ID`, such as `Projected:EPSG::23031`.
+
+How an id is matched:
+
+- **The data partition is ignored.** `opendes:` above differs between
+  operators, and OSDU builds the rest of the id the same way in every partition
+  precisely so the same CRS is recognised in all of them. The manifest's
+  `{{NAMESPACE}}` placeholder is accepted too.
+- **A version separator is ignored.** A reference from one record to another
+  ends in `:` or `:<version>`. The database holds one definition per id, the
+  one in the catalogue it was built from. The id as given is tried first, so an
+  id that genuinely ends in digits is never cut short.
+- **Matching is exact.** The id is looked up in the identifiers the build
+  recorded, and nothing else. It is not decoded from its spelling, since
+  operators curate these records and OSDU's spelling convention is good
+  practice rather than a guarantee. It is never matched approximately: an id
+  one character off, such as `…_EPSG::113` for `…_EPSG::1133`, is refused
+  rather than resolved to a near miss.
+- **The database must have been built from a catalogue.** A `proj.db` no build
+  of this kind has written records no ids, so every id is refused, with a
+  message saying so.
+
+The report accounts for every record:
+
+- each id that names nothing in the database is listed with the reason:
+  skipped by the build, not in the base `proj.db` (`--authority EPSG` imports
+  it), or the record states no id;
+- an id the catalogue publishes for two different objects is recorded for
+  neither;
+- where the catalogue and `proj.db` disagree about an object, usually an EPSG
+  rename, it is reported and the id still names the object.
+
+Appending the same catalogue again changes nothing. Appending one that would
+move an id to a different object, because OSDU renumbered a bound CRS for
+example, is refused unless `--overwrite-rows` is given, so an id never silently
+starts resolving to something else. The superseded object itself stays in the
+database.
+
+The ids are stored in a table this package adds,
+`geodetic_engine_object_identifier`, keyed by scheme (`OSDU`) and id, and
+naming each object by table, authority and code in the vocabulary of PROJ's
+`object_view`. It joins with PROJ's own tables for listing and searching, for
+example every OSDU CRS within an extent. `geodetic-osdudb inspect` counts the
+ids by scheme.
+
+```{admonition} PROJ aliases
+:class: warning
+
+Each id is also written as a PROJ alias, source `OSDU_ID`, so a tool reading
+the database through PROJ directly, such as `projinfo`, QGIS or plain pyproj,
+finds an id without its partition. PROJ matches aliases **approximately**, so
+such a tool can resolve a mistyped id to a different CRS: `…_EPSG::113` to the
+bound CRS over EPSG:1133. This package never resolves ids through the aliases.
+Turn them off with `--no-osdu-id-aliases`, or `osdu_id_aliases = false` in
+`geodetic-osdudb.toml`, if other software reads the database.
+```
 
 ## Errors
 

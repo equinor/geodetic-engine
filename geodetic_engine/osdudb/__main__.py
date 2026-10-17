@@ -97,6 +97,14 @@ def _parser() -> argparse.ArgumentParser:
         help="write the database without checking that PROJ can read it back",
     )
     build_cmd.add_argument(
+        "--no-osdu-id-aliases",
+        action="store_true",
+        help=(
+            "record OSDU record ids only in the identifier table, not also as "
+            "PROJ aliases; PROJ matches aliases approximately"
+        ),
+    )
+    build_cmd.add_argument(
         "--dry-run",
         action="store_true",
         help=(
@@ -190,6 +198,8 @@ def _overrides(args: argparse.Namespace) -> dict[str, Any]:
         overrides["replace"] = True
     if getattr(args, "overwrite_rows", False):
         overrides["overwrite_rows"] = True
+    if getattr(args, "no_osdu_id_aliases", False):
+        overrides["osdu_id_aliases"] = False
     return overrides
 
 
@@ -224,6 +234,7 @@ def _show_config(args: argparse.Namespace) -> dict[str, Any]:
         "unsupported_method_codes": sorted(resolved.unsupported_method_codes),
         "append": resolved.append,
         "overwrite_rows": resolved.overwrite_rows,
+        "osdu_id_aliases": resolved.osdu_id_aliases,
     }
 
 

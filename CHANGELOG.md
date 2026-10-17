@@ -61,6 +61,25 @@ All notable changes to this project are documented here. The format follows
   The defects of the OSDU Java service's bin grid computation are not
   reproduced; each has a test marked `java_defect` stating the correct
   behaviour.
+- OSDU record ids, such as
+  `opendes:reference-data--CoordinateReferenceSystem:BoundProjected:EPSG::23031_EPSG::1133`
+  or `opendes:reference-data--CoordinateTransformation:EPSG::1612`, resolve
+  wherever an authority code does: CRS inputs, `operation=`, and the new
+  `CoordinateReferenceSystem.from_osdu_id`, which also takes a bare `data.ID`.
+  `geodetic-osdudb build` records the id of every catalogue record against the
+  object it names, including EPSG objects the base `proj.db` already defines,
+  in a new `geodetic_engine_object_identifier` table keyed by scheme and id.
+  The data partition and any version separator are ignored. Lookup is exact
+  and table-only: an id is never decoded from its spelling or matched
+  approximately, so a mistyped id is refused rather than resolved to a near
+  miss. A bound CRS's id resolves to the bound CRS. Ids that name nothing are
+  listed in the report with the reason, an id published for two objects is
+  recorded for neither, an append that would move an id to another object is
+  refused without `--overwrite-rows`, and validation checks every id still
+  names an object. Each id is also written as a PROJ alias (source `OSDU_ID`)
+  for tools reading the database through PROJ; PROJ matches aliases
+  approximately, so `--no-osdu-id-aliases` / `osdu_id_aliases = false` leaves
+  them out. `inspect` counts the ids by scheme.
 
 ### Changed
 

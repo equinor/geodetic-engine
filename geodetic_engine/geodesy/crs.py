@@ -37,6 +37,13 @@ from geodetic_engine.geodesy.errors import (
     UnembeddableOperationError,
     UnresolvableCRSError,
 )
+from geodetic_engine.geodesy.osdu_id import (
+    CRS_ENTITY,
+    OsduId,
+    parse_osdu_id,
+    resolve_osdu_id,
+    unresolved_reason,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +136,9 @@ class CoordinateReferenceSystem:
         Args:
             value: An authority code such as ``"EPSG:4326"`` or ``4326``, a WKT
                 string, a PROJ string, a PROJJSON string, an OSDU
-                ``persistableReference`` payload, or an existing
+                ``persistableReference`` payload, an OSDU record id such as
+                ``"opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031"``
+                (see :meth:`from_osdu_id`), or an existing
                 :class:`pyproj.CRS` or :class:`CoordinateReferenceSystem`.
 
         Returns:
@@ -174,6 +183,52 @@ class CoordinateReferenceSystem:
                 states a definition this package will not translate.
         """
         return _cached_reference(_normalize(payload), database_identity())
+
+    @classmethod
+    def from_osdu_id(cls, value: str) -> CoordinateReferenceSystem:
+        """Resolve a CRS from the id of the OSDU record that publishes it.
+
+        The data partition and any version separator are dropped, and what
+        remains is looked up exactly in the identifiers the active proj.db
+        records. Those are written by :mod:`geodetic_engine.osdudb` from an
+        OSDU catalogue, so the database has to have been built with
+        ``geodetic-osdudb``. A bound CRS's id resolves to the bound CRS,
+        transformation and all.
+
+        The id is never decoded from its spelling and never matched
+        approximately, so an id that differs from a recorded one by a single
+        character is refused rather than resolved to a near miss. See
+        :mod:`geodetic_engine.geodesy.osdu_id`.
+
+        :meth:`from_user_input` recognises full ids too. This also accepts a
+        bare ``data.ID`` such as ``"Projected:EPSG::23031"``, since it can
+        only mean a CRS here.
+
+        Args:
+            value: The record id, with or without its partition, or the
+                record's ``data.ID``.
+
+        Returns:
+            The resolved CRS.
+
+        Raises:
+            UnresolvableCRSError: If ``value`` is not an OSDU CRS record id, or
+                the active proj.db records no such id.
+
+        Example:
+            >>> CoordinateReferenceSystem.from_osdu_id(
+            ...     "opendes:reference-data--CoordinateReferenceSystem:"
+            ...     "BoundProjected:EPSG::23031_EPSG::1133"
+            ... ).crs.is_bound  # doctest: +SKIP
+            True
+        """
+        osdu = (
+            parse_osdu_id(value, entity=CRS_ENTITY) if isinstance(value, str) else None
+        )
+        if osdu is None:
+            raise UnresolvableCRSError(f"{value!r} is not an OSDU record id")
+        definition = value.strip() if parse_osdu_id(value) else osdu.identifier
+        return _cached(definition, database_identity())
 
     @property
     def crs(self) -> CRS:
@@ -318,6 +373,11 @@ def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceS
     # module.
     from geodetic_engine.persistablereference import looks_like_reference
 
+    if (osdu := parse_osdu_id(definition)) is not None:
+        # Resolved here, never by PROJ: PROJ would match an unknown id against
+        # names approximately, and a near miss is a different object. Checked
+        # before payloads, which a {{NAMESPACE}} placeholder would resemble.
+        return CoordinateReferenceSystem(_osdu_crs(osdu, definition), definition)
     if looks_like_reference(definition):
         return _cached_reference(definition, identity)
     try:
@@ -338,6 +398,38 @@ def _cached_reference(
 ) -> CoordinateReferenceSystem:
     """Resolve only persistableReferences, shared by both public constructors."""
     return CoordinateReferenceSystem(_reference(definition), definition)
+
+
+def _osdu_crs(osdu: OsduId, definition: str) -> CRS:
+    """Resolve an OSDU record id through the identifiers proj.db records.
+
+    Raises:
+        UnresolvableCRSError: If the id names a transformation rather than a
+            CRS, or names nothing in the active database, or names a CRS PROJ
+            cannot construct.
+    """
+    if not osdu.is_crs:
+        raise UnresolvableCRSError(
+            f"{definition!r} is the OSDU id of a {osdu.described}, not of a CRS"
+        )
+    found = resolve_osdu_id(osdu)
+    if found is None:
+        raise UnresolvableCRSError(
+            f"could not resolve {definition!r} as a CRS: {unresolved_reason(osdu)}"
+        )
+    if not found.is_crs:
+        raise UnresolvableCRSError(
+            f"{definition!r} is recorded against {found.table_name} "
+            f"{found.authority_code}, which is not a CRS"
+        )
+    try:
+        crs = CRS.from_authority(found.auth_name, found.code)
+    except CRSError as error:
+        raise UnresolvableCRSError(
+            f"{definition!r} names {found.authority_code}, which PROJ could not "
+            f"construct: {error}"
+        ) from error
+    return _rebound(crs, known=(found.auth_name, found.code))
 
 
 def _reference(definition: str) -> CRS:
@@ -369,7 +461,7 @@ def _reference(definition: str) -> CRS:
         ) from error
 
 
-def _rebound(crs: CRS) -> CRS:
+def _rebound(crs: CRS, *, known: tuple[str, str] | None = None) -> CRS:
     """Restore the bound CRS the database defines, which PROJ unwraps.
 
     PROJ discards the ``BOUNDCRS`` wrapper when it builds a CRS from a code,
@@ -380,13 +472,14 @@ def _rebound(crs: CRS) -> CRS:
     The code is tried first, then the name. A bound CRS over another authority's
     base comes back identifying itself as that base, so its own code cannot
     be recovered from it, and the name is the only thing that survives the
-    unwrapping.
+    unwrapping. A caller that looked the CRS up by code already knows it, and
+    passes it as ``known``.
     """
     if crs.is_bound:
         return crs
     # An exact identification only: a fuzzy match could rebind a CRS onto a
     # different authority's bound definition.
-    authority = crs.to_authority(min_confidence=100)
+    authority = known or crs.to_authority(min_confidence=100)
     definition = bound_definition(*authority) if authority else None
     described = f"{authority[0]}:{authority[1]}" if authority else crs.name
     if definition is None and crs.name:

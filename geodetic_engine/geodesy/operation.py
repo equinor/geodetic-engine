@@ -27,7 +27,18 @@ from pyproj.database import get_authorities
 from pyproj.enums import TransformDirection
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.database import DatabaseIdentity, database_identity
+from geodetic_engine.geodesy.database import (
+    DatabaseIdentity,
+    IdentifiedObject,
+    database_identity,
+)
+from geodetic_engine.geodesy.errors import OperationNotAvailableError
+from geodetic_engine.geodesy.osdu_id import (
+    OsduId,
+    parse_osdu_id,
+    resolve_osdu_id,
+    unresolved_reason,
+)
 
 # PROJJSON object types that are coordinate operations. Anything else with an
 # "id" (a CRS, a datum, an ellipsoid, a method, a parameter) is not one, and
@@ -706,6 +717,32 @@ def _esri_operation(wkt: str) -> CoordinateOperation:
         ) from error
 
 
+def _osdu_operation(osdu: OsduId, text: str) -> IdentifiedObject:
+    """The operation an OSDU transformation id names in the active proj.db.
+
+    Raises:
+        ValueError: If the id names a CRS record rather than a transformation.
+        OperationNotAvailableError: If the active proj.db records no such id,
+            or records it against something that is not an operation.
+    """
+    if not osdu.is_transformation:
+        raise ValueError(
+            f"{text!r} is the OSDU id of a {osdu.described}, not of a "
+            "coordinate transformation"
+        )
+    found = resolve_osdu_id(osdu)
+    if found is None:
+        raise OperationNotAvailableError(
+            f"{text!r} names no coordinate operation: {unresolved_reason(osdu)}"
+        )
+    if not found.is_operation:
+        raise OperationNotAvailableError(
+            f"{text!r} is recorded against {found.table_name} "
+            f"{found.authority_code}, which is not a coordinate operation"
+        )
+    return found
+
+
 @dataclass(frozen=True, slots=True)
 class OperationRequest:
     """A caller's request for a particular coordinate operation.
@@ -752,7 +789,11 @@ class OperationRequest:
         Args:
             reference: ``"EPSG:15670"``, a bare EPSG code such as ``15670``, an
                 OGC URN such as
-                ``"urn:ogc:def:coordinateOperation:EPSG::15670"``, an
+                ``"urn:ogc:def:coordinateOperation:EPSG::15670"``, the id of
+                an OSDU ``CoordinateTransformation`` record such as
+                ``"opendes:reference-data--CoordinateTransformation:EPSG::1612"``
+                (looked up exactly in the ids the active proj.db records; see
+                :mod:`~geodetic_engine.geodesy.osdu_id`), an
                 operation name such as ``"ITRF2014 to ETRF2014 (1)"``, an
                 :class:`OperationCandidate` from
                 :func:`~geodetic_engine.geodesy.transformation.available_operations`
@@ -771,7 +812,10 @@ class OperationRequest:
             ValueError: If given an :class:`OperationCandidate` that no single
                 reference can name, because PROJ assembled it from operations
                 no authority publishes as one. Use ``parse_operations``,
-                which expands it. Or if a payload states no usable operation.
+                which expands it. Or if a payload states no usable operation,
+                or an OSDU id names a CRS record rather than a transformation.
+            OperationNotAvailableError: If an OSDU transformation id names
+                nothing in the active proj.db.
 
         Example:
             >>> OperationRequest.parse("EPSG:15670").code
@@ -799,6 +843,12 @@ class OperationRequest:
             )
 
         text = reference.strip()
+        if (osdu := parse_osdu_id(text)) is not None:
+            # Before payloads, which a {{NAMESPACE}} placeholder would resemble,
+            # and before the AUTH:CODE split below, which would read the data
+            # partition as an authority.
+            found = _osdu_operation(osdu, text)
+            return cls(text=text, auth_name=found.auth_name, code=found.code, name=None)
         if _looks_like_payload(text):
             return cls.stated(_stated_operation(text))
         if _looks_like_esri_transformation(text):
