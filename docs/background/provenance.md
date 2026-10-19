@@ -56,7 +56,7 @@ to the register entries that defined it: the result's fingerprint identifies
 the database, and the database's history identifies the inputs.
 
 A database built from an OSDU catalogue also holds a
-`geodetic_engine_object_identifier` table, recording each record id against
+`geodetic_engine_osdu_object_identifier` table, recording each record id against
 the object it names, with the catalogue it came from. Validation checks every
 id still names an object the database defines. See {ref}`osdu-record-ids`.
 

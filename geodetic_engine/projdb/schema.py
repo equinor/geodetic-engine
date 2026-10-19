@@ -437,12 +437,13 @@ OBJECT_TABLE_NAME: Final[Mapping[str, str]] = {
 # that contributed to a database.
 BUILD_HISTORY_TABLE: Final = "geodetic_engine_build_history"
 
-# Written by this package, not by PROJ: identifiers that another scheme gives
-# an object, an OSDU record id for one, keyed by scheme and identifier. Rows
-# name their object in the vocabulary of PROJ's object_view, so the table joins
-# with crs_view, coordinate_operation_view and usage the way alias_name does,
-# and an object of any authority can be identified, EPSG's included.
-IDENTIFIER_TABLE: Final = "geodetic_engine_object_identifier"
+# Written by this package, not by PROJ: OSDU record identifiers for objects in
+# proj.db, keyed by scheme and identifier. Rows name their object in the
+# vocabulary of PROJ's object_view, so the table joins with crs_view,
+# coordinate_operation_view and usage the way alias_name does, and an object
+# of any authority can be identified, EPSG's included.
+IDENTIFIER_TABLE: Final = "geodetic_engine_osdu_object_identifier"
+LEGACY_IDENTIFIER_TABLE: Final = "geodetic_engine_object_identifier"
 
 IDENTIFIER_COLUMNS: Final[tuple[str, ...]] = (
     "scheme",

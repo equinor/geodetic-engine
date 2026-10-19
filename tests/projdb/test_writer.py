@@ -22,6 +22,7 @@ from geodetic_engine.projdb.errors import (
 from geodetic_engine.projdb.schema import (
     BUILD_HISTORY_TABLE,
     IDENTIFIER_TABLE,
+    LEGACY_IDENTIFIER_TABLE,
     verify_schema,
 )
 from geodetic_engine.projdb.writer import ProjDbWriter
@@ -405,6 +406,84 @@ def _identifier_aliases(database: Path) -> list[tuple[Any, ...]]:
             "SELECT alt_name, table_name, auth_name, code FROM alias_name "
             "WHERE source = 'OSDU_ID'"
         ).fetchall()
+
+
+def test_appending_migrates_the_legacy_identifier_table(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+
+    with closing(sqlite3.connect(config.output_db)) as connection:
+        connection.execute(
+            f"""CREATE TABLE {LEGACY_IDENTIFIER_TABLE}(
+                scheme TEXT NOT NULL,
+                identifier TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                auth_name TEXT NOT NULL,
+                code INTEGER_OR_TEXT NOT NULL,
+                deprecated BOOLEAN NOT NULL,
+                source TEXT,
+                PRIMARY KEY (scheme, identifier)
+            ) WITHOUT ROWID"""
+        )
+        connection.execute(
+            f"CREATE INDEX idx_{LEGACY_IDENTIFIER_TABLE}_object "
+            f"ON {LEGACY_IDENTIFIER_TABLE}(table_name, auth_name, code)"
+        )
+        connection.execute(
+            f"""CREATE TRIGGER {LEGACY_IDENTIFIER_TABLE}_insert_trigger
+                BEFORE INSERT ON {LEGACY_IDENTIFIER_TABLE}
+                FOR EACH ROW BEGIN
+                    SELECT RAISE(ABORT, 'invalid target')
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM object_view o
+                        WHERE o.table_name = NEW.table_name
+                            AND o.auth_name = NEW.auth_name
+                            AND o.code = NEW.code
+                    );
+                END"""
+        )
+        connection.execute(
+            f"INSERT INTO {LEGACY_IDENTIFIER_TABLE} VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "OSDU",
+                _identifier()["identifier"],
+                "projected_crs",
+                "EPSG",
+                23031,
+                0,
+                "CRS_CT.json",
+            ),
+        )
+        connection.commit()
+
+    appending = make_config(config.base_proj_db, config.output_db, append=True)
+    with ProjDbWriter(appending) as writer:
+        assert writer.connection.execute(
+            f"SELECT identifier, table_name, auth_name, code "
+            f"FROM {IDENTIFIER_TABLE}"
+        ).fetchall() == [
+            (_identifier()["identifier"], "projected_crs", "EPSG", 23031)
+        ]
+        assert writer.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (LEGACY_IDENTIFIER_TABLE,),
+        ).fetchone() is None
+        assert writer.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = ?",
+            (f"idx_{IDENTIFIER_TABLE}_object",),
+        ).fetchone() is not None
+        assert writer.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = ?",
+            (f"{IDENTIFIER_TABLE}_insert_trigger",),
+        ).fetchone() is not None
+        assert writer.write_identifiers([_identifier()]) == (0, 0)
+        writer.commit()
+
+    assert _identifiers(config.output_db) == [
+        (_identifier()["identifier"], "projected_crs", "EPSG", 23031)
+    ]
 
 
 def test_an_identifier_may_name_another_authoritys_object(

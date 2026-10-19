@@ -238,5 +238,5 @@ def test_osdu_id_aliases_can_be_turned_off_on_the_command_line(
             "SELECT COUNT(*) FROM alias_name WHERE source = 'OSDU_ID'"
         ).fetchone() == (0,)
         assert connection.execute(
-            "SELECT COUNT(*) FROM geodetic_engine_object_identifier"
+            "SELECT COUNT(*) FROM geodetic_engine_osdu_object_identifier"
         ).fetchone() == (1,)

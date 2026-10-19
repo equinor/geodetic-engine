@@ -21,7 +21,7 @@ class ConfigurationError(ProjDbBuildError):
 
 
 class SchemaDriftError(ProjDbBuildError):
-    """The base proj.db does not have the columns this builder expects."""
+    """A PROJ or package-owned database schema conflicts with this build."""
 
 
 class ForeignAuthorityCollision(ProjDbBuildError):

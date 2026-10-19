@@ -117,10 +117,10 @@ class OsduBuildConfig:
         osdu_id_aliases: Also record every OSDU record id as an ``alias_name``
             row, source ``OSDU_ID``, so that PROJ's own name search finds an id
             without its partition. The ids are recorded in
-            ``geodetic_engine_object_identifier`` either way, and this package
-            only ever resolves them from there. Enabled by default. PROJ
-            matches names approximately, so a tool reading the alias through
-            PROJ directly can resolve a mistyped id to a near miss.
+            ``geodetic_engine_osdu_object_identifier`` either way, and this
+            package only ever resolves them from there. Enabled by default.
+            PROJ matches names approximately, so a tool reading the alias
+            through PROJ directly can resolve a mistyped id to a near miss.
         source_file: The config file the settings were read from, if any.
     """
 

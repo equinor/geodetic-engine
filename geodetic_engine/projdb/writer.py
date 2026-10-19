@@ -25,6 +25,7 @@ from filelock import FileLock
 from geodetic_engine.projdb.errors import (
     ForeignAuthorityCollision,
     MissingReferencedObjectError,
+    SchemaDriftError,
 )
 from geodetic_engine.projdb.schema import (
     AUTHORITY_COLUMN,
@@ -32,6 +33,7 @@ from geodetic_engine.projdb.schema import (
     IDENTIFIER_COLUMNS,
     IDENTIFIER_DDL,
     IDENTIFIER_TABLE,
+    LEGACY_IDENTIFIER_TABLE,
     TABLE_COLUMNS,
     identifier_alias_source,
     verify_schema,
@@ -154,6 +156,8 @@ class ProjDbWriter:
             self.connection.execute("PRAGMA foreign_keys = ON")
             verify_schema(self.connection)
             self.connection.execute("BEGIN IMMEDIATE")
+            if self._appended:
+                self._migrate_legacy_identifier_table()
         except BaseException:
             self.rollback()
             self._lock.release()
@@ -162,6 +166,38 @@ class ProjDbWriter:
             logger.info("appending to the existing database at %s", output)
         else:
             logger.info("copied %s to %s", self._config.base_proj_db, output)
+
+    def _migrate_legacy_identifier_table(self) -> None:
+        """Move identifiers from the former table name in an appended database."""
+        tables = {
+            str(name)
+            for (name,) in self.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name IN (?, ?)",
+                (IDENTIFIER_TABLE, LEGACY_IDENTIFIER_TABLE),
+            )
+        }
+        if LEGACY_IDENTIFIER_TABLE not in tables:
+            return
+        if IDENTIFIER_TABLE in tables:
+            raise SchemaDriftError(
+                f"database contains both {LEGACY_IDENTIFIER_TABLE!r} and "
+                f"{IDENTIFIER_TABLE!r}; refusing to merge identifier tables"
+            )
+
+        for statement in IDENTIFIER_DDL:
+            self.connection.execute(statement)
+        columns = ", ".join(IDENTIFIER_COLUMNS)
+        self.connection.execute(
+            f"INSERT INTO {IDENTIFIER_TABLE} ({columns}) "
+            f"SELECT {columns} FROM {LEGACY_IDENTIFIER_TABLE}"
+        )
+        self.connection.execute(f"DROP TABLE {LEGACY_IDENTIFIER_TABLE}")
+        logger.info(
+            "migrated %s to %s",
+            LEGACY_IDENTIFIER_TABLE,
+            IDENTIFIER_TABLE,
+        )
 
     def existing_keys(self, table: str) -> set[tuple[str, str]]:
         """Return the ``(auth_name, code)`` pairs already present in a table.

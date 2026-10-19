@@ -739,7 +739,7 @@ def identifiers(database: Path) -> set[tuple[Any, ...]]:
         rows(
             database,
             "SELECT identifier, table_name, auth_name, CAST(code AS TEXT), "
-            "deprecated FROM geodetic_engine_object_identifier",
+            "deprecated FROM geodetic_engine_osdu_object_identifier",
         )
     )
 
@@ -902,10 +902,11 @@ class TestOsduIds:
         run(epsg_projected())
         with closing(sqlite3.connect(output_db)) as connection, connection:
             connection.execute(
-                "DROP TRIGGER geodetic_engine_object_identifier_insert_trigger"
+                "DROP TRIGGER "
+                "geodetic_engine_osdu_object_identifier_insert_trigger"
             )
             connection.execute(
-                "INSERT INTO geodetic_engine_object_identifier VALUES "
+                "INSERT INTO geodetic_engine_osdu_object_identifier VALUES "
                 "('OSDU', 'dangling', 'projected_crs', 'EPSG', '99999999', 0, NULL)"
             )
         with pytest.raises(ProjDbBuildError, match="does not define"):

@@ -309,11 +309,12 @@ starts resolving to something else. The superseded object itself stays in the
 database.
 
 The ids are stored in a table this package adds,
-`geodetic_engine_object_identifier`, keyed by scheme (`OSDU`) and id, and
+`geodetic_engine_osdu_object_identifier`, keyed by scheme (`OSDU`) and id, and
 naming each object by table, authority and code in the vocabulary of PROJ's
 `object_view`. It joins with PROJ's own tables for listing and searching, for
-example every OSDU CRS within an extent. `geodetic-osdudb inspect` counts the
-ids by scheme.
+example every OSDU CRS within an extent. An append build migrates the former
+table name in an existing database. `geodetic-osdudb inspect` counts the ids by
+scheme.
 
 ```{admonition} PROJ aliases
 :class: warning

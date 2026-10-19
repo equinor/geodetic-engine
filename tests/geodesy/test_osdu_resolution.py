@@ -143,8 +143,56 @@ def stock_database(tmp_path: Path) -> Iterator[Path]:
     yield from _reading(directory)
 
 
+@pytest.fixture
+def legacy_identifier_database(tmp_path: Path) -> Iterator[Path]:
+    """PROJ reading a database with the former identifier table name."""
+    directory = tmp_path / "legacy"
+    directory.mkdir()
+    database = directory / "proj.db"
+    shutil.copyfile(installed_proj_db(), database)
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute(
+            f"""CREATE TABLE {schema.LEGACY_IDENTIFIER_TABLE}(
+                scheme TEXT NOT NULL,
+                identifier TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                auth_name TEXT NOT NULL,
+                code INTEGER_OR_TEXT NOT NULL,
+                deprecated BOOLEAN NOT NULL,
+                source TEXT,
+                PRIMARY KEY (scheme, identifier)
+            ) WITHOUT ROWID"""
+        )
+        connection.execute(
+            f"INSERT INTO {schema.LEGACY_IDENTIFIER_TABLE} "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                SCHEME,
+                PROJECTED,
+                "projected_crs",
+                "EPSG",
+                23031,
+                0,
+                "CRS_CT.json",
+            ),
+        )
+    yield from _reading(directory)
+
+
 def test_the_table_name_is_spelled_alike_in_both_packages() -> None:
     assert database_module._IDENTIFIER_TABLE == schema.IDENTIFIER_TABLE
+
+
+def test_a_database_with_the_legacy_table_name_still_resolves_ids(
+    legacy_identifier_database: Path,
+) -> None:
+    found = identified_object(SCHEME, PROJECTED)
+    assert found is not None
+    assert (found.table_name, found.auth_name, found.code) == (
+        "projected_crs",
+        "EPSG",
+        "23031",
+    )
 
 
 @pytest.mark.parametrize(

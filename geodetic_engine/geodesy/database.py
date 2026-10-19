@@ -71,9 +71,11 @@ _GRID_SUFFIXES = frozenset(
 # on this package and must not be depended on in return.
 _BUILD_HISTORY_TABLE = "geodetic_engine_build_history"
 
-# Where a build records the identifiers another scheme gives an object, an OSDU
-# record id for one. Spelled here for the same reason as the history table.
-_IDENTIFIER_TABLE = "geodetic_engine_object_identifier"
+# Where a build records OSDU record identifiers for objects in this database.
+# Spelled here for the same reason as the history table: this package depends
+# on geodesy, so geodesy must not import projdb in return.
+_IDENTIFIER_TABLE = "geodetic_engine_osdu_object_identifier"
+_LEGACY_IDENTIFIER_TABLE = "geodetic_engine_object_identifier"
 
 # The object_view vocabulary an identifier can point into, split by what kind
 # of object a caller asked for.
@@ -419,9 +421,10 @@ def _query_identifiers(
 ) -> list[tuple[object, ...]]:
     """Run a query against the identifier table of the first database PROJ reads.
 
-    A database without the table, which is every database not built by this
+    A database without either table, which is every database not built by this
     package and every one built before identifiers were recorded, answers with
-    nothing rather than failing.
+    nothing rather than failing. The former table name remains readable until
+    an appended build migrates it.
     """
     for path, *_ in identity:
         database = Path(path)
@@ -431,11 +434,22 @@ def _query_identifiers(
             with closing(
                 sqlite3.connect(f"file:{database}?mode=ro", uri=True)
             ) as connection:
-                if not _has_table(connection, _IDENTIFIER_TABLE):
+                table = next(
+                    (
+                        candidate
+                        for candidate in (
+                            _IDENTIFIER_TABLE,
+                            _LEGACY_IDENTIFIER_TABLE,
+                        )
+                        if _has_table(connection, candidate)
+                    ),
+                    None,
+                )
+                if table is None:
                     return []
                 return list(
                     connection.execute(
-                        statement.format(table=_IDENTIFIER_TABLE), parameters
+                        statement.format(table=table), parameters
                     )
                 )
         except sqlite3.Error as error:

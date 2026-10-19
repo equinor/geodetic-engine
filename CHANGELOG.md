@@ -68,7 +68,8 @@ All notable changes to this project are documented here. The format follows
   `CoordinateReferenceSystem.from_osdu_id`, which also takes a bare `data.ID`.
   `geodetic-osdudb build` records the id of every catalogue record against the
   object it names, including EPSG objects the base `proj.db` already defines,
-  in a new `geodetic_engine_object_identifier` table keyed by scheme and id.
+  in a new `geodetic_engine_osdu_object_identifier` table keyed by scheme and
+  id.
   The data partition and any version separator are ignored. Lookup is exact
   and table-only: an id is never decoded from its spelling or matched
   approximately, so a mistyped id is refused rather than resolved to a near
