@@ -99,8 +99,8 @@ ideas the rest of the documentation assumes you know.
 :link-type: doc
 
 Task-oriented guides for every module: transformations, projection factors,
-well trajectories, OSDU persistableReferences, the Georepository client,
-custom `proj.db` builds, and seismic bin grids.
+well trajectories, the Georepository client, custom `proj.db` builds, and
+seismic bin grids.
 :::
 
 :::{grid-item-card} {octicon}`beaker` Examples
@@ -144,7 +144,8 @@ each workaround can be removed.
 | Understand why my transformation was refused | {doc}`user-guide/geodesy/errors` |
 | Turn an azimuth between true and grid north, or scale a distance onto the grid | {doc}`user-guide/geodesy/projection-factors` |
 | Position a well from its directional survey | {doc}`user-guide/welltrajectory/input` |
-| Read or write an OSDU `persistableReference` | {doc}`user-guide/persistable-reference` |
+| Read or write an OSDU `persistableReference` | {doc}`persistable-reference/usage` |
+| Understand what a `persistableReference` is, or look up the one a catalogue publishes | {doc}`persistable-reference/index`, {doc}`persistable-reference/catalog` |
 | Add my organisation's CRSs and transformations to PROJ | {doc}`user-guide/custom-database` |
 | Square up a seismic bin grid, or convert it to another CRS | {doc}`user-guide/bingrid` |
 | Know what the package does differently from plain pyproj | {doc}`background/guarantees` |
@@ -164,7 +165,6 @@ getting-started/index
 
 user-guide/geodesy/index
 user-guide/welltrajectory/index
-user-guide/persistable-reference
 user-guide/georepository
 user-guide/custom-database
 user-guide/bingrid
@@ -183,6 +183,7 @@ Gallery <examples/index>
 :caption: Reference
 :maxdepth: 2
 
+persistable-reference/index
 api/index
 cli/index
 background/index

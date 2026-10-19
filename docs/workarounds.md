@@ -379,7 +379,7 @@ Symptom
 What the package does
 : Parses and writes ESRI WKT itself, translating method and parameter names and
   units through fixed tables. Anything that cannot be stated exactly is
-  refused ({doc}`/user-guide/persistable-reference`).
+  refused ({doc}`/persistable-reference/usage`).
 
 Code
 : `geodetic_engine/persistablereference/esriwkt.py`,

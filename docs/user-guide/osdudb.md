@@ -11,7 +11,7 @@ publishes it, for example
 ({ref}`osdu-record-ids`), and you want those to resolve.
 
 **You may not need it**: if your records carry full `persistableReference`
-payloads, {doc}`persistable-reference` transforms with them directly, with no
+payloads, {doc}`/persistable-reference/usage` transforms with them directly, with no
 database build.
 
 ```{admonition} Not executed
@@ -337,152 +337,16 @@ Turn them off with `--no-osdu-id-aliases`, or `osdu_id_aliases = false` in
 
 Every catalogue record also publishes a `PersistableReference`. This is the
 JSON envelope around ESRI WKT that OSDU data carries wherever it names a CRS or
-a transformation (see {doc}`persistable-reference`). A build records it
+a transformation (see {doc}`/persistable-reference/index`). A build records it
 **verbatim** against the record's id, for **every** record whose id it records.
 That includes the EPSG records the base `proj.db` already defines and the build
 does not import. So for any object a catalogue record names, the exact string
 the catalogue publishes can be looked up, listed or exported. Use it when
 writing an OSDU record that names that object.
 
-This is the catalogue's own string, not one generated from PROJ's definition.
-{func}`~geodetic_engine.persistablereference.to_persistable_reference`
-generates one, which describes the same CRS but is not the same bytes. The two
-are never mixed: a reference the catalogue does not state is never filled in
-with a generated one.
-
-### Looking one up
-
-Name the object by the OSDU id of the record that publishes it, with or without
-its partition, by `AUTH:CODE`, or by a CRS. Lookups read the first `proj.db` on
-PROJ's data path unless you pass `database=`:
-
-```python
-from pathlib import Path
-
-from geodetic_engine.geodesy import CoordinateReferenceSystem, transform
-from geodetic_engine.persistablereference import (
-    missing_reference_reason,
-    persistable_reference_from_catalog,
-)
-
-reference = persistable_reference_from_catalog(
-    "opendes:reference-data--CoordinateReferenceSystem:"
-    "BoundProjected:EPSG::23031_EPSG::1612"
-)
-reference.kind            # <Kind.EARLY_BOUND_CRS: 'EBC'>
-reference.authority_code  # 'OSDU:23031023'
-reference.payload         # the string exactly as the catalogue publishes it
-
-# EPSG objects the base proj.db defines have theirs too, by id or by code.
-epsg = persistable_reference_from_catalog(
-    "EPSG:23031", database=Path("build/proj.db")
-)
-epsg.identifier  # 'reference-data--CoordinateReferenceSystem:Projected:EPSG::23031'
-
-# From a CRS, or from the operation a transformation applied.
-crs = CoordinateReferenceSystem.from_osdu_id("BoundProjected:EPSG::23031_EPSG::1612")
-crs.persistable_reference_from_catalog().kind
-# the bound CRS's EBC, not EPSG:23031's LBC
-result = transform(
-    "EPSG:23031", "EPSG:4326", [(500000.0, 6600000.0)], operation="EPSG:1612"
-)
-result.operation.persistable_reference_from_catalog().identifier
-# 'reference-data--CoordinateTransformation:EPSG::1612'
-```
-
-A CRS is looked up by the id or code it was resolved from. A bound CRS named by
-its id therefore gets the bound CRS's reference, not the reference of the CRS it
-wraps. A CRS given as WKT or PROJJSON is looked up by authority code only when
-PROJ is certain which object it is. An `AUTH:CODE` that names a CRS and an
-operation alike can be narrowed with `entity="crs"` or `entity="operation"`.
-The same `entity=` also lets a bare `data.ID` such as `Projected:EPSG::23031`
-be given. If several active records publish *different* references for one
-code, {class}`~geodetic_engine.persistablereference.AmbiguousCatalogReferenceError`
-is raised; name the record by its id instead.
-
-### Pretty-printing
-
-{meth}`~geodetic_engine.persistablereference.CatalogPersistableReference.pretty`,
-or {func}`~geodetic_engine.persistablereference.pretty_persistable_reference`
-for any payload, gives indented JSON in the payload's own key order. It is
-still JSON:
-
-```text
-{
-  "authCode": {
-    "auth": "OSDU",
-    "code": "23031023"
-  },
-  "lateBoundCRS": {
-    "authCode": {
-      "auth": "EPSG",
-      "code": "23031"
-    },
-    "name": "ED_1950_UTM_Zone_31N",
-    "type": "LBC",
-    "ver": "PE_10_9_1",
-    "wkt": "PROJCS[\"ED_1950_UTM_Zone_31N\",GEOGCS[\"GCS_European_1950\",...]"
-  },
-  "name": "ED50 * EPSG-Nor N62 2001 / UTM zone 31N [23031,1612]",
-  "singleCT": { ... },
-  "type": "EBC",
-  "ver": "PE_10_9_1"
-}
-```
-
-`pretty(wkt=True)` also lays each embedded ESRI WKT out over indented lines,
-the way PROJ indents WKT. Only whitespace changes: every name and number is
-kept exactly as written. The result is **for reading and is not JSON**; store
-or send the verbatim payload.
-
-```text
-  "lateBoundCRS": {
-    ...
-    "wkt":
-      PROJCS["ED_1950_UTM_Zone_31N",
-        GEOGCS["GCS_European_1950",
-          DATUM["D_European_1950",
-            SPHEROID["International_1924",6378388.0,297.0]],
-          PRIMEM["Greenwich",0.0],
-          UNIT["Degree",0.0174532925199433]],
-        PROJECTION["Transverse_Mercator"],
-        ...
-        AUTHORITY["EPSG",23031]]
-  },
-```
-
-### Listing and exporting
-
-```python
-from geodetic_engine.persistablereference import (
-    Kind,
-    persistable_references_from_catalog,
-)
-from geodetic_engine.persistablereference import (
-    export_persistable_references_from_catalog as export,
-)
-
-bound = persistable_references_from_catalog(
-    kinds=[Kind.EARLY_BOUND_CRS], authorities=["OSDU"]
-)
-export(Path("refs.json"), pretty=True)
-export(Path("refs.csv"), format="csv", entity="operation")
-export(Path("some.json"), values=["EPSG:23031", "EPSG:4978"])
-```
-
-Each entry carries the record id, the object (`table_name`, `auth_name`,
-`code`), `deprecated`, `kind`, the `name`, `stated_authority` and `version` the
-reference states, its `sha256`, the `source` catalogue, and
-`persistable_reference`. That is the verbatim string, or the decoded object
-with `pretty`. The formats are JSON, JSONL and CSV; `pretty` and the
-WKT-laid-out display apply to JSON only. On the command line:
-
-```bash
-uv run geodetic-osdudb references build/proj.db                       # every one, JSON
-uv run geodetic-osdudb references build/proj.db --kind EBC --format jsonl
-uv run geodetic-osdudb references build/proj.db EPSG:23031 EPSG:1612 --pretty-wkt
-uv run geodetic-osdudb references build/proj.db --format csv --output refs.csv
-```
+How to look one up, pretty-print it, and list or export them is on
+{doc}`/persistable-reference/catalog`. This section covers what a build does
+with them.
 
 ### When there is none
 

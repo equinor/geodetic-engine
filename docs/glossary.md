@@ -206,7 +206,7 @@ OSDU record id
 
 persistableReference
   OSDU's JSON envelope around ESRI WKT, stating a CRS, transformation or unit.
-  See {doc}`/user-guide/persistable-reference`.
+  See {doc}`/persistable-reference/index`.
 
 Pipeline
   PROJ's explicit, step-by-step description of a coordinate operation. Each step

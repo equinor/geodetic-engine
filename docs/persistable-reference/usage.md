@@ -5,7 +5,7 @@ kernelspec:
   display_name: Python 3
 ---
 
-# Persistable references (OSDU)
+# Reading, transforming and writing payloads
 
 ```{code-cell} python
 :tags: [remove-cell]
@@ -13,20 +13,14 @@ kernelspec:
 %xmode Minimal
 ```
 
-`geodetic_engine.persistablereference` reads and writes OSDU
-**persistableReference** payloads. These are JSON envelopes around ESRI WKT
-that OSDU records use to say which CRS, transformation or unit their numbers
-are in.
+This page shows how to parse a persistableReference payload, build CRSs,
+operations and units from it, transform with it, and write one. What a payload
+is, and what its parts mean, is on the {doc}`overview <index>`. To get the
+string an OSDU catalogue publishes for an object, see {doc}`catalog`.
 
 **Use it when** your data comes from OSDU, or anywhere else that states CRSs
 and transformations as ESRI WKT, and you need to transform with exactly what
 the payload states.
-
-**What is different about it**: a payload is read as a definition, not as a
-code to look up. The WKT parameters are what gets built. The authority code
-next to them is kept as provenance only. A payload whose code is wrong, or
-names a register this machine has never heard of, still means exactly what its
-WKT says.
 
 ## The payloads used on this page
 
@@ -278,7 +272,7 @@ look it up in a `proj.db` built from that catalogue with
 {meth}`CoordinateReferenceSystem.persistable_reference_from_catalog()
 <geodetic_engine.geodesy.CoordinateReferenceSystem.persistable_reference_from_catalog>`.
 {func}`~geodetic_engine.persistablereference.pretty_persistable_reference`
-lays any payload out for reading. See {ref}`osdu-persistable-references`.
+lays any payload out for reading. See {doc}`catalog`.
 ```
 
 {func}`~geodetic_engine.persistablereference.geogtran` builds just the
@@ -341,6 +335,8 @@ reason:
 
 parse_persistable_reference(WGS84_TO_ETRS89_TIME_SPECIFIC).to_operation()
 ```
+
+(persistable-reference-errors)=
 
 ## Errors
 

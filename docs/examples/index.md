@@ -60,7 +60,7 @@ examples:
 | Refusals | {doc}`/user-guide/geodesy/errors` | Triggering every `GeodesyError` subclass, including a simulated missing grid |
 | Helmert algebra | {doc}`/user-guide/geodesy/helmert` | Reading, composing and collapsing Helmerts; restating ppb scales |
 | Projection factors | {doc}`/user-guide/geodesy/projection-factors` | Grid convergence and scale factor at one point and many, turning azimuths, scaling distances, figures across a UTM zone, a non-conformal projection |
-| OSDU payloads | {doc}`/user-guide/persistable-reference` | All six payload kinds, transforming with payloads, stated operations, units, writing payloads, method support tables |
+| OSDU payloads | {doc}`/persistable-reference/usage` | All six payload kinds, transforming with payloads, stated operations, units, writing payloads, method support tables |
 | Building the input | {doc}`/user-guide/welltrajectory/input` | A trajectory input from arrays, rows, a DataFrame, a survey file and an OSDU request body; the survey file format; checks; changing and saving an input |
 | Surveys | {doc}`/user-guide/welltrajectory/surveys` | Stations, units in every accepted form, inclination-only surveys, the wellhead, malformed surveys |
 | Trajectories | {doc}`/user-guide/welltrajectory/trajectories` | Results and their units, dogleg severity, interpolation, grid azimuths, a geographic CRS, moving to WGS 84 |

@@ -16,7 +16,7 @@ package and in anything else built on PROJ that reads the same file.
 | Your situation | What to use |
 |---|---|
 | Only EPSG codes | Nothing: the official `proj.db` already has them |
-| Records carry a full OSDU `persistableReference` | Nothing: {doc}`persistable-reference` transforms with the payload directly |
+| Records carry a full OSDU `persistableReference` | Nothing: {doc}`/persistable-reference/usage` transforms with the payload directly |
 | CRSs and transformations in a Georepository register | {doc}`projdb` |
 | Data that names CRSs by OSDU code, such as `OSDU:23032023` | {doc}`osdudb` |
 | Data that names CRSs and transformations by OSDU record id | {doc}`osdudb` ({ref}`osdu-record-ids`) |

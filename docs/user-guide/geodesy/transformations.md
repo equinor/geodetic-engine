@@ -262,7 +262,7 @@ print(transform("EPSG:5800", "EPSG:4221", (10000.0, 20000.0), operation="EPSG:10
 
 A {term}`bound CRS` carries its transformation to a hub, so no operation needs
 naming. It can be built with pyproj, parsed from an OSDU payload
-({doc}`/user-guide/persistable-reference`), or looked up by code or by
+({doc}`/persistable-reference/usage`), or looked up by code or by
 {term}`OSDU record id` in a {doc}`custom database </user-guide/projdb>`:
 
 ```{code-cell} python

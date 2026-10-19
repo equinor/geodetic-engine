@@ -43,7 +43,7 @@ for value in (
 A string that is a `persistableReference` is recognised automatically. Use
 {meth}`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_persistable_reference`
 to require one, so any other input is refused. See
-{doc}`/user-guide/persistable-reference`.
+{doc}`/persistable-reference/usage`.
 
 The id of an OSDU CRS record is recognised too, with or without its data
 partition. A bound CRS's id gives the bound CRS, transformation and all, and
