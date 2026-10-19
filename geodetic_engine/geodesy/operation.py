@@ -35,6 +35,7 @@ from geodetic_engine.geodesy.database import (
 )
 from geodetic_engine.geodesy.errors import OperationNotAvailableError
 from geodetic_engine.geodesy.osdu_id import (
+    SCHEME,
     OsduId,
     parse_osdu_id,
     resolve_osdu_id,
@@ -388,20 +389,30 @@ class AppliedOperation:
             AmbiguousCatalogReferenceError: If records publishing different
                 references name the operation applied.
         """
+        from geodetic_engine.geodesy.database import recorded_identifiers
         from geodetic_engine.persistablereference.stored import (
             persistable_reference_from_catalog,
         )
 
-        if self.requested and (osdu := parse_osdu_id(self.requested)) is not None:
-            found = persistable_reference_from_catalog(
+        if (
+            self.requested
+            and self.auth_name is not None
+            and self.code is not None
+            and (osdu := parse_osdu_id(self.requested)) is not None
+            and osdu.is_transformation
+            and recorded_identifiers(
+                SCHEME,
+                identifiers=osdu.candidates(),
+                auth_name=self.auth_name,
+                code=self.code,
+                database=database,
+            )
+        ):
+            # The record named is the one asked about, even when it states no
+            # reference that another record naming the operation does.
+            return persistable_reference_from_catalog(
                 self.requested, entity="operation", database=database
             )
-            if (
-                osdu.is_transformation
-                and found is not None
-                and (found.auth_name, found.code) == (self.auth_name, self.code)
-            ):
-                return found
         if self.authority_code is None:
             return None
         try:

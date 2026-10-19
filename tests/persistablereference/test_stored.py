@@ -604,6 +604,43 @@ class TestExport:
             )  # type: ignore[arg-type]
 
 
+def test_an_operation_requested_by_an_id_answers_for_that_record_only(
+    database: Path,
+) -> None:
+    """Another record naming the operation does not answer for the one asked about."""
+    from geodetic_engine.geodesy.operation import AppliedOperation, OperationRoute
+
+    silent = f"{TRANSFORMATION_ENTITY}:EPSG::1612_without_a_reference"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute(
+            f"INSERT INTO {schema.IDENTIFIER_TABLE} (scheme, identifier, "
+            "table_name, auth_name, code, deprecated, source) VALUES "
+            "(?, ?, 'helmert_transformation', 'EPSG', '1612', 0, 'CRS_CT.json')",
+            (SCHEME, silent),
+        )
+
+    def applied(requested: str) -> AppliedOperation:
+        return AppliedOperation(
+            requested=requested,
+            auth_name="EPSG",
+            code="1612",
+            name="ED50 to WGS 84 (23)",
+            method_name=None,
+            accuracy=None,
+            route=OperationRoute.CHAINED,
+        )
+
+    assert (
+        applied(f"opendes:{silent}").persistable_reference_from_catalog(
+            database=database
+        )
+        is None
+    )
+    for requested in (f"opendes:{TRANSFORMATION}", "EPSG:1612"):
+        found = applied(requested).persistable_reference_from_catalog(database=database)
+        assert found is not None and found.identifier == TRANSFORMATION, requested
+
+
 def test_a_proj_code_with_brackets_and_slashes_is_an_authority_code(
     database: Path,
 ) -> None:

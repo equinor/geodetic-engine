@@ -50,6 +50,29 @@ logger = logging.getLogger(__name__)
 
 Row = Mapping[str, Any]
 
+# Rows that belong to another object and are replaced with it: the child table,
+# its columns naming the parent, and the column ordering the rows.
+_DEPENDENTS: dict[str, tuple[str, str, str, str]] = {
+    "coordinate_system": (
+        "axis",
+        "coordinate_system_auth_name",
+        "coordinate_system_code",
+        "coordinate_system_order",
+    ),
+    "concatenated_operation": (
+        "concatenated_operation_step",
+        "operation_auth_name",
+        "operation_code",
+        "step_number",
+    ),
+}
+_DEPENDENT_LABEL = {"coordinate_system": "axes", "concatenated_operation": "steps"}
+
+_OVERWRITE_HINT = (
+    " Pass --overwrite-rows (overwrite_rows = true) to let this source's "
+    "definitions replace the ones an earlier build wrote."
+)
+
 
 class ProjDbWriter:
     """Writes custom authority rows into a copy of the official proj.db.
@@ -73,6 +96,13 @@ class ProjDbWriter:
         self._lock: FileLock | None = None
         self.inserted: Counter[str] = Counter()
         self._base_keys: dict[str, set[tuple[str, str]]] = {}
+        # What an overwriting build replaced that an earlier build had written.
+        self._replaced: list[dict[str, Any]] = []
+        self._unchanged = 0
+        self._dependents: dict[tuple[str, str, str], list[tuple[Any, ...]]] = {}
+        self._moved_identifiers: list[dict[str, str]] = []
+        self._replaced_references: list[dict[str, str]] = []
+        self._removed_references: list[str] = []
 
     def is_base_object(self, table: str, auth: str, code: str) -> bool:
         """Whether a key belongs to the protected base database."""
@@ -287,64 +317,157 @@ class ProjDbWriter:
                 and "auth_name" in row
                 and "code" in row
             )
-            if keyed_update:
-                auth, code = str(row["auth_name"]), str(row["code"])
-                if self.is_base_object(table, auth, code):
-                    raise ForeignAuthorityCollision(
-                        f"refusing to replace protected base object {auth}:{code}"
-                    )
-                if table == "coordinate_system":
-                    self.connection.execute(
-                        "DELETE FROM axis WHERE coordinate_system_auth_name=? "
-                        "AND coordinate_system_code=?",
-                        (auth, code),
-                    )
-                elif table == "concatenated_operation":
-                    self.connection.execute(
-                        "DELETE FROM concatenated_operation_step "
-                        "WHERE operation_auth_name=? AND operation_code=?",
-                        (auth, code),
-                    )
-            values = tuple(row.get(column) for column in columns)
             try:
-                if (
-                    keyed_update
-                    and self.connection.execute(
-                        f"SELECT 1 FROM {table} WHERE auth_name=? AND code=?",
-                        (row["auth_name"], row["code"]),
-                    ).fetchone()
-                ):
-                    changed = [
-                        column
-                        for column in columns
-                        if column not in ("auth_name", "code")
-                    ]
-                    self.connection.execute(
-                        f"UPDATE {table} SET "
-                        f"{', '.join(f'{column}=?' for column in changed)} "
-                        "WHERE auth_name=? AND code=?",
-                        (
-                            *(row.get(column) for column in changed),
-                            row["auth_name"],
-                            row["code"],
-                        ),
-                    )
-                else:
-                    self.connection.execute(statement, values)
+                if keyed_update and self._replace(table, columns, row):
+                    continue
+                self.connection.execute(
+                    statement, tuple(row.get(column) for column in columns)
+                )
             except sqlite3.IntegrityError as exc:
                 identity = {
                     key: row.get(key)
                     for key in ("auth_name", "code", "name")
                     if key in row
                 }
+                hint = _OVERWRITE_HINT if "UNIQUE" in str(exc) else ""
                 raise ForeignAuthorityCollision(
                     f"could not insert into {table}: {exc}. Row: {identity}. "
                     "The build is aborted rather than overwriting an existing "
-                    "definition."
+                    f"definition.{hint}"
                 ) from exc
 
         self.inserted[table] += len(rows)
         return len(rows)
+
+    def _replace(self, table: str, columns: Sequence[str], row: Row) -> bool:
+        """Bring an existing row of this build's own authorities up to date.
+
+        A row stated exactly as it already is, is left alone. One that differs
+        is updated and recorded with the columns that changed, so the build can
+        say what it replaced.
+
+        Returns:
+            False when there is no such row yet, for the caller to insert.
+
+        Raises:
+            ForeignAuthorityCollision: If the row is a base database object.
+        """
+        auth, code = str(row["auth_name"]), str(row["code"])
+        if self.is_base_object(table, auth, code):
+            raise ForeignAuthorityCollision(
+                f"refusing to replace protected base object {auth}:{code}"
+            )
+        existing = self.connection.execute(
+            f"SELECT {', '.join(columns)} FROM {table} WHERE auth_name=? AND code=?",
+            (auth, code),
+        ).fetchone()
+        if existing is None:
+            return False
+        if table in _DEPENDENTS:
+            child, auth_column, code_column, _ = _DEPENDENTS[table]
+            self._dependents.setdefault(
+                (table, auth, code), self._dependent_rows(table, auth, code)
+            )
+            self.connection.execute(
+                f"DELETE FROM {child} WHERE {auth_column}=? AND {code_column}=?",
+                (auth, code),
+            )
+        before = dict(zip(columns, existing, strict=True))
+        changed = [
+            column
+            for column in columns
+            if column not in ("auth_name", "code")
+            and not _same(before[column], row.get(column))
+        ]
+        # An axis is part of its coordinate system and is reported with it.
+        reported = table != "axis"
+        if not changed:
+            if reported:
+                self._unchanged += 1
+            return True
+        self.connection.execute(
+            f"UPDATE {table} SET {', '.join(f'{column}=?' for column in changed)} "
+            "WHERE auth_name=? AND code=?",
+            (*(row.get(column) for column in changed), auth, code),
+        )
+        if reported:
+            self._replaced.append(
+                {
+                    "table": table,
+                    "auth_name": auth,
+                    "code": code,
+                    "name": row.get("name"),
+                    "previous_name": before.get("name"),
+                    "changed": changed,
+                }
+            )
+        return True
+
+    def _dependent_rows(
+        self, table: str, auth: str, code: str
+    ) -> list[tuple[Any, ...]]:
+        """The rows of an object's dependent table, without their own keys."""
+        child, auth_column, code_column, order = _DEPENDENTS[table]
+        compared = [
+            column
+            for column in TABLE_COLUMNS[child]
+            if column not in (auth_column, code_column, "auth_name", "code")
+        ]
+        return self.connection.execute(
+            f"SELECT {', '.join(compared)} FROM {child} "
+            f"WHERE {auth_column}=? AND {code_column}=? ORDER BY {order}",
+            (auth, code),
+        ).fetchall()
+
+    def overrides(self) -> dict[str, Any]:
+        """What this build replaced that an earlier build had written.
+
+        Only a build with ``overwrite_rows`` replaces anything. Usages and
+        aliases are refreshed with the objects they annotate and not listed.
+
+        Returns:
+            ``objects``, each object whose definition changed, with the columns
+            (or ``axes``, ``steps``) that did; ``unchanged``, how many objects
+            this build stated exactly as they already were; ``identifiers``,
+            each id that now names a different object or changed its inactive
+            flag; and
+            ``persistable_references`` and ``persistable_references_removed``,
+            each record id whose reference was replaced or removed.
+        """
+        objects = {
+            (item["table"], item["auth_name"], item["code"]): item
+            for item in self._replaced
+        }
+        unchanged = self._unchanged
+        for (table, auth, code), before in self._dependents.items():
+            if self._dependent_rows(table, auth, code) == before:
+                continue
+            label = _DEPENDENT_LABEL[table]
+            if (key := (table, auth, code)) in objects:
+                objects[key]["changed"].append(label)
+                continue
+            unchanged -= 1
+            name = None
+            if "name" in TABLE_COLUMNS[table]:
+                (name,) = self.connection.execute(
+                    f"SELECT name FROM {table} WHERE auth_name=? AND code=?",
+                    (auth, code),
+                ).fetchone()
+            objects[key] = {
+                "table": table,
+                "auth_name": auth,
+                "code": code,
+                "name": name,
+                "previous_name": name,
+                "changed": [label],
+            }
+        return {
+            "objects": list(objects.values()),
+            "unchanged": unchanged,
+            "identifiers": list(self._moved_identifiers),
+            "persistable_references": list(self._replaced_references),
+            "persistable_references_removed": list(self._removed_references),
+        }
 
     def write_identifiers(
         self, rows: Sequence[Row], *, aliases: bool = False
@@ -401,16 +524,38 @@ class ProjDbWriter:
                     row["deprecated"]
                 )
                 if not unchanged:
+                    was = (
+                        f"{previous[0]} {previous[1]}:{previous[2]}"
+                        f"{' (inactive)' if existing[3] else ''}"
+                    )
+                    now = (
+                        f"{target[0]} {target[1]}:{target[2]}"
+                        f"{' (inactive)' if row['deprecated'] else ''}"
+                    )
                     if not self._config.overwrite_rows:
                         raise ForeignAuthorityCollision(
                             f"{scheme} identifier {identifier!r} already names "
-                            f"{previous[0]} {previous[1]}:{previous[2]}"
-                            f"{' (inactive)' if existing[3] else ''}; refusing to "
-                            f"record it against {target[0]} {target[1]}:{target[2]}"
-                            f"{' (inactive)' if row['deprecated'] else ''}. The "
+                            f"{was}; refusing to record it against {now}. The "
                             "build is aborted rather than changing what the "
-                            "identifier resolves to."
+                            f"identifier resolves to.{_OVERWRITE_HINT}"
                         )
+                    self._moved_identifiers.append(
+                        {"identifier": identifier, "previous": was, "now": now}
+                    )
+                    if previous == target:
+                        # Only the inactive flag changed. Deleting the row would
+                        # cascade to the persistableReference recorded for it.
+                        self.connection.execute(
+                            f"UPDATE {IDENTIFIER_TABLE} SET deprecated = ?, "
+                            "source = ? WHERE scheme = ? AND identifier = ?",
+                            (row["deprecated"], row.get("source"), scheme, identifier),
+                        )
+                        written += 1
+                        if aliases and self._add_identifier_alias(
+                            scheme, identifier, target
+                        ):
+                            aliased += 1
+                        continue
                     self.connection.execute(
                         f"DELETE FROM {IDENTIFIER_TABLE} "
                         "WHERE scheme = ? AND identifier = ?",
@@ -516,8 +661,15 @@ class ProjDbWriter:
                         f"{scheme} record {identifier!r} already has a different "
                         "persistableReference recorded; refusing to replace it. "
                         "The build is aborted rather than changing what is "
-                        "returned for it."
+                        f"returned for it.{_OVERWRITE_HINT}"
                     )
+                self._replaced_references.append(
+                    {
+                        "identifier": identifier,
+                        "previous_sha256": str(existing[0]),
+                        "sha256": str(row["sha256"]),
+                    }
+                )
                 self.connection.execute(
                     f"DELETE FROM {PERSISTABLE_REFERENCE_TABLE} "
                     "WHERE scheme = ? AND identifier = ?",
@@ -577,11 +729,14 @@ class ProjDbWriter:
             )
         removed = 0
         for scheme, identifier in keys:
-            removed += self.connection.execute(
+            count = self.connection.execute(
                 f"DELETE FROM {PERSISTABLE_REFERENCE_TABLE} "
                 "WHERE scheme = ? AND identifier = ?",
                 (scheme, identifier),
             ).rowcount
+            if count:
+                self._removed_references.append(identifier)
+            removed += count
         return removed
 
     def upsert_authority_preferences(self, rows: Sequence[Row]) -> int:
@@ -696,6 +851,19 @@ def _assert_known_table(table: str) -> None:
             f"{table!r} is not a table this builder writes; add it to "
             "TABLE_COLUMNS with its exact column list first"
         )
+
+
+def _same(stored: Any, stated: Any) -> bool:
+    """Whether a stored value is the one a row states, across SQLite's affinity.
+
+    A code written as text may come back as an integer, without the definition
+    having changed.
+    """
+    if stored == stated:
+        return True
+    if stored is None or stated is None:
+        return False
+    return str(stored) == str(stated)
 
 
 def _unlink(path: Path) -> None:

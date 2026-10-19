@@ -4,6 +4,11 @@ A build needs nothing but the catalogue file, so the common case is::
 
     geodetic-osdudb build CRS_CT.json
 
+The official OSDU catalogue is committed in ``catalogs/osdu/``. It is updated
+to the newest OSDU publishes, for the change to be reviewed and committed, with::
+
+    geodetic-osdudb download
+
 Everything else has a default or lives in an optional ``geodetic-osdudb.toml``.
 The persistable references a built database records are looked up or exported
 with::
@@ -24,6 +29,11 @@ from geodetic_engine.errors import GeodeticEngineError
 from geodetic_engine.geodesy.database import persistable_references_present
 from geodetic_engine.osdudb.build import build
 from geodetic_engine.osdudb.config import load_config
+from geodetic_engine.osdudb.download import (
+    DEFAULT_CATALOG_DESTINATION,
+    LATEST,
+    download_official_catalog,
+)
 from geodetic_engine.persistablereference import (
     Kind,
     export_persistable_references_from_catalog,
@@ -97,7 +107,9 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "replace a colliding row of this build's own authorities instead "
-            "of aborting; another authority's rows are still never touched"
+            "of aborting, so this catalogue's definitions win; each one "
+            "replaced is listed in the build summary. Another authority's rows "
+            "are still never touched"
         ),
     )
     build_cmd.add_argument(
@@ -125,6 +137,35 @@ def _parser() -> argparse.ArgumentParser:
             "run the whole build and report what it would write, then discard "
             "it; nothing is left on disk"
         ),
+    )
+
+    download_cmd = sub.add_parser(
+        "download",
+        help="update the committed official OSDU catalogue to the newest",
+        description=(
+            "Download the CRS_CT.json catalogue OSDU publishes in its Data "
+            "Definitions repository, verify its SHA-256, and replace the copy "
+            "committed in this repository with it, recording where it came "
+            "from beside it. Review and commit the change. Prints what was "
+            "downloaded as JSON."
+        ),
+    )
+    download_cmd.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_CATALOG_DESTINATION,
+        help=f"where to write it; {DEFAULT_CATALOG_DESTINATION} by default",
+    )
+    download_cmd.add_argument(
+        "--ref",
+        default=LATEST,
+        help=f"the revision to fetch; {LATEST}, the newest, by default",
+    )
+    download_cmd.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="seconds to wait for the server; 120 by default",
     )
 
     validate_cmd = sub.add_parser("validate", help="validate an existing proj.db")
@@ -242,6 +283,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "build":
             return _build(args)
+        if args.command == "download":
+            return _download(args)
         if args.command == "validate":
             print(
                 json.dumps(
@@ -298,6 +341,25 @@ def _build(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         skip_validation=args.skip_validation,
     )
+
+
+def _download(args: argparse.Namespace) -> int:
+    """Download the official catalogue and print what was written."""
+    result = download_official_catalog(args.output, ref=args.ref, timeout=args.timeout)
+    print(
+        json.dumps(
+            {
+                "path": str(result.path),
+                "ref": result.ref,
+                "commit": result.commit,
+                "sha256": result.sha256,
+                "changed": result.changed,
+                "url": result.url,
+            },
+            indent=2,
+        )
+    )
+    return 0
 
 
 def _references(args: argparse.Namespace) -> int:

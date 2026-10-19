@@ -344,6 +344,100 @@ def test_overwrite_rows_replaces_only_its_own_authority(
     assert scope == "Rewritten"
 
 
+def test_overwrite_rows_reports_what_it_replaced_and_leaves_the_rest(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as first:
+        first.insert("scope", [_SCOPE_ROW, _SCOPE_ROW | {"code": "2"}])
+        first.commit()
+
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        writer.insert(
+            "scope", [_SCOPE_ROW | {"scope": "Rewritten"}, _SCOPE_ROW | {"code": "2"}]
+        )
+        overrides = writer.overrides()
+        writer.commit()
+
+    assert overrides["objects"] == [
+        {
+            "table": "scope",
+            "auth_name": "Example",
+            "code": "1",
+            "name": None,
+            "previous_name": None,
+            "changed": ["scope"],
+        }
+    ]
+    assert overrides["unchanged"] == 1
+
+
+def _coordinate_system(orientation: str) -> list[tuple[str, list[dict[str, Any]]]]:
+    axes = [
+        ("Easting", "E", "east", 1),
+        ("Northing", "N", orientation, 2),
+    ]
+    return [
+        (
+            "coordinate_system",
+            [
+                {
+                    "auth_name": "Example",
+                    "code": "1",
+                    "type": "Cartesian",
+                    "dimension": 2,
+                }
+            ],
+        ),
+        (
+            "axis",
+            [
+                {
+                    "auth_name": "Example",
+                    "code": str(order),
+                    "name": name,
+                    "abbrev": abbrev,
+                    "orientation": direction,
+                    "coordinate_system_auth_name": "Example",
+                    "coordinate_system_code": "1",
+                    "coordinate_system_order": order,
+                    "uom_auth_name": "EPSG",
+                    "uom_code": "9001",
+                }
+                for name, abbrev, direction, order in axes
+            ],
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("orientation", "replaced"), [("north", []), ("south", ["axes"])]
+)
+def test_a_coordinate_system_is_replaced_with_its_axes(
+    config: ProjDbBuildConfig, orientation: str, replaced: list[str]
+) -> None:
+    with ProjDbWriter(config) as first:
+        for table, rows in _coordinate_system("north"):
+            first.insert(table, rows)
+        first.commit()
+
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        for table, rows in _coordinate_system(orientation):
+            writer.insert(table, rows)
+        overrides = writer.overrides()
+        writer.commit()
+
+    assert [item["changed"] for item in overrides["objects"]] == (
+        [replaced] if replaced else []
+    )
+    assert overrides["unchanged"] == (0 if replaced else 1)
+
+
 def test_overwrite_rows_still_cannot_reach_epsg(
     config: ProjDbBuildConfig,
 ) -> None:
@@ -703,6 +797,38 @@ def test_moving_an_id_takes_its_reference_away_with_it(
         writer.write_identifiers([_identifier(code="23032")])
         writer.commit()
     assert _references(config.output_db) == []
+
+
+def test_a_changed_inactive_flag_keeps_the_reference(
+    config: ProjDbBuildConfig,
+) -> None:
+    """The id still names the same object, so its reference still belongs to it.
+
+    Appended with references turned off, nothing would record it again.
+    """
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()], aliases=True)
+        writer.write_persistable_references([_reference()])
+        writer.commit()
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        assert writer.write_identifiers([_identifier(deprecated=1)], aliases=True) == (
+            1,
+            0,
+        )
+        (moved,) = writer.overrides()["identifiers"]
+        writer.commit()
+    assert moved["now"].endswith("(inactive)")
+    assert _references(config.output_db) == [
+        (_identifier()["identifier"], "LBC", _PAYLOAD)
+    ]
+    with closing(sqlite3.connect(config.output_db)) as connection:
+        assert connection.execute(
+            f"SELECT deprecated FROM {IDENTIFIER_TABLE}"
+        ).fetchall() == [(1,)]
+    assert len(_identifier_aliases(config.output_db)) == 1
 
 
 def test_a_reference_states_a_kind_there_is(config: ProjDbBuildConfig) -> None:

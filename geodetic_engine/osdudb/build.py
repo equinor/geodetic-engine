@@ -103,6 +103,7 @@ def build(
         report = _report(config, context, catalog)
         report.identifiers = identifiers
         report.persistable_references = references
+        report.overrides = writer.overrides()
         report.authority_preferences = preferences
         report.rows_by_table = dict(sorted(writer.inserted.items()))
         report.appended = writer.appended

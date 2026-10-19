@@ -79,9 +79,7 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
     source = catalogue_source(context)
     unmapped: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
-    by_identifier: dict[str, list[tuple[Record, str, dict[str, Any]]]] = defaultdict(
-        list
-    )
+    by_identifier: dict[str, list[Record]] = defaultdict(list)
 
     for record in context.catalog.records():
         if tr.is_deprecated(record.data) and not context.config.include_deprecated:
@@ -89,32 +87,21 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
         if record.osdu_id is None:
             unmapped.append(_entry(record, "the record states no id"))
             continue
-        table = _table(context, record)
-        if table is None:
-            unmapped.append(_entry(record, _missing(context, record, skipped)))
-            continue
-        row = {
-            "scheme": SCHEME,
-            "identifier": record.osdu_id,
-            "table_name": OBJECT_TABLE_NAME[table],
-            "auth_name": record.auth_name,
-            "code": record.code,
-            "deprecated": tr.deprecated_flag(record.data),
-            "source": source,
-        }
-        by_identifier[record.osdu_id].append((record, table, row))
+        by_identifier[record.osdu_id].append(record)
 
     rows: list[dict[str, Any]] = []
-    for identifier, entries in by_identifier.items():
+    for identifier, records in by_identifier.items():
+        # Before asking whether the object is here: an id published for two
+        # objects is ambiguous even when only one of them was imported.
         targets = {
-            (row["table_name"], row["auth_name"], row["code"], row["deprecated"])
-            for _, _, row in entries
+            (record.auth_name, record.code, tr.deprecated_flag(record.data))
+            for record in records
         }
         if len(targets) > 1:
             named = ", ".join(
-                sorted(f"{record.auth_name}:{record.code}" for record, _, _ in entries)
+                sorted(f"{record.auth_name}:{record.code}" for record in records)
             )
-            for record, _, _ in entries:
+            for record in records:
                 unmapped.append(
                     _entry(
                         record,
@@ -123,8 +110,22 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
                     )
                 )
             continue
-        record, table, row = entries[0]
-        rows.append(row)
+        record = records[0]
+        table = _table(context, record)
+        if table is None:
+            unmapped.append(_entry(record, _missing(context, record, skipped)))
+            continue
+        rows.append(
+            {
+                "scheme": SCHEME,
+                "identifier": identifier,
+                "table_name": OBJECT_TABLE_NAME[table],
+                "auth_name": record.auth_name,
+                "code": record.code,
+                "deprecated": tr.deprecated_flag(record.data),
+                "source": source,
+            }
+        )
         context.recorded_identifiers[identifier] = record
         warnings.extend(_drift(context, record, table))
 

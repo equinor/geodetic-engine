@@ -15,6 +15,17 @@ uv run geodetic-projdb build --output build/proj.db
 uv run geodetic-osdudb build CRS_CT.json --output build/proj.db --append
 ```
 
+```{note}
+In the devcontainer, `build/proj.db` already holds the official OSDU catalogue
+({doc}`/getting-started/installation`). Add a Georepository import to it with
+`--append`, or rebuild both with `scripts/build-projdb.sh --catalog
+catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json`. `geodetic-projdb build`
+without `--append` is
+refused rather than drop the OSDU import, but
+`scripts/build-projdb.sh --source georepository` without `--append` replaces
+it.
+```
+
 `scripts/build-projdb.sh` runs both in the right order:
 
 ```bash
@@ -128,8 +139,10 @@ from pyproj import datadir
 datadir.set_data_dir(os.pathsep.join(["/path/to/build", datadir.get_data_dir()]))
 ```
 
-With two databases on the search path a further build can no longer tell which
-one is the official base, and refuses to guess; name it with
+A database this package built is never taken for the official base, so a
+further build still finds the installed one behind it. Two databases this
+package did not build, such as a patched copy and the installed one, are
+ambiguous, and a build refuses to guess; name the base with
 `GEODETIC_ENGINE_BASE_PROJ_DB=/usr/local/share/proj/proj.db` or `base_proj_db`
 in the configuration file.
 

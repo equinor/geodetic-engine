@@ -5,3 +5,6 @@
 Dockerfile text eol=lf
 *.png binary
 *.jsonl text eol=lf
+# Committed byte for byte as OSDU publishes it, CRLF included, so its SHA-256
+# matches the one recorded beside it.
+catalogs/osdu/*.json -text

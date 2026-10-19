@@ -835,6 +835,17 @@ class TestOsduIds:
             for item in report.identifiers["unmapped"]
         )
 
+    def test_an_id_is_ambiguous_even_when_only_one_of_its_objects_is_here(
+        self, run: Build, output_db: Path
+    ) -> None:
+        report = run(epsg_projected(), epsg_projected(Code="99999999"))
+        assert identifiers(output_db) == set()
+        assert len(report.identifiers["unmapped"]) == 2
+        assert all(
+            "more than one object" in item["reason"]
+            for item in report.identifiers["unmapped"]
+        )
+
     def test_an_inactive_record_is_recorded_as_inactive(
         self, run: Build, output_db: Path
     ) -> None:

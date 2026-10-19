@@ -14,9 +14,12 @@ catalogue does not state is never filled in with a generated one.
 ```{admonition} Needs a database built from a catalogue
 :class: note
 
-The examples assume `build/proj.db` was built from an OSDU `CRS_CT.json` and is
-first on PROJ's data path, as shown in {ref}`osdu-record-ids`. The standard
-PROJ database records no references, so every lookup returns `None` against it.
+The examples read the database PROJ reads. In the devcontainer that is
+`build/proj.db`, built from the official OSDU catalogue by default
+({doc}`/getting-started/installation`). Elsewhere, build one from an OSDU
+`CRS_CT.json` and put it first on PROJ's data path, as shown in
+{ref}`osdu-record-ids`. The standard PROJ database records no references, so
+every lookup returns `None` against it.
 The outputs below were produced against a database built from a real catalogue
 (2,852 references). The code is not run during the documentation build, since
 the catalogue is large and usually internal. The

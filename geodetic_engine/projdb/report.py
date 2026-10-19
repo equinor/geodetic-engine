@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import tempfile
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,14 @@ class BuildReport:
             every one not recorded because it could not be used and why
             (``invalid``), and every one recorded or kept despite a
             disagreement (``warnings``). Empty for a source that has none.
+        overrides: What this build replaced that an earlier build had
+            written, which only an appending build with ``overwrite_rows``
+            does: every object whose definition changed and the columns that
+            did (``objects``), how many objects were stated exactly as they
+            already were (``unchanged``), every id that now names a different
+            object or changed its inactive flag (``identifiers``), and every
+            record id whose persistableReference was replaced or removed
+            (``persistable_references``, ``persistable_references_removed``).
     """
 
     built_at: str
@@ -84,6 +93,7 @@ class BuildReport:
     authority_preferences: list[dict[str, str]] = field(default_factory=list)
     identifiers: dict[str, Any] = field(default_factory=dict)
     persistable_references: dict[str, Any] = field(default_factory=dict)
+    overrides: dict[str, Any] = field(default_factory=dict)
     validation: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -131,8 +141,15 @@ class BuildReport:
                 "persistable_references_invalid": len(
                     self.persistable_references.get("invalid", [])
                 ),
+                "objects_replaced": len(self.overrides.get("objects", [])),
+                "identifiers_moved": len(self.overrides.get("identifiers", [])),
+                "persistable_references_replaced": len(
+                    self.overrides.get("persistable_references", [])
+                )
+                + len(self.overrides.get("persistable_references_removed", [])),
             },
             "skipped": data.pop("skipped"),
+            "overrides": data.pop("overrides"),
             "supersessions_dropped": data.pop("supersessions_dropped"),
             "validation": data.pop("validation"),
         }
@@ -206,6 +223,9 @@ def log_summary(report: BuildReport) -> None:
         for dropped in report.supersessions_dropped:
             logger.warning("  %s -> %s", dropped["superseded"], dropped["replacement"])
 
+    if report.overrides:
+        _log_overrides(report.overrides)
+
     if missing := report.validation.get("missing_grids"):
         logger.warning(
             "%d grid file(s) referenced but not installed here: %s",
@@ -249,6 +269,78 @@ def log_summary(report: BuildReport) -> None:
     for table, count in report.rows_by_table.items():
         logger.info("  %6d  %s", count, table)
     logger.info(rule)
+
+
+def _log_overrides(overrides: dict[str, Any]) -> None:
+    """Log, as WARNINGs, what this build replaced of an earlier one's.
+
+    A definition replaced is what the source asked for, but whoever already
+    used the database gets a different answer for it, so each kind is counted
+    and its first entries named. A custom catalogue can restate thousands of
+    records, so the rest go to the log file only; the report lists every one.
+    """
+    if objects := overrides.get("objects"):
+        logger.warning(
+            "%d definition(s) an earlier build wrote were REPLACED by this source's:",
+            len(objects),
+        )
+        for level, item in _listed(objects):
+            name = item["name"] or ""
+            if item["previous_name"] not in (None, item["name"]):
+                name = f"{item['previous_name']} -> {name}"
+            logger.log(
+                level,
+                "  %s %s:%s %s",
+                item["table"],
+                item["auth_name"],
+                item["code"],
+                name,
+            )
+            logger.log(level, "      changed: %s", ", ".join(item["changed"]))
+    if identifiers := overrides.get("identifiers"):
+        logger.warning(
+            "%d id(s) an earlier build recorded now name a different object, "
+            "or the same one with its inactive flag changed:",
+            len(identifiers),
+        )
+        for level, item in _listed(identifiers):
+            logger.log(level, "  %s", item["identifier"])
+            logger.log(level, "      %s -> %s", item["previous"], item["now"])
+    if references := overrides.get("persistable_references"):
+        logger.warning(
+            "%d persistableReference(s) an earlier build recorded were REPLACED:",
+            len(references),
+        )
+        for level, item in _listed(references):
+            logger.log(level, "  %s", item["identifier"])
+    if removed := overrides.get("persistable_references_removed"):
+        logger.warning(
+            "%d persistableReference(s) an earlier build recorded were REMOVED:",
+            len(removed),
+        )
+        for level, identifier in _listed(removed):
+            logger.log(level, "  %s", identifier)
+    if unchanged := overrides.get("unchanged"):
+        logger.info(
+            "%d object(s) were stated exactly as an earlier build wrote them and "
+            "left unchanged",
+            unchanged,
+        )
+
+
+# How many entries of each kind of override are named on the console.
+_NAMED_OVERRIDES = 25
+
+
+def _listed(items: list[Any]) -> Iterator[tuple[int, Any]]:
+    """Pair each entry with its log level: WARNING for the first, then DEBUG."""
+    for index, item in enumerate(items):
+        if index == _NAMED_OVERRIDES:
+            logger.warning(
+                "  ... and %d more, in the log file and the report's overrides",
+                len(items) - _NAMED_OVERRIDES,
+            )
+        yield (logging.WARNING if index < _NAMED_OVERRIDES else logging.DEBUG), item
 
 
 def _log_persistable_references(references: dict[str, Any]) -> None:

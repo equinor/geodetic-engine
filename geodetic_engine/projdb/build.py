@@ -138,6 +138,7 @@ def build(
             if cache is not None:
                 report.cache = cache.stats.as_dict()
             report.rows_by_table = dict(sorted(writer.inserted.items()))
+            report.overrides = writer.overrides()
             report.appended = writer.appended
             report.overwrite_rows = config.overwrite_rows
             report.dry_run = dry_run

@@ -17,9 +17,10 @@ database build.
 ```{admonition} Not executed
 :class: note
 
-A build needs an OSDU `CRS_CT.json` catalogue, which is large and usually
-internal, so nothing on this page is run during the documentation build. The
-command reference is at {doc}`/cli/geodetic-osdudb`.
+Nothing on this page is run during the documentation build. The devcontainer
+and the documentation build both build the official catalogue into
+`build/proj.db` ({doc}`/getting-started/installation`), so there the examples
+work as shown. The command reference is at {doc}`/cli/geodetic-osdudb`.
 ```
 
 ## The catalogue
@@ -30,10 +31,30 @@ OSDU publishes CRSs and transformations as one manifest, usually called
 `reference-data--CoordinateTransformation` records.
 {class}`~geodetic_engine.osdudb.OsduCatalog` reads it.
 
-Keep the manifest in `local/osdu/`. That directory is gitignored, and a
-catalogue is large and often internal to whoever published it. Give its path on
-the command line, as `catalog` in `geodetic-osdudb.toml`, or in
-`GEODETIC_ENGINE_OSDU_CATALOG`.
+The official one is public, under the Apache License 2.0, in the
+[OSDU Data Definitions](https://community.opengroup.org/osdu/data/data-definitions)
+repository, at `ReferenceValues/Manifests/reference-data/LOCAL/CRS_CT.json`.
+It is committed in this repository, byte for byte, as
+`catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json`. Beside it,
+`CRS_CT_osdu_official_crs_catalog.source.json` records the OSDU commit it came
+from and its SHA-256, and a build records that commit as its `source_version`.
+A build therefore needs no network, and is reproducible from the repository
+alone. `scripts/install-osdu-projdb.sh` builds and activates it in one step,
+and is what the devcontainer runs.
+
+`geodetic-osdudb download`, or
+{func}`~geodetic_engine.osdudb.download_official_catalog`, replaces the
+committed copy with the newest OSDU publishes, for the change to be reviewed
+and committed; `scripts/install-osdu-projdb.sh --update` does that and then
+builds it. The repository's web pages sit behind a bot check that a script
+cannot pass, so the file is read through GitLab's API instead. Nothing is
+written unless the whole file arrived, matches the digest the server states
+and reads as a manifest.
+
+An organisation's own catalogue works the same way. Keep it in `local/`. That
+directory is gitignored, and such a catalogue is often internal to whoever
+published it. Give its path on the command line, as `catalog` in
+`geodetic-osdudb.toml`, or in `GEODETIC_ENGINE_OSDU_CATALOG`.
 
 ## Running it
 
@@ -45,6 +66,16 @@ earlier import. See {doc}`combining`.
 ```
 
 ```bash
+# Build the committed official catalogue into build/proj.db and make it the
+# database PROJ reads.
+scripts/install-osdu-projdb.sh
+
+# Replace the committed catalogue with the newest OSDU publishes, then build it.
+scripts/install-osdu-projdb.sh --update
+
+# Only replace it, without building.
+uv run geodetic-osdudb download
+
 # Everything is defaulted; the catalogue is the only thing that must be named.
 uv run geodetic-osdudb build CRS_CT.json
 
@@ -80,6 +111,76 @@ print(report.status, len(report.imported), "imported,", len(report.skipped), "sk
 
 `geodetic-osdudb.toml` is optional. The annotated example is on
 {doc}`/cli/geodetic-osdudb`.
+
+(osdu-custom-catalogue)=
+## Your own catalogue on top of the official one
+
+An organisation often publishes CRSs and transformations the official OSDU
+catalogue does not have, and sometimes states an official record differently.
+Build such a catalogue **after** the official one, into the same database, with
+`--append --overwrite-rows`:
+
+- a record the official catalogue does not have is **added**;
+- a record it states differently, under the same code or OSDU id, **replaces**
+  the official definition, and its persistableReference replaces the official
+  one;
+- a record it states exactly as the official catalogue does is left
+  **unchanged**, so a catalogue that repeats the official records changes only
+  what it really changes, and building it again changes nothing.
+
+Every replacement is named. The build summary counts each kind as a `WARNING`
+and names the first 25 of each with the columns that changed; the log file
+beside the database names every one, and the report records them under
+`overrides`, with the counts `objects_replaced`, `identifiers_moved` and
+`persistable_references_replaced`. An area of use or alias a record restates is
+refreshed with its object and not listed:
+
+```text
+WARNING 1 definition(s) an earlier build wrote were REPLACED by this source's:
+WARNING   geodetic_crs OSDU:4100 Example 2020 -> Example 2020 (corrected)
+WARNING       changed: name
+WARNING 1 persistableReference(s) an earlier build recorded were REPLACED:
+WARNING   reference-data--CoordinateReferenceSystem:Geographic2D:OSDU::4100
+INFO 4 object(s) were stated exactly as an earlier build wrote them and left unchanged
+```
+
+Without `--overwrite-rows`, a record stated differently is refused, the build
+is aborted, and the error says which record and how to let it replace the
+earlier one. Objects of PROJ's own EPSG dataset are never replaced, by either
+catalogue. Records under a code space of your own are imported only when it is
+named with `--authority`, or in `authorities` in `geodetic-osdudb.toml`.
+
+A custom catalogue often publishes the official record ids for objects under
+its own code space, for example `BoundProjected:EPSG::23031_EPSG::1133` for a
+bound CRS it numbers itself. Each such id then names the custom catalogue's
+object, not the official one, and is listed as an id that now names a
+different object. The official object is still in the database under its own
+code.
+
+The simplest way to keep the order right is to let
+`scripts/install-osdu-projdb.sh` do it. It builds every `*.json` in
+`local/catalogs/custom/`, in name order, and every `--custom` it is given, on
+top of the official catalogue each time it runs, including in the
+devcontainer on creation. It imports every code space a custom catalogue
+publishes records under, except EPSG. Importing the official catalogue again,
+with `--force`, `--update` or after a pull that changed it, is followed by the
+custom ones again, so they stay on top:
+
+```bash
+# Every run, and the devcontainer on creation, builds these on top.
+cp our-crs.json local/catalogs/custom/
+scripts/install-osdu-projdb.sh
+
+# Or name one for this run only.
+scripts/install-osdu-projdb.sh --custom path/to/our-crs.json
+
+# By hand, after the official catalogue, naming your code space.
+uv run geodetic-osdudb build our-crs.json --output build/proj.db --append --overwrite-rows --authority ACME
+```
+
+A custom catalogue that cannot be built leaves the database as it was, with a
+warning naming it; the official catalogue and any other custom one are still
+installed.
 
 ## Which authorities to import
 
@@ -162,20 +263,23 @@ read as `Projected:EPSG::23031`:
 
     UnresolvableCRSError: could not resolve 'opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031'
     as a CRS: the active proj.db records no OSDU ids; build one from the OSDU catalogue that publishes
-    the record with geodetic-osdudb and put it on PROJ's data path
+    the record with geodetic-osdudb and put it on PROJ's data path (scripts/install-osdu-projdb.sh
+    does both for the official catalogue)
 
-Build and activate one first:
+The devcontainer installs the official catalogue this way by default
+({doc}`/getting-started/installation`). Elsewhere, build and activate one
+first:
 
-    uv run geodetic-osdudb build CRS_CT.json --output build/proj.db
-    export PROJ_DATA="$PWD/build:$(uv run python -c 'import pyproj; print(pyproj.datadir.get_data_dir())')"
+    scripts/install-osdu-projdb.sh
+    export PROJ_DATA="$PWD/local/proj-data:$(uv run python -c 'import pyproj; print(pyproj.datadir.get_data_dir())')"
 ```
 
 ### Instantiating objects by id
 
 The examples below assume a database built as above. Section 8 of the
 {doc}`worked examples notebook </examples/notebooks/geodetic-engine-examples>`
-runs the same steps end to end, building a small database from a five-record
-catalogue first, so its output is what the code produces.
+runs the same steps end to end against the official catalogue, which the
+documentation build installs first, so its output is what the code produces.
 
 A CRS, from the record's id with or without its partition, or as a reference
 from another record, which ends in a version separator:

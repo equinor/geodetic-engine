@@ -441,8 +441,8 @@ What the package does
   database **under the repository**: it runs as the last step of
   `scripts/build-projdb.sh` on `build/proj.db`, and
   `.devcontainer/link-local-grids.sh --patched-copy` writes a patched copy of
-  the stock database to `local/proj-data/proj.db` for the developer to put
-  first on `PROJ_DATA` by hand. The installed `proj.db` is never modified;
+  the stock database to `local/proj-data/proj.db`, the database the
+  devcontainer reads first. The installed `proj.db` is never modified;
   `tests/test_environment.py` fails if it is. The patch is idempotent and
   leaves an existing row untouched.
 

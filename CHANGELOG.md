@@ -112,9 +112,52 @@ All notable changes to this project are documented here. The format follows
   reference for a CRS or for the operation applied. `esriwkt.pretty` lays ESRI
   WKT out, changing whitespace only. There is a new `geodetic-osdudb
   references` command, and `inspect` counts the references by kind.
+- The official OSDU catalogue is committed and installed by default in the
+  devcontainer. OSDU's public `CRS_CT.json` (Apache 2.0) is committed byte for
+  byte as `catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json`, with the OSDU
+  commit and SHA-256 it came from in `CRS_CT_osdu_official_crs_catalog.source.json`
+  and an entry in `NOTICE`. The new `scripts/install-osdu-projdb.sh` builds it
+  into `build/proj.db`, recording that commit as the report's
+  `source_version`, and links `local/proj-data/proj.db` to it; nothing is
+  downloaded. The devcontainer runs it on creation and puts `local/proj-data`
+  first on `PROJ_DATA`, so OSDU CRSs, bound CRSs, transformations, record ids
+  and persistable references resolve out of the box, and the documentation
+  build runs it too. A committed catalogue changed by a pull is imported again
+  on the next run, and `--check`, run on every start, says when it has not
+  been yet. A failure never fails container creation: it prints a warning
+  saying why and that no OSDU objects are available, and links the stock
+  database instead; `--strict` makes it exit non-zero. `--update` first
+  replaces the committed catalogue with the newest OSDU publishes, for the
+  change to be reviewed and committed, through the new `geodetic-osdudb
+  download` and `geodetic_engine.osdudb.download_official_catalog`. These read
+  it through GitLab's API, at `master` or any `--ref`, and write nothing
+  unless it arrived whole, matches the digest the server states and reads as a
+  manifest; otherwise the new `CatalogDownloadError` is raised and the
+  committed copy is left as it was. The installed `proj.db` is still never
+  modified, and the tests still run against it alone in CI.
+- Custom OSDU catalogues on top of the official one. Appended with
+  `--overwrite-rows`, a catalogue's own CRSs and transformations are added, a
+  record it states differently replaces the earlier definition, and one it
+  states identically is left untouched. Every replacement is named: the build
+  summary lists each replaced definition with the columns that changed, each
+  OSDU id now naming another object, and each persistableReference replaced or
+  removed as a `WARNING`, and the report records them under `overrides`, with
+  the counts `objects_replaced`, `identifiers_moved` and
+  `persistable_references_replaced`. A collision refused without
+  `--overwrite-rows` now says how to let the source replace the earlier
+  definition. `scripts/install-osdu-projdb.sh` builds every catalogue in
+  `local/catalogs/custom/`, and each `--custom`, on top of the official one on
+  every run, importing each code space it publishes records under except
+  EPSG, so they stay on top when the official catalogue is imported again; one
+  that cannot be built is a warning, or an error with `--strict`. The console
+  names the first 25 replacements of each kind, and the log file and report
+  every one.
 
 ### Changed
 
+- The default base database of a build skips a database this package built,
+  so a build still starts from the official `proj.db` when an enriched one is
+  ahead of it on PROJ's search path.
 - PROJ 9.9.0 with EPSG v13.102 and proj-data 1.25, up from PROJ 9.8.1 with
   EPSG v12.029 and proj-data 1.24; pyproj stays at 3.8.0. PROJ 9.9.0 refuses
   a `proj.db` with database layout 1.6, so a database built on PROJ 9.8.1 must

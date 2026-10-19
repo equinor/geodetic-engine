@@ -15,24 +15,30 @@
 	// The image has no locales beyond C; a forwarded host LANG such as en_US.UTF-8
 	// makes sphinx-build fail on start.
 	//
-	// PROJ_DATA adds local/grids (gitignored, may be empty) after the installed
-	// data directory, which is never modified: a grid dropped there is found
-	// under its own filename. The installed directory stays first because
-	// pyproj reads proj.db from the first entry only, and stays the only
-	// database on the path, so it is the stock one and build-projdb.sh finds
-	// its base unambiguously. The Dockerfile's PROJ_DATA, the installed
-	// directory alone, is what CI runs with.
+	// PROJ_DATA puts local/proj-data (gitignored) first. Its proj.db is a link
+	// scripts/install-osdu-projdb.sh manages: to build/proj.db, built on
+	// container creation from the official OSDU catalogue committed in
+	// catalogs/osdu/, or to the stock database when that could not be done. pyproj reads proj.db from the first entry,
+	// so something is always linked there. The installed directory is never
+	// modified and follows, for the grids and as the base every build starts
+	// from; local/grids (gitignored, may be empty) comes last, so a grid dropped
+	// there is found under its own filename. The Dockerfile's PROJ_DATA, the
+	// installed directory alone, is what CI runs with.
 	//
 	// uv, httpx and requests ship their own CA bundles; point them at the system
 	// store so the proxy CAs the Dockerfile installs from certs/ apply.
 	"remoteEnv": {
 		"LC_ALL": "C.UTF-8",
-		"PROJ_DATA": "/usr/local/share/proj:${containerWorkspaceFolder}/local/grids",
+		"PROJ_DATA": "${containerWorkspaceFolder}/local/proj-data:/usr/local/share/proj:${containerWorkspaceFolder}/local/grids",
 		"REQUESTS_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt",
 		"SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt"
 	},
-	"postCreateCommand": "uv sync --extra dev --extra docs && uv run pytest tests/test_environment.py -q",
-	"postStartCommand": "bash .devcontainer/link-local-grids.sh",
+	// The OSDU install downloads nothing and never fails container creation: on
+	// a failure it warns, and PROJ reads the stock database. On every start the
+	// link is checked and whether the OSDU catalogue is installed is reported
+	// again.
+	"postCreateCommand": "uv sync --extra dev --extra docs && bash scripts/install-osdu-projdb.sh && uv run pytest tests/test_environment.py -q",
+	"postStartCommand": "bash .devcontainer/link-local-grids.sh && bash scripts/install-osdu-projdb.sh --check",
 	"customizations": {
 		"vscode": {
 			"extensions": [
