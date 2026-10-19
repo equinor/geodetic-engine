@@ -48,7 +48,7 @@ class UnresolvableGridError(PersistableReferenceError):
     """
 
 
-class AmbiguousStoredReferenceError(PersistableReferenceError):
+class AmbiguousCatalogReferenceError(PersistableReferenceError):
     """More than one different persistableReference is recorded for an object.
 
     Raised rather than returning one of them, because each was published by a

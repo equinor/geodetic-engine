@@ -274,9 +274,9 @@ A generated payload describes the same CRS as the one an OSDU catalogue
 publishes for it, but it is not the same string: names, version and
 `authCode` differ. To write the catalogue's own string into an OSDU record,
 look it up in a `proj.db` built from that catalogue with
-{func}`~geodetic_engine.persistablereference.stored_reference`, or
-{meth}`CoordinateReferenceSystem.stored_persistable_reference()
-<geodetic_engine.geodesy.CoordinateReferenceSystem.stored_persistable_reference>`.
+{func}`~geodetic_engine.persistablereference.persistable_reference_from_catalog`, or
+{meth}`CoordinateReferenceSystem.persistable_reference_from_catalog()
+<geodetic_engine.geodesy.CoordinateReferenceSystem.persistable_reference_from_catalog>`.
 {func}`~geodetic_engine.persistablereference.pretty_persistable_reference`
 lays any payload out for reading. See {ref}`osdu-persistable-references`.
 ```

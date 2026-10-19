@@ -31,8 +31,8 @@ Lookups read the first proj.db on PROJ's data path, the same one PROJ resolves
 codes against, unless a ``database`` is given.
 
 Example:
-    >>> from geodetic_engine.persistablereference import stored_reference
-    >>> reference = stored_reference("EPSG:23031")  # doctest: +SKIP
+    >>> from geodetic_engine.persistablereference import persistable_reference_from_catalog
+    >>> reference = persistable_reference_from_catalog("EPSG:23031")  # doctest: +SKIP
     >>> reference.kind, reference.identifier  # doctest: +SKIP
     (<Kind.LATE_BOUND_CRS: 'LBC'>, 'reference-data--CoordinateReferenceSystem:Projected:EPSG::23031')
     >>> print(reference.pretty())  # doctest: +SKIP
@@ -81,7 +81,7 @@ from geodetic_engine.persistablereference.envelope import (
     json_object,
 )
 from geodetic_engine.persistablereference.errors import (
-    AmbiguousStoredReferenceError,
+    AmbiguousCatalogReferenceError,
     MalformedReferenceError,
 )
 from geodetic_engine.persistablereference.reference import (
@@ -93,21 +93,21 @@ if TYPE_CHECKING:
     from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 
 __all__ = [
+    "CatalogPersistableReference",
     "Entity",
     "ExportFormat",
-    "StoredReference",
-    "export_stored_references",
+    "export_persistable_references_from_catalog",
     "missing_reference_reason",
+    "persistable_reference_from_catalog",
+    "persistable_references_from_catalog",
     "pretty_persistable_reference",
-    "stored_reference",
-    "stored_references",
 ]
 
 type Entity = Literal["crs", "operation"]
 """Which kind of object to look in: a CRS or a coordinate operation."""
 
 type ExportFormat = Literal["json", "jsonl", "csv"]
-"""The file formats :func:`export_stored_references` writes."""
+"""The file formats :func:`export_persistable_references_from_catalog` writes."""
 
 _ENTITY_TABLES: dict[str, frozenset[str]] = {
     "crs": CRS_OBJECT_TABLES,
@@ -141,7 +141,7 @@ _FIELDS = (
 
 
 @dataclass(frozen=True, slots=True)
-class StoredReference:
+class CatalogPersistableReference:
     """A persistableReference a catalogue publishes, as proj.db recorded it.
 
     Attributes:
@@ -289,12 +289,12 @@ def pretty_persistable_reference(
     return _display(data, indent) if wkt else _json(data, indent)
 
 
-def stored_reference(
+def persistable_reference_from_catalog(
     value: str | CoordinateReferenceSystem | CRS,
     *,
     entity: Entity | None = None,
     database: Path | None = None,
-) -> StoredReference | None:
+) -> CatalogPersistableReference | None:
     """The persistableReference recorded for one object.
 
     Args:
@@ -313,14 +313,14 @@ def stored_reference(
         :func:`missing_reference_reason`.
 
     Raises:
-        AmbiguousStoredReferenceError: If ``"AUTH:CODE"`` names an object more
+        AmbiguousCatalogReferenceError: If ``"AUTH:CODE"`` names an object more
             than one active catalogue record publishes, with different
             references. Name the record by its OSDU id instead.
         ValueError: If ``value`` is neither an OSDU id nor ``"AUTH:CODE"``, or
             ``entity`` is not ``"crs"`` or ``"operation"``.
 
     Example:
-        >>> stored_reference(
+        >>> persistable_reference_from_catalog(
         ...     "opendes:reference-data--CoordinateReferenceSystem:"
         ...     "BoundProjected:EPSG::23031_EPSG::1612"
         ... ).kind  # doctest: +SKIP
@@ -349,14 +349,14 @@ def stored_reference(
     return _single(rows, target.described)
 
 
-def stored_references(
+def persistable_references_from_catalog(
     *,
     entity: Entity | None = None,
     kinds: Iterable[Kind | str] | None = None,
     authorities: Iterable[str] | None = None,
     include_deprecated: bool = True,
     database: Path | None = None,
-) -> tuple[StoredReference, ...]:
+) -> tuple[CatalogPersistableReference, ...]:
     """Every persistableReference recorded, optionally filtered.
 
     Args:
@@ -397,15 +397,15 @@ def missing_reference_reason(
     """Why no persistableReference is recorded for an object, in actionable words.
 
     Args:
-        value: What :func:`stored_reference` was asked for.
-        entity: As given to :func:`stored_reference`.
-        database: As given to :func:`stored_reference`.
+        value: What :func:`persistable_reference_from_catalog` was asked for.
+        entity: As given to :func:`persistable_reference_from_catalog`.
+        database: As given to :func:`persistable_reference_from_catalog`.
 
     Returns:
         A sentence for a message.
 
     Raises:
-        ValueError: As :func:`stored_reference` does.
+        ValueError: As :func:`persistable_reference_from_catalog` does.
     """
     where = "the active proj.db" if database is None else str(database)
     target = _target(value, entity)
@@ -472,7 +472,7 @@ def missing_reference_reason(
     )
 
 
-def export_stored_references(
+def export_persistable_references_from_catalog(
     destination: Path | IO[str],
     *,
     format: ExportFormat = "json",
@@ -505,8 +505,9 @@ def export_stored_references(
             document reads naturally.
         wkt: JSON only: also lay each embedded ESRI WKT out over indented
             lines. The file is then for reading and is not JSON.
-        values: Export these objects, named as :func:`stored_reference` takes
-            them, rather than every reference recorded.
+        values: Export these objects, named as
+            :func:`persistable_reference_from_catalog` takes them, rather than
+            every reference recorded.
         entity: Only CRSs, or only operations.
         kinds: Only references stating these kinds. Not with ``values``.
         authorities: Only objects of these authorities. Not with ``values``.
@@ -538,7 +539,7 @@ def export_stored_references(
     entries: list[dict[str, Any]] = []
     found = 0
     if values is None:
-        for reference in stored_references(
+        for reference in persistable_references_from_catalog(
             entity=entity,
             kinds=kinds,
             authorities=authorities,
@@ -550,8 +551,10 @@ def export_stored_references(
     else:
         for value in values:
             try:
-                named = stored_reference(value, entity=entity, database=database)
-            except AmbiguousStoredReferenceError as error:
+                named = persistable_reference_from_catalog(
+                    value, entity=entity, database=database
+                )
+            except AmbiguousCatalogReferenceError as error:
                 entries.append(_unfound(value, str(error)))
                 continue
             if named is None:
@@ -668,28 +671,28 @@ def _described_entity(entity: Entity | None) -> str:
 
 def _single(
     rows: Sequence[StoredReferenceRow], described: str
-) -> StoredReference | None:
+) -> CatalogPersistableReference | None:
     """The one reference several rows agree on, preferring active records."""
     if not rows:
         return None
     active = [row for row in rows if not row.deprecated] or list(rows)
     if len({row.sha256 for row in active}) > 1:
         records = ", ".join(repr(row.identifier) for row in active)
-        raise AmbiguousStoredReferenceError(
+        raise AmbiguousCatalogReferenceError(
             f"{described} has {len(active)} different persistable references, "
             f"published by {records}; name the record by its OSDU id"
         )
     return _reference(active[0])
 
 
-def _reference(row: StoredReferenceRow) -> StoredReference:
+def _reference(row: StoredReferenceRow) -> CatalogPersistableReference:
     """A stored row as the public type."""
     stated = (
         AuthorityCode(row.stated_auth_name, row.stated_code)
         if row.stated_auth_name and row.stated_code
         else None
     )
-    return StoredReference(
+    return CatalogPersistableReference(
         identifier=row.identifier,
         table_name=row.table_name,
         auth_name=row.auth_name,

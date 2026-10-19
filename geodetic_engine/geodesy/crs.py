@@ -47,7 +47,7 @@ from geodetic_engine.geodesy.osdu_id import (
 )
 
 if TYPE_CHECKING:
-    from geodetic_engine.persistablereference.stored import StoredReference
+    from geodetic_engine.persistablereference.stored import CatalogPersistableReference
 
 logger = logging.getLogger(__name__)
 
@@ -284,9 +284,9 @@ class CoordinateReferenceSystem:
         authority = self._crs.to_authority()
         return None if authority is None else f"{authority[0]}:{authority[1]}"
 
-    def stored_persistable_reference(
+    def persistable_reference_from_catalog(
         self, *, database: Path | None = None
-    ) -> StoredReference | None:
+    ) -> CatalogPersistableReference | None:
         """The persistableReference an OSDU catalogue publishes for this CRS.
 
         Read from a proj.db built by :mod:`geodetic_engine.osdudb`, which
@@ -311,19 +311,21 @@ class CoordinateReferenceSystem:
             :func:`~geodetic_engine.persistablereference.missing_reference_reason`.
 
         Raises:
-            AmbiguousStoredReferenceError: If records publishing different
+            AmbiguousCatalogReferenceError: If records publishing different
                 references name this CRS's authority code.
 
         Example:
             >>> crs = CoordinateReferenceSystem.from_osdu_id(
             ...     "BoundProjected:EPSG::23031_EPSG::1612"
             ... )  # doctest: +SKIP
-            >>> crs.stored_persistable_reference().kind  # doctest: +SKIP
+            >>> crs.persistable_reference_from_catalog().kind  # doctest: +SKIP
             <Kind.EARLY_BOUND_CRS: 'EBC'>
         """
-        from geodetic_engine.persistablereference.stored import stored_reference
+        from geodetic_engine.persistablereference.stored import (
+            persistable_reference_from_catalog,
+        )
 
-        return stored_reference(self, database=database)
+        return persistable_reference_from_catalog(self, database=database)
 
     @property
     def is_dynamic(self) -> bool:

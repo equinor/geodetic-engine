@@ -362,10 +362,10 @@ from pathlib import Path
 from geodetic_engine.geodesy import CoordinateReferenceSystem, transform
 from geodetic_engine.persistablereference import (
     missing_reference_reason,
-    stored_reference,
+    persistable_reference_from_catalog,
 )
 
-reference = stored_reference(
+reference = persistable_reference_from_catalog(
     "opendes:reference-data--CoordinateReferenceSystem:"
     "BoundProjected:EPSG::23031_EPSG::1612"
 )
@@ -374,15 +374,19 @@ reference.authority_code  # 'OSDU:23031023'
 reference.payload         # the string exactly as the catalogue publishes it
 
 # EPSG objects the base proj.db defines have theirs too, by id or by code.
-stored_reference("EPSG:23031", database=Path("build/proj.db")).identifier
-# 'reference-data--CoordinateReferenceSystem:Projected:EPSG::23031'
+epsg = persistable_reference_from_catalog(
+    "EPSG:23031", database=Path("build/proj.db")
+)
+epsg.identifier  # 'reference-data--CoordinateReferenceSystem:Projected:EPSG::23031'
 
 # From a CRS, or from the operation a transformation applied.
 crs = CoordinateReferenceSystem.from_osdu_id("BoundProjected:EPSG::23031_EPSG::1612")
-crs.stored_persistable_reference().kind  # the bound CRS's EBC, not EPSG:23031's LBC
-result = transform("EPSG:23031", "EPSG:4326", [(500000.0, 6600000.0)],
-                   operation="EPSG:1612")
-result.operation.stored_persistable_reference().identifier
+crs.persistable_reference_from_catalog().kind
+# the bound CRS's EBC, not EPSG:23031's LBC
+result = transform(
+    "EPSG:23031", "EPSG:4326", [(500000.0, 6600000.0)], operation="EPSG:1612"
+)
+result.operation.persistable_reference_from_catalog().identifier
 # 'reference-data--CoordinateTransformation:EPSG::1612'
 ```
 
@@ -393,15 +397,15 @@ PROJ is certain which object it is. An `AUTH:CODE` that names a CRS and an
 operation alike can be narrowed with `entity="crs"` or `entity="operation"`.
 The same `entity=` also lets a bare `data.ID` such as `Projected:EPSG::23031`
 be given. If several active records publish *different* references for one
-code, {class}`~geodetic_engine.persistablereference.AmbiguousStoredReferenceError`
+code, {class}`~geodetic_engine.persistablereference.AmbiguousCatalogReferenceError`
 is raised; name the record by its id instead.
 
 ### Pretty-printing
 
-{meth}`~geodetic_engine.persistablereference.StoredReference.pretty`, or
-{func}`~geodetic_engine.persistablereference.pretty_persistable_reference` for
-any payload, gives indented JSON in the payload's own key order. It is still
-JSON:
+{meth}`~geodetic_engine.persistablereference.CatalogPersistableReference.pretty`,
+or {func}`~geodetic_engine.persistablereference.pretty_persistable_reference`
+for any payload, gives indented JSON in the payload's own key order. It is
+still JSON:
 
 ```text
 {
@@ -452,14 +456,18 @@ or send the verbatim payload.
 ```python
 from geodetic_engine.persistablereference import (
     Kind,
-    export_stored_references,
-    stored_references,
+    persistable_references_from_catalog,
+)
+from geodetic_engine.persistablereference import (
+    export_persistable_references_from_catalog as export,
 )
 
-bound = stored_references(kinds=[Kind.EARLY_BOUND_CRS], authorities=["OSDU"])
-export_stored_references(Path("refs.json"), pretty=True)
-export_stored_references(Path("refs.csv"), format="csv", entity="operation")
-export_stored_references(Path("some.json"), values=["EPSG:23031", "EPSG:4978"])
+bound = persistable_references_from_catalog(
+    kinds=[Kind.EARLY_BOUND_CRS], authorities=["OSDU"]
+)
+export(Path("refs.json"), pretty=True)
+export(Path("refs.csv"), format="csv", entity="operation")
+export(Path("some.json"), values=["EPSG:23031", "EPSG:4978"])
 ```
 
 Each entry carries the record id, the object (`table_name`, `auth_name`,
@@ -496,7 +504,7 @@ Where a lookup returns `None`, an export of named values writes
 same sentence, read from the build history where the build recorded one:
 
 ```python
-stored_reference("EPSG:4978")  # None
+persistable_reference_from_catalog("EPSG:4978")  # None
 missing_reference_reason("EPSG:4978")
 # "the catalogue record 'reference-data--CoordinateReferenceSystem:Geocentric:EPSG::4978'
 #  states no persistableReference"

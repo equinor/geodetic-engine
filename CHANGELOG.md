@@ -101,16 +101,17 @@ All notable changes to this project are documented here. The format follows
   one, with a warning, unless `--overwrite-rows` removes it.
   Validation checks every digest and kind. `--no-persistable-references` /
   `osdu_persistable_references = false` leaves the references out.
-  `geodetic_engine.persistablereference` gains `stored_reference`,
-  `stored_references`, `export_stored_references` (JSON, JSONL or CSV),
+  `geodetic_engine.persistablereference` gains
+  `persistable_reference_from_catalog`, `persistable_references_from_catalog`,
+  `export_persistable_references_from_catalog` (JSON, JSONL or CSV),
   `missing_reference_reason`, `pretty_persistable_reference` (indented JSON,
   optionally with the ESRI WKT laid out over lines for reading),
-  `StoredReference` and `AmbiguousStoredReferenceError`.
-  `CoordinateReferenceSystem.stored_persistable_reference()` and
-  `AppliedOperation.stored_persistable_reference()` look up the reference for
-  a CRS or for the operation applied. `esriwkt.pretty` lays ESRI WKT out,
-  changing whitespace only. There is a new `geodetic-osdudb references`
-  command, and `inspect` counts the references by kind.
+  `CatalogPersistableReference` and `AmbiguousCatalogReferenceError`.
+  `CoordinateReferenceSystem.persistable_reference_from_catalog()` and
+  `AppliedOperation.persistable_reference_from_catalog()` look up the
+  reference for a CRS or for the operation applied. `esriwkt.pretty` lays ESRI
+  WKT out, changing whitespace only. There is a new `geodetic-osdudb
+  references` command, and `inspect` counts the references by kind.
 
 ### Changed
 

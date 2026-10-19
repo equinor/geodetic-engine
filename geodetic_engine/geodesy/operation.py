@@ -42,7 +42,7 @@ from geodetic_engine.geodesy.osdu_id import (
 )
 
 if TYPE_CHECKING:
-    from geodetic_engine.persistablereference.stored import StoredReference
+    from geodetic_engine.persistablereference.stored import CatalogPersistableReference
 
 # PROJJSON object types that are coordinate operations. Anything else with an
 # "id" (a CRS, a datum, an ellipsoid, a method, a parameter) is not one, and
@@ -365,9 +365,9 @@ class AppliedOperation:
             return None
         return str(operation.to_wkt(pretty=pretty))
 
-    def stored_persistable_reference(
+    def persistable_reference_from_catalog(
         self, *, database: Path | None = None
-    ) -> StoredReference | None:
+    ) -> CatalogPersistableReference | None:
         """The persistableReference an OSDU catalogue publishes for this operation.
 
         Read from a proj.db built by :mod:`geodetic_engine.osdudb`, which
@@ -385,13 +385,15 @@ class AppliedOperation:
             :func:`~geodetic_engine.persistablereference.missing_reference_reason`.
 
         Raises:
-            AmbiguousStoredReferenceError: If records publishing different
+            AmbiguousCatalogReferenceError: If records publishing different
                 references name the operation applied.
         """
-        from geodetic_engine.persistablereference.stored import stored_reference
+        from geodetic_engine.persistablereference.stored import (
+            persistable_reference_from_catalog,
+        )
 
         if self.requested and (osdu := parse_osdu_id(self.requested)) is not None:
-            found = stored_reference(
+            found = persistable_reference_from_catalog(
                 self.requested, entity="operation", database=database
             )
             if (
@@ -403,7 +405,7 @@ class AppliedOperation:
         if self.authority_code is None:
             return None
         try:
-            return stored_reference(
+            return persistable_reference_from_catalog(
                 self.authority_code, entity="operation", database=database
             )
         except ValueError:

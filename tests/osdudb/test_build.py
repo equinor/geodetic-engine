@@ -1365,7 +1365,7 @@ class TestPersistableReferences:
         from geodetic_engine.persistablereference import (
             Kind,
             missing_reference_reason,
-            stored_reference,
+            persistable_reference_from_catalog,
         )
 
         stating_none = with_id(
@@ -1379,19 +1379,26 @@ class TestPersistableReferences:
             f"{CRS_ENTITY}:Projected:EPSG::23032",
         )
         run(*referenced_catalogue(), stating_none)
-        found = stored_reference(f"opendes:{BOUND_ID}:", database=output_db)
+        found = persistable_reference_from_catalog(
+            f"opendes:{BOUND_ID}:", database=output_db
+        )
         assert found is not None
         assert found.kind is Kind.EARLY_BOUND_CRS
         assert found.payload == payload(BOUND_REFERENCE)
         assert found.authority_code == f"{AUTHORITY}:4100001"
-        assert stored_reference("EPSG:1612", database=output_db) is not None
-        assert stored_reference("EPSG:23032", database=output_db) is None
+        assert (
+            persistable_reference_from_catalog("EPSG:1612", database=output_db)
+            is not None
+        )
+        assert (
+            persistable_reference_from_catalog("EPSG:23032", database=output_db) is None
+        )
         assert "states no persistableReference" in missing_reference_reason(
             "EPSG:23032", database=output_db
         )
         with proj_reading(output_db):
             bound_crs = CoordinateReferenceSystem.from_user_input(f"opendes:{BOUND_ID}")
-            stored = bound_crs.stored_persistable_reference()
+            stored = bound_crs.persistable_reference_from_catalog()
             assert stored is not None and stored.identifier == BOUND_ID
             result = transform(
                 "EPSG:23031",
@@ -1399,7 +1406,7 @@ class TestPersistableReferences:
                 [(500000.0, 6600000.0)],
                 operation=f"opendes:{EPSG_TRANSFORMATION_ID}",
             )
-            stored = result.operation.stored_persistable_reference()
+            stored = result.operation.persistable_reference_from_catalog()
             assert stored is not None and stored.identifier == EPSG_TRANSFORMATION_ID
 
     @pytest.mark.parametrize("newer", [None, "not json"], ids=["none", "unusable"])
@@ -1409,7 +1416,7 @@ class TestPersistableReferences:
         """Kept, as a changed reference would be, and reported as kept."""
         from geodetic_engine.persistablereference import (
             missing_reference_reason,
-            stored_reference,
+            persistable_reference_from_catalog,
         )
 
         run(referenced(epsg_projected(), PROJECTED_REFERENCE))
@@ -1425,7 +1432,7 @@ class TestPersistableReferences:
         assert references(output_db)[EPSG_PROJECTED_ID][4] == payload(
             PROJECTED_REFERENCE
         )
-        found = stored_reference("EPSG:23031", database=output_db)
+        found = persistable_reference_from_catalog("EPSG:23031", database=output_db)
         assert found is not None
         assert "is recorded" in missing_reference_reason(
             "EPSG:23031", database=output_db
@@ -1435,7 +1442,9 @@ class TestPersistableReferences:
     def test_overwriting_removes_a_reference_the_catalogue_no_longer_states(
         self, run: Build, output_db: Path, newer: str | None
     ) -> None:
-        from geodetic_engine.persistablereference import stored_reference
+        from geodetic_engine.persistablereference import (
+            persistable_reference_from_catalog,
+        )
 
         run(referenced(epsg_projected(), PROJECTED_REFERENCE))
         record = (
@@ -1447,7 +1456,9 @@ class TestPersistableReferences:
         (entry,) = stated["missing"] + stated["invalid"]
         assert "an earlier build recorded for it was removed" in entry["reason"]
         assert references(output_db) == {}
-        assert stored_reference("EPSG:23031", database=output_db) is None
+        assert (
+            persistable_reference_from_catalog("EPSG:23031", database=output_db) is None
+        )
 
     def test_a_reference_recorded_later_is_not_reported_missing(
         self, run: Build, output_db: Path

@@ -24,7 +24,10 @@ from geodetic_engine.errors import GeodeticEngineError
 from geodetic_engine.geodesy.database import persistable_references_present
 from geodetic_engine.osdudb.build import build
 from geodetic_engine.osdudb.config import load_config
-from geodetic_engine.persistablereference import Kind, export_stored_references
+from geodetic_engine.persistablereference import (
+    Kind,
+    export_persistable_references_from_catalog,
+)
 from geodetic_engine.projdb.cli import inspect_database as _inspect
 from geodetic_engine.projdb.cli import run_build
 from geodetic_engine.projdb.cli import sidecar as sidecar
@@ -333,7 +336,9 @@ def _references(args: argparse.Namespace) -> int:
             "include_deprecated": not args.active_only,
         }
     try:
-        written = export_stored_references(args.output or sys.stdout, **options)
+        written = export_persistable_references_from_catalog(
+            args.output or sys.stdout, **options
+        )
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
