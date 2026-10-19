@@ -182,6 +182,115 @@ def write(node: Node) -> str:
     return f"{node.keyword}[{contents}]"
 
 
+def pretty(text: str, *, indent: int = 4) -> str:
+    """Lay ESRI WKT out over indented lines, for reading.
+
+    Only whitespace outside quoted strings changes: every name, number and
+    keyword is kept exactly as written, so ``-0.00000556098`` is not respelled
+    ``-5.56098e-06``. An element containing no other element stays on one line,
+    every element inside another starts a line of its own, and closing brackets
+    follow the last line, the way PROJ indents WKT. :func:`read` gives back the
+    same element.
+
+    Args:
+        text: The WKT, which must contain exactly one well-formed element.
+        indent: Spaces per level of nesting.
+
+    Returns:
+        The WKT over as many lines as it has nested elements, the first line
+        unindented.
+
+    Raises:
+        MalformedReferenceError: If the text is not one well-formed element.
+
+    Example:
+        >>> print(pretty('GEOGCS["a",DATUM["b",SPHEROID["c",1.0,2.0]]]'))
+        GEOGCS["a",
+            DATUM["b",
+                SPHEROID["c",1.0,2.0]]]
+    """
+    read(text)
+    tokens = _tokens(text)
+    element, _ = _laid_out(tokens, 0)
+    return _pretty(element, 0, " " * indent)
+
+
+# An element as written: its keyword, and its contents as elements or as the
+# exact text of each literal.
+type _Written = tuple[str, tuple[_Written | str, ...]]
+
+
+def _tokens(text: str) -> list[str]:
+    """Split WKT into brackets, commas, quoted strings and bare literals.
+
+    Each token is the exact text it was written as; only the whitespace between
+    tokens is dropped.
+    """
+    tokens: list[str] = []
+    at = 0
+    while at < len(text):
+        character = text[at]
+        if character.isspace():
+            at += 1
+        elif character in "[],":
+            tokens.append(character)
+            at += 1
+        elif character == '"':
+            end = at + 1
+            while end < len(text):
+                if text[end] == '"':
+                    if text.startswith('"', end + 1):
+                        end += 2
+                        continue
+                    break
+                end += 1
+            tokens.append(text[at : end + 1])
+            at = end + 1
+        else:
+            end = at
+            while end < len(text) and not (text[end].isspace() or text[end] in '[],"'):
+                end += 1
+            tokens.append(text[at:end])
+            at = end
+    return tokens
+
+
+def _laid_out(tokens: list[str], at: int) -> tuple[_Written, int]:
+    """Read one element from well-formed tokens, returning it and what follows."""
+    keyword = tokens[at]
+    at += 2
+    children: list[_Written | str] = []
+    while True:
+        if at + 1 < len(tokens) and tokens[at + 1] == "[":
+            child, at = _laid_out(tokens, at)
+            children.append(child)
+        else:
+            children.append(tokens[at])
+            at += 1
+        if tokens[at] == "]":
+            return (keyword, tuple(children)), at + 1
+        at += 1
+
+
+def _pretty(element: _Written, depth: int, unit: str) -> str:
+    """Render one element at a depth of nesting."""
+    keyword, children = element
+    first = next(
+        (index for index, child in enumerate(children) if isinstance(child, tuple)),
+        None,
+    )
+    if first is None:
+        return f"{keyword}[{','.join(str(child) for child in children)}]"
+    head = ",".join(str(child) for child in children[:first])
+    newline = "\n" + unit * (depth + 1)
+    body = ("," + newline).join(
+        _pretty(child, depth + 1, unit) if isinstance(child, tuple) else child
+        for child in children[first:]
+    )
+    opening = f"{keyword}[{head}," if head else f"{keyword}["
+    return f"{opening}{newline}{body}]"
+
+
 def _rendered(child: Child) -> str:
     """Render one element's content."""
     if isinstance(child, Node):

@@ -48,6 +48,15 @@ class BuildReport:
             were also written as aliases, every identifier that names nothing
             in the database and why, and where the source and proj.db disagree
             about an identified object. Empty for a source that has none.
+        persistable_references: The OSDU ``PersistableReference`` strings this
+            build recorded against record ids: whether recording was enabled,
+            how many are recorded, written and unchanged, how many an earlier
+            build recorded were kept or removed because this catalogue no
+            longer states a usable one, how many came from records whose id
+            names nothing here, every record that states none (``missing``),
+            every one not recorded because it could not be used and why
+            (``invalid``), and every one recorded or kept despite a
+            disagreement (``warnings``). Empty for a source that has none.
     """
 
     built_at: str
@@ -74,6 +83,7 @@ class BuildReport:
     supersessions_dropped: list[dict[str, str]] = field(default_factory=list)
     authority_preferences: list[dict[str, str]] = field(default_factory=list)
     identifiers: dict[str, Any] = field(default_factory=dict)
+    persistable_references: dict[str, Any] = field(default_factory=dict)
     validation: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -112,6 +122,15 @@ class BuildReport:
                 "missing_grids": len(self.validation.get("missing_grids", [])),
                 "identifiers_recorded": int(self.identifiers.get("mapped", 0)),
                 "identifiers_unmapped": len(self.identifiers.get("unmapped", [])),
+                "persistable_references_recorded": int(
+                    self.persistable_references.get("recorded", 0)
+                ),
+                "persistable_references_missing": len(
+                    self.persistable_references.get("missing", [])
+                ),
+                "persistable_references_invalid": len(
+                    self.persistable_references.get("invalid", [])
+                ),
             },
             "skipped": data.pop("skipped"),
             "supersessions_dropped": data.pop("supersessions_dropped"),
@@ -213,6 +232,9 @@ def log_summary(report: BuildReport) -> None:
             identifiers.get("aliases_written", 0),
         )
 
+    if references := report.persistable_references:
+        _log_persistable_references(references)
+
     if error := report.validation.get("error"):
         logger.error("VALIDATION FAILED: %s", error)
 
@@ -227,3 +249,44 @@ def log_summary(report: BuildReport) -> None:
     for table, count in report.rows_by_table.items():
         logger.info("  %6d  %s", count, table)
     logger.info(rule)
+
+
+def _log_persistable_references(references: dict[str, Any]) -> None:
+    """Log what was left out of, and noticed about, the persistable references.
+
+    A record that states no reference is expected -- ESRI has no geocentric
+    CRS, so OSDU publishes none for one -- and is listed at INFO under a
+    single WARNING. One that could not be read, or was kept despite a
+    disagreement, is a WARNING each.
+    """
+    if not references.get("enabled", True):
+        logger.info("persistable references not recorded: disabled")
+        return
+    if missing := references.get("missing"):
+        logger.warning(
+            "%d record(s) state no persistableReference, so none is recorded for them:",
+            len(missing),
+        )
+        for item in missing:
+            logger.info("  %s (%s)", item["identifier"], item["reason"])
+    if invalid := references.get("invalid"):
+        logger.warning(
+            "%d persistableReference(s) NOT recorded because they cannot be used:",
+            len(invalid),
+        )
+        for item in invalid:
+            logger.warning("  %s", item["identifier"])
+            logger.warning("      %s", item["reason"])
+    for item in references.get("warnings") or ():
+        logger.warning("  %s: %s", item["identifier"], item["warning"])
+    logger.info(
+        "%d persistableReference(s) recorded, %d written by this build, "
+        "%d unchanged, %d kept from an earlier build, %d removed, %d published "
+        "by records whose id names nothing here",
+        references.get("recorded", 0),
+        references.get("written", 0),
+        references.get("unchanged", 0),
+        references.get("kept", 0),
+        references.get("removed", 0),
+        references.get("unlinked", 0),
+    )

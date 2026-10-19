@@ -7,6 +7,8 @@ checked is what a consumer of the database would actually find in it.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import sqlite3
 from collections.abc import Callable, Iterator
@@ -26,7 +28,7 @@ from geodetic_engine.osdudb.catalog import (
 )
 from geodetic_engine.projdb.cli import inspect_database
 from geodetic_engine.projdb.errors import ProjDbBuildError
-from geodetic_engine.projdb.report import BuildReport
+from geodetic_engine.projdb.report import BuildReport, log_summary
 from geodetic_engine.projdb.settings import AuthorityPreference
 from geodetic_engine.projdb.validate import validate
 
@@ -902,8 +904,7 @@ class TestOsduIds:
         run(epsg_projected())
         with closing(sqlite3.connect(output_db)) as connection, connection:
             connection.execute(
-                "DROP TRIGGER "
-                "geodetic_engine_osdu_object_identifier_insert_trigger"
+                "DROP TRIGGER geodetic_engine_osdu_object_identifier_insert_trigger"
             )
             connection.execute(
                 "INSERT INTO geodetic_engine_osdu_object_identifier VALUES "
@@ -952,3 +953,510 @@ class TestOsduIds:
                 CoordinateReferenceSystem.from_user_input(
                     f"opendes:{CRS_ENTITY}:Projected:EPSG::23032"
                 )
+
+
+# ESRI WKT the way OSDU's persistableReference states it.
+GEOGCS_EXAMPLE = (
+    'GEOGCS["GCS_Example_2020",DATUM["D_Example_2020",SPHEROID["Example_1980",'
+    '6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],'
+    'UNIT["Degree",0.0174532925199433],AUTHORITY["OSDU",4100]]'
+)
+GEOGCS_WGS84 = (
+    'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,'
+    '298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
+)
+GEOGCS_ED50 = (
+    'GEOGCS["GCS_European_1950",DATUM["D_European_1950",'
+    'SPHEROID["International_1924",6378388.0,297.0]],PRIMEM["Greenwich",0.0],'
+    'UNIT["Degree",0.0174532925199433]]'
+)
+PROJCS_23031 = (
+    f'PROJCS["ED_1950_UTM_Zone_31N",{GEOGCS_ED50},'
+    'PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],'
+    'PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",3.0],'
+    'PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0.0],'
+    'UNIT["Meter",1.0],AUTHORITY["EPSG",23031]]'
+)
+
+
+def geogtran(name: str, source: str, code: str, auth: str = "EPSG") -> str:
+    return (
+        f'GEOGTRAN["{name}",{source},{GEOGCS_WGS84},METHOD["Position_Vector"],'
+        'PARAMETER["X_Axis_Translation",-116.641],'
+        'PARAMETER["Y_Axis_Translation",-56.931],'
+        'PARAMETER["Z_Axis_Translation",-110.559],'
+        'PARAMETER["X_Axis_Rotation",0.893],PARAMETER["Y_Axis_Rotation",0.921],'
+        'PARAMETER["Z_Axis_Rotation",-0.917],PARAMETER["Scale_Difference",-3.52],'
+        f'OPERATIONACCURACY[1.0],AUTHORITY["{auth}",{code}]]'
+    )
+
+
+def envelope(
+    kind: str, auth: str | None, code: str, name: str, **members: Any
+) -> dict[str, Any]:
+    stated: dict[str, Any] = {}
+    if auth is not None:
+        stated["authCode"] = {"auth": auth, "code": code}
+    return stated | members | {"name": name, "type": kind, "ver": "PE_10_9_1"}
+
+
+def payload(data: dict[str, Any]) -> str:
+    """A persistableReference string, compact as OSDU publishes it."""
+    return json.dumps(data, separators=(",", ":"))
+
+
+GEOGRAPHIC_REFERENCE = envelope(
+    "LBC", "OSDU", "4100", "GCS_Example_2020", wkt=GEOGCS_EXAMPLE
+)
+HELMERT_REFERENCE = envelope(
+    "ST",
+    "OSDU",
+    "9100",
+    "Example_2020_To_WGS_1984_1",
+    wkt=geogtran("Example_2020_To_WGS_1984_1", GEOGCS_EXAMPLE, "9100", "OSDU"),
+)
+BOUND_REFERENCE = envelope(
+    "EBC",
+    "OSDU",
+    "4100001",
+    "Example 2020 * EXAMPLE [4100,9100]",
+    lateBoundCRS=GEOGRAPHIC_REFERENCE,
+    singleCT=HELMERT_REFERENCE,
+)
+PROJECTED_REFERENCE = envelope(
+    "LBC", "EPSG", "23031", "ED_1950_UTM_Zone_31N", wkt=PROJCS_23031
+)
+TRANSFORMATION_REFERENCE = envelope(
+    "ST",
+    "EPSG",
+    "1612",
+    "ED_1950_To_WGS_1984_23",
+    wkt=geogtran("ED_1950_To_WGS_1984_23", GEOGCS_ED50, "1612"),
+)
+
+
+def referenced(
+    entry: dict[str, Any], reference: dict[str, Any] | Any
+) -> dict[str, Any]:
+    """The record, publishing a persistableReference."""
+    stated = payload(reference) if isinstance(reference, dict) else reference
+    entry["data"]["PersistableReference"] = stated
+    return entry
+
+
+def referenced_catalogue() -> tuple[dict[str, Any], ...]:
+    """The identified catalogue, every record publishing its reference."""
+    geographic_entry, helmert_entry, bound_entry, projected, transformation = (
+        identified_catalogue()
+    )
+    return (
+        referenced(geographic_entry, GEOGRAPHIC_REFERENCE),
+        referenced(helmert_entry, HELMERT_REFERENCE),
+        referenced(bound_entry, BOUND_REFERENCE),
+        referenced(projected, PROJECTED_REFERENCE),
+        referenced(transformation, TRANSFORMATION_REFERENCE),
+    )
+
+
+def references(database: Path) -> dict[str, tuple[Any, ...]]:
+    """Each recorded reference by id: kind, stated authority, version, payload."""
+    return {
+        identifier: tuple(rest)
+        for identifier, *rest in rows(
+            database,
+            "SELECT identifier, kind, stated_auth_name, stated_code, version, "
+            "persistable_reference FROM geodetic_engine_osdu_persistable_reference",
+        )
+    }
+
+
+class TestPersistableReferences:
+    """Every record's persistableReference, recorded verbatim against its id."""
+
+    def test_every_identified_record_has_its_reference_recorded_verbatim(
+        self, run: Build, output_db: Path
+    ) -> None:
+        report = run(*referenced_catalogue())
+        assert references(output_db) == {
+            GEOGRAPHIC_ID: (
+                "LBC",
+                "OSDU",
+                "4100",
+                "PE_10_9_1",
+                payload(GEOGRAPHIC_REFERENCE),
+            ),
+            HELMERT_ID: ("ST", "OSDU", "9100", "PE_10_9_1", payload(HELMERT_REFERENCE)),
+            BOUND_ID: ("EBC", "OSDU", "4100001", "PE_10_9_1", payload(BOUND_REFERENCE)),
+            # Neither EPSG object is imported, being in the base proj.db
+            # already; both references are recorded all the same.
+            EPSG_PROJECTED_ID: (
+                "LBC",
+                "EPSG",
+                "23031",
+                "PE_10_9_1",
+                payload(PROJECTED_REFERENCE),
+            ),
+            EPSG_TRANSFORMATION_ID: (
+                "ST",
+                "EPSG",
+                "1612",
+                "PE_10_9_1",
+                payload(TRANSFORMATION_REFERENCE),
+            ),
+        }
+        stated = report.persistable_references
+        assert stated["enabled"] is True
+        assert (stated["recorded"], stated["written"], stated["unchanged"]) == (5, 5, 0)
+        assert stated["missing"] == stated["invalid"] == stated["warnings"] == []
+        counts = report.as_dict()["counts"]
+        assert counts["persistable_references_recorded"] == 5
+        assert counts["persistable_references_missing"] == 0
+        assert counts["persistable_references_invalid"] == 0
+
+    def test_the_view_names_the_object_each_reference_is_for(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(*referenced_catalogue())
+        assert set(
+            rows(
+                output_db,
+                "SELECT table_name, auth_name, CAST(code AS TEXT), kind "
+                "FROM geodetic_engine_osdu_persistable_reference_view",
+            )
+        ) == {
+            ("geodetic_crs", AUTHORITY, "4100", "LBC"),
+            ("helmert_transformation", AUTHORITY, "9100", "ST"),
+            ("geodetic_crs", AUTHORITY, "4100001", "EBC"),
+            ("projected_crs", "EPSG", "23031", "LBC"),
+            ("helmert_transformation", "EPSG", "1612", "ST"),
+        }
+
+    def test_a_record_stating_none_is_listed_and_the_build_passes(
+        self, run: Build, output_db: Path
+    ) -> None:
+        report = run(
+            epsg_projected(),
+            referenced(epsg_transformation(), "  "),
+        )
+        assert references(output_db) == {}
+        assert report.status == "passed"
+        assert {
+            item["identifier"]: item["reason"]
+            for item in report.persistable_references["missing"]
+        } == {
+            EPSG_PROJECTED_ID: "the record states no PersistableReference",
+            EPSG_TRANSFORMATION_ID: "the record's PersistableReference is empty",
+        }
+        assert report.as_dict()["counts"]["persistable_references_missing"] == 2
+        # The ids are recorded all the same: a missing reference costs nothing else.
+        assert len(identifiers(output_db)) == 2
+
+    @pytest.mark.parametrize(
+        ("stated", "reason"),
+        [
+            ("not json", "cannot be read"),
+            ('{"type":"XYZ","wkt":"GEOGCS[]"}', "cannot be read"),
+            (42, "JSON int"),
+            (
+                payload(envelope("LBC", "EPSG", "23031", "x", wkt='PROJCS["x",')),
+                "WKT is malformed",
+            ),
+            (payload(envelope("EBC", "EPSG", "23031", "x")), "malformed"),
+            (payload(TRANSFORMATION_REFERENCE), "states a single transformation"),
+        ],
+        ids=[
+            "not-json",
+            "unknown-kind",
+            "not-a-string",
+            "bad-wkt",
+            "no-ct",
+            "wrong-entity",
+        ],
+    )
+    def test_a_reference_that_cannot_be_used_is_not_recorded(
+        self, run: Build, output_db: Path, stated: Any, reason: str
+    ) -> None:
+        report = run(referenced(epsg_projected(), stated))
+        assert references(output_db) == {}
+        assert report.status == "passed"
+        (invalid,) = report.persistable_references["invalid"]
+        assert invalid["identifier"] == EPSG_PROJECTED_ID
+        assert reason in invalid["reason"]
+        assert report.as_dict()["counts"]["persistable_references_invalid"] == 1
+
+    def test_disagreements_are_recorded_with_a_warning(
+        self, run: Build, output_db: Path
+    ) -> None:
+        """The string is the catalogue's word; its authCode is only provenance."""
+        report = run(
+            referenced(
+                epsg_transformation(),
+                TRANSFORMATION_REFERENCE
+                | {"authCode": {"auth": "OSDU", "code": "1612"}},
+            ),
+            referenced(
+                epsg_projected(),
+                {
+                    key: value
+                    for key, value in PROJECTED_REFERENCE.items()
+                    if key != "authCode"
+                },
+            ),
+        )
+        assert set(references(output_db)) == {EPSG_PROJECTED_ID, EPSG_TRANSFORMATION_ID}
+        warnings = {
+            item["identifier"]: item["warning"]
+            for item in report.persistable_references["warnings"]
+        }
+        assert (
+            "states authCode OSDU:1612, but the record is EPSG:1612"
+            in (warnings[EPSG_TRANSFORMATION_ID])
+        )
+        assert "states no authCode" in warnings[EPSG_PROJECTED_ID]
+
+    def test_an_early_bound_reference_on_an_unbound_crs_is_kept_with_a_warning(
+        self, run: Build, output_db: Path
+    ) -> None:
+        early = envelope(
+            "EBC",
+            "EPSG",
+            "23031",
+            "ED50 * [23031,1612]",
+            lateBoundCRS=PROJECTED_REFERENCE,
+            singleCT=TRANSFORMATION_REFERENCE,
+        )
+        report = run(referenced(epsg_projected(), early))
+        assert references(output_db)[EPSG_PROJECTED_ID][0] == "EBC"
+        (warning,) = report.persistable_references["warnings"]
+        assert "early bound CRS" in warning["warning"]
+
+    def test_records_whose_id_names_nothing_are_counted_not_recorded(
+        self, run: Build, output_db: Path
+    ) -> None:
+        report = run(referenced(epsg_projected(Code="99999999"), PROJECTED_REFERENCE))
+        assert references(output_db) == {}
+        assert report.persistable_references["unlinked"] == 1
+
+    def test_one_id_publishing_two_references_records_neither(
+        self, run: Build, output_db: Path
+    ) -> None:
+        changed = PROJECTED_REFERENCE | {"name": "ED50 / UTM 31N (other)"}
+        report = run(
+            referenced(epsg_projected(), PROJECTED_REFERENCE),
+            referenced(epsg_projected(), changed),
+        )
+        assert references(output_db) == {}
+        (invalid,) = report.persistable_references["invalid"]
+        assert "2 different persistableReferences" in invalid["reason"]
+
+    def test_references_can_be_left_out(self, run: Build, output_db: Path) -> None:
+        report = run(*referenced_catalogue(), osdu_persistable_references=False)
+        assert report.persistable_references == {"enabled": False}
+        assert len(identifiers(output_db)) == 5
+        assert not rows(
+            output_db,
+            "SELECT 1 FROM sqlite_master WHERE name = "
+            "'geodetic_engine_osdu_persistable_reference'",
+        )
+
+    def test_inactive_records_left_out_have_no_reference(
+        self, run: Build, output_db: Path
+    ) -> None:
+        report = run(
+            referenced(epsg_projected(InactiveIndicator=True), PROJECTED_REFERENCE),
+            include_deprecated=False,
+        )
+        assert references(output_db) == {}
+        assert report.persistable_references["unlinked"] == 0
+
+    def test_appending_the_same_catalogue_again_changes_nothing(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(*referenced_catalogue())
+        again = run(*referenced_catalogue(), append=True)
+        stated = again.persistable_references
+        assert (stated["recorded"], stated["written"], stated["unchanged"]) == (5, 0, 5)
+        assert len(references(output_db)) == 5
+
+    def test_an_append_that_would_change_a_reference_is_refused(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        newer = PROJECTED_REFERENCE | {"ver": "PE_10_10_0"}
+        with pytest.raises(ProjDbBuildError, match="different persistableReference"):
+            run(referenced(epsg_projected(), newer), append=True)
+        assert references(output_db)[EPSG_PROJECTED_ID][3] == "PE_10_9_1"
+
+    def test_overwriting_replaces_a_changed_reference(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        newer = PROJECTED_REFERENCE | {"ver": "PE_10_10_0"}
+        report = run(
+            referenced(epsg_projected(), newer), append=True, overwrite_rows=True
+        )
+        assert references(output_db)[EPSG_PROJECTED_ID][4] == payload(newer)
+        assert report.persistable_references["written"] == 1
+
+    def test_moving_an_id_moves_its_reference(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        run(epsg_projected(Code="23032"), append=True, overwrite_rows=True)
+        # The id now names EPSG:23032, whose record states no reference, so the
+        # reference stated for EPSG:23031 is not handed out for it.
+        assert references(output_db) == {}
+
+    def test_validation_checks_each_reference(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(*referenced_catalogue())
+        checked = validate(output_db, authorities=[AUTHORITY])
+        assert checked["persistable_references_checked"] == 5
+        with closing(sqlite3.connect(output_db)) as connection, connection:
+            connection.execute(
+                "UPDATE geodetic_engine_osdu_persistable_reference "
+                "SET persistable_reference = replace(persistable_reference, "
+                "'PE_10_9_1', 'PE_10_10_0') WHERE kind = 'ST'"
+            )
+        with pytest.raises(ProjDbBuildError, match="digest"):
+            validate(output_db, authorities=[AUTHORITY])
+
+    def test_validation_refuses_a_reference_for_another_kind_of_object(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        with closing(sqlite3.connect(output_db)) as connection, connection:
+            connection.execute(
+                "UPDATE geodetic_engine_osdu_persistable_reference SET kind = 'ST'"
+            )
+        with pytest.raises(ProjDbBuildError, match="different kind"):
+            validate(output_db, authorities=[AUTHORITY])
+
+    def test_inspect_counts_the_references_by_kind(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(*referenced_catalogue())
+        assert inspect_database(output_db)["persistable_references_by_kind"] == {
+            "EBC": 1,
+            "LBC": 2,
+            "ST": 2,
+        }
+
+    def test_the_summary_warns_of_what_was_not_recorded(
+        self, run: Build, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        report = run(referenced(epsg_projected(), "not json"), epsg_transformation())
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="geodetic_engine.projdb.report"):
+            log_summary(report)
+        warnings = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        assert any("1 record(s) state no persistableReference" in m for m in warnings)
+        assert any("NOT recorded" in m for m in warnings)
+        assert any(EPSG_PROJECTED_ID in m for m in warnings)
+
+    def test_references_are_looked_up_through_the_api(
+        self, run: Build, output_db: Path
+    ) -> None:
+        """The point of recording them: the exact string for any object named."""
+        from geodetic_engine.geodesy import CoordinateReferenceSystem, transform
+        from geodetic_engine.persistablereference import (
+            Kind,
+            missing_reference_reason,
+            stored_reference,
+        )
+
+        stating_none = with_id(
+            crs_record(
+                CodeSpace="EPSG",
+                Code="23032",
+                Name="ED50 / UTM zone 32N",
+                CoordinateReferenceSystemType=PROJECTED_CRS,
+                Kind="projected",
+            ),
+            f"{CRS_ENTITY}:Projected:EPSG::23032",
+        )
+        run(*referenced_catalogue(), stating_none)
+        found = stored_reference(f"opendes:{BOUND_ID}:", database=output_db)
+        assert found is not None
+        assert found.kind is Kind.EARLY_BOUND_CRS
+        assert found.payload == payload(BOUND_REFERENCE)
+        assert found.authority_code == f"{AUTHORITY}:4100001"
+        assert stored_reference("EPSG:1612", database=output_db) is not None
+        assert stored_reference("EPSG:23032", database=output_db) is None
+        assert "states no persistableReference" in missing_reference_reason(
+            "EPSG:23032", database=output_db
+        )
+        with proj_reading(output_db):
+            bound_crs = CoordinateReferenceSystem.from_user_input(f"opendes:{BOUND_ID}")
+            stored = bound_crs.stored_persistable_reference()
+            assert stored is not None and stored.identifier == BOUND_ID
+            result = transform(
+                "EPSG:23031",
+                "EPSG:4326",
+                [(500000.0, 6600000.0)],
+                operation=f"opendes:{EPSG_TRANSFORMATION_ID}",
+            )
+            stored = result.operation.stored_persistable_reference()
+            assert stored is not None and stored.identifier == EPSG_TRANSFORMATION_ID
+
+    @pytest.mark.parametrize("newer", [None, "not json"], ids=["none", "unusable"])
+    def test_an_append_without_a_usable_reference_keeps_the_earlier_one(
+        self, run: Build, output_db: Path, newer: str | None
+    ) -> None:
+        """Kept, as a changed reference would be, and reported as kept."""
+        from geodetic_engine.persistablereference import (
+            missing_reference_reason,
+            stored_reference,
+        )
+
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        record = (
+            epsg_projected() if newer is None else referenced(epsg_projected(), newer)
+        )
+        report = run(record, append=True)
+        stated = report.persistable_references
+        assert stated["missing"] == stated["invalid"] == []
+        assert stated["kept"] == 1
+        (warning,) = stated["warnings"]
+        assert "an earlier build recorded is kept" in warning["warning"]
+        assert references(output_db)[EPSG_PROJECTED_ID][4] == payload(
+            PROJECTED_REFERENCE
+        )
+        found = stored_reference("EPSG:23031", database=output_db)
+        assert found is not None
+        assert "is recorded" in missing_reference_reason(
+            "EPSG:23031", database=output_db
+        )
+
+    @pytest.mark.parametrize("newer", [None, "not json"], ids=["none", "unusable"])
+    def test_overwriting_removes_a_reference_the_catalogue_no_longer_states(
+        self, run: Build, output_db: Path, newer: str | None
+    ) -> None:
+        from geodetic_engine.persistablereference import stored_reference
+
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        record = (
+            epsg_projected() if newer is None else referenced(epsg_projected(), newer)
+        )
+        report = run(record, append=True, overwrite_rows=True)
+        stated = report.persistable_references
+        assert stated["removed"] == 1
+        (entry,) = stated["missing"] + stated["invalid"]
+        assert "an earlier build recorded for it was removed" in entry["reason"]
+        assert references(output_db) == {}
+        assert stored_reference("EPSG:23031", database=output_db) is None
+
+    def test_a_reference_recorded_later_is_not_reported_missing(
+        self, run: Build, output_db: Path
+    ) -> None:
+        """The history still lists the first build's gap; the row wins."""
+        from geodetic_engine.persistablereference import missing_reference_reason
+
+        run(epsg_projected())
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE), append=True)
+        assert missing_reference_reason("EPSG:23031", database=output_db) == (
+            "a persistable reference is recorded for EPSG:23031"
+        )

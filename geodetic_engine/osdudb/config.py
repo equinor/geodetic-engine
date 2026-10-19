@@ -68,6 +68,7 @@ _FILE_KEYS: Final = frozenset(
         "overwrite_rows",
         "catalog_version",
         "osdu_id_aliases",
+        "osdu_persistable_references",
     }
 )
 
@@ -121,6 +122,13 @@ class OsduBuildConfig:
             package only ever resolves them from there. Enabled by default.
             PROJ matches names approximately, so a tool reading the alias
             through PROJ directly can resolve a mistyped id to a near miss.
+        osdu_persistable_references: Record each catalogue record's
+            ``PersistableReference``, verbatim, in
+            ``geodetic_engine_osdu_persistable_reference`` against the record's
+            id, so it can be looked up and exported for the object the id
+            names. Enabled by default. When disabled, nothing is written to
+            that table and whatever an earlier build recorded there is left as
+            it was.
         source_file: The config file the settings were read from, if any.
     """
 
@@ -138,6 +146,7 @@ class OsduBuildConfig:
     overwrite_rows: bool = False
     catalog_version: str | None = None
     osdu_id_aliases: bool = True
+    osdu_persistable_references: bool = True
     source_file: Path | None = None
 
     def __post_init__(self) -> None:
@@ -257,6 +266,10 @@ def load_config(
         catalog_version=value("catalog_version", "OSDU_CATALOG_VERSION"),
         osdu_id_aliases=as_bool(
             value("osdu_id_aliases", "OSDU_ID_ALIASES"), default=True
+        ),
+        osdu_persistable_references=as_bool(
+            value("osdu_persistable_references", "OSDU_PERSISTABLE_REFERENCES"),
+            default=True,
         ),
         source_file=resolved_file,
     )

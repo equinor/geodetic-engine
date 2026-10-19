@@ -84,6 +84,33 @@ All notable changes to this project are documented here. The format follows
   to instantiate CRSs, bound CRSs and operations by id, and section 8 of the
   worked examples notebook runs those examples against a small database it
   builds first, since an id resolves only once its record is in `proj.db`.
+- OSDU persistable references: `geodetic-osdudb build` records the
+  `PersistableReference` every catalogue record publishes, verbatim, against
+  the record's id, including for EPSG objects the base `proj.db` already
+  defines, in a new `geodetic_engine_osdu_persistable_reference` table. The
+  table is keyed by record id with a foreign key to the identifier table, and
+  a view joins each reference to its object. Each row also records the kind,
+  stated name, `authCode`, version and SHA-256. A record that states no
+  reference (every geocentric CRS), or one that cannot be read or states the
+  wrong kind of object, never fails the build: it is not recorded, and it is
+  listed in the report's new `persistable_references` section with the
+  reason. A reference that disagrees with its record, such as an `authCode`
+  naming another code, is recorded as published with a warning. An append that
+  would change a recorded reference is refused without `--overwrite-rows`, and
+  one whose catalogue no longer states a usable reference keeps the recorded
+  one, with a warning, unless `--overwrite-rows` removes it.
+  Validation checks every digest and kind. `--no-persistable-references` /
+  `osdu_persistable_references = false` leaves the references out.
+  `geodetic_engine.persistablereference` gains `stored_reference`,
+  `stored_references`, `export_stored_references` (JSON, JSONL or CSV),
+  `missing_reference_reason`, `pretty_persistable_reference` (indented JSON,
+  optionally with the ESRI WKT laid out over lines for reading),
+  `StoredReference` and `AmbiguousStoredReferenceError`.
+  `CoordinateReferenceSystem.stored_persistable_reference()` and
+  `AppliedOperation.stored_persistable_reference()` look up the reference for
+  a CRS or for the operation applied. `esriwkt.pretty` lays ESRI WKT out,
+  changing whitespace only. There is a new `geodetic-osdudb references`
+  command, and `inspect` counts the references by kind.
 
 ### Changed
 

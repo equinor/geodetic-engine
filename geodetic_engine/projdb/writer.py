@@ -34,6 +34,9 @@ from geodetic_engine.projdb.schema import (
     IDENTIFIER_DDL,
     IDENTIFIER_TABLE,
     LEGACY_IDENTIFIER_TABLE,
+    PERSISTABLE_REFERENCE_COLUMNS,
+    PERSISTABLE_REFERENCE_DDL,
+    PERSISTABLE_REFERENCE_TABLE,
     TABLE_COLUMNS,
     identifier_alias_source,
     verify_schema,
@@ -460,6 +463,126 @@ class ProjDbWriter:
             (*target, identifier, source),
         )
         return True
+
+    def write_persistable_references(self, rows: Sequence[Row]) -> tuple[int, int]:
+        """Record the persistableReference strings records publish, by record id.
+
+        A reference annotates the record an identifier names, so it may belong
+        to an object of any authority and the authority guard does not apply.
+        The record's identifier must already be recorded: the table's foreign
+        key refuses a reference for one that is not, which is what ties every
+        reference to an object in the database.
+
+        Recording the same payload again changes nothing, so the same source
+        can be appended twice. Recording a different payload for an id that
+        already has one is refused unless ``overwrite_rows`` is configured,
+        because whoever already reads that reference would otherwise silently
+        get a different one.
+
+        Args:
+            rows: Mappings with every column of
+                ``PERSISTABLE_REFERENCE_COLUMNS``.
+
+        Returns:
+            How many references were written and how many were already
+            recorded unchanged.
+
+        Raises:
+            ForeignAuthorityCollision: If an id already has a different
+                reference and ``overwrite_rows`` is not configured.
+            MissingReferencedObjectError: If a row's identifier is not
+                recorded in the identifier table.
+        """
+        # The identifier table is the foreign key's parent, so it has to exist
+        # for the key to refuse a reference rather than fail to resolve.
+        for statement in (*IDENTIFIER_DDL, *PERSISTABLE_REFERENCE_DDL):
+            self.connection.execute(statement)
+        columns = ", ".join(PERSISTABLE_REFERENCE_COLUMNS)
+        placeholders = ", ".join("?" * len(PERSISTABLE_REFERENCE_COLUMNS))
+        written = unchanged = 0
+        for row in rows:
+            scheme, identifier = str(row["scheme"]), str(row["identifier"])
+            existing = self.connection.execute(
+                f"SELECT sha256 FROM {PERSISTABLE_REFERENCE_TABLE} "
+                "WHERE scheme = ? AND identifier = ?",
+                (scheme, identifier),
+            ).fetchone()
+            if existing is not None:
+                if str(existing[0]) == str(row["sha256"]):
+                    unchanged += 1
+                    continue
+                if not self._config.overwrite_rows:
+                    raise ForeignAuthorityCollision(
+                        f"{scheme} record {identifier!r} already has a different "
+                        "persistableReference recorded; refusing to replace it. "
+                        "The build is aborted rather than changing what is "
+                        "returned for it."
+                    )
+                self.connection.execute(
+                    f"DELETE FROM {PERSISTABLE_REFERENCE_TABLE} "
+                    "WHERE scheme = ? AND identifier = ?",
+                    (scheme, identifier),
+                )
+            try:
+                self.connection.execute(
+                    f"INSERT INTO {PERSISTABLE_REFERENCE_TABLE} ({columns}) "
+                    f"VALUES ({placeholders})",
+                    tuple(row.get(column) for column in PERSISTABLE_REFERENCE_COLUMNS),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise MissingReferencedObjectError(
+                    f"a persistableReference was given for {scheme} record "
+                    f"{identifier!r}, whose id this database does not record: "
+                    f"{exc}"
+                ) from exc
+            written += 1
+
+        if written:
+            self.inserted[PERSISTABLE_REFERENCE_TABLE] += written
+        return written, unchanged
+
+    def persistable_reference_recorded(self, scheme: str, identifier: str) -> bool:
+        """Whether a persistableReference is already recorded for a record id."""
+        if not self.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (PERSISTABLE_REFERENCE_TABLE,),
+        ).fetchone():
+            return False
+        return bool(
+            self.connection.execute(
+                f"SELECT 1 FROM {PERSISTABLE_REFERENCE_TABLE} "
+                "WHERE scheme = ? AND identifier = ?",
+                (scheme, identifier),
+            ).fetchone()
+        )
+
+    def remove_persistable_references(self, keys: Sequence[tuple[str, str]]) -> int:
+        """Remove the references a source no longer states, by scheme and id.
+
+        Only with ``overwrite_rows``: removing a reference changes what is
+        returned for the object as surely as replacing it does.
+
+        Returns:
+            How many references were removed.
+
+        Raises:
+            ForeignAuthorityCollision: If ``overwrite_rows`` is not configured.
+        """
+        if not keys:
+            return 0
+        if not self._config.overwrite_rows:
+            raise ForeignAuthorityCollision(
+                "refusing to remove recorded persistableReferences without "
+                "overwrite_rows"
+            )
+        removed = 0
+        for scheme, identifier in keys:
+            removed += self.connection.execute(
+                f"DELETE FROM {PERSISTABLE_REFERENCE_TABLE} "
+                "WHERE scheme = ? AND identifier = ?",
+                (scheme, identifier),
+            ).rowcount
+        return removed
 
     def upsert_authority_preferences(self, rows: Sequence[Row]) -> int:
         """Replace rows in ``authority_to_authority_preference``.

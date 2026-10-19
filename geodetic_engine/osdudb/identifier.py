@@ -76,7 +76,7 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
         an id names.
     """
     skipped = {(item.auth_name, item.code): item.reason for item in context.skipped}
-    source = _source(context)
+    source = catalogue_source(context)
     unmapped: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
     by_identifier: dict[str, list[tuple[Record, str, dict[str, Any]]]] = defaultdict(
@@ -125,6 +125,7 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
             continue
         record, table, row = entries[0]
         rows.append(row)
+        context.recorded_identifiers[identifier] = record
         warnings.extend(_drift(context, record, table))
 
     written, aliased = context.writer.write_identifiers(
@@ -235,7 +236,7 @@ def _entry(record: Record, reason: str) -> dict[str, str]:
     }
 
 
-def _source(context: OsduBuildContext) -> str:
+def catalogue_source(context: OsduBuildContext) -> str:
     """What the identifiers were read from, recorded on every row."""
     path = Path(context.catalog.path or context.config.catalog)
     version = context.config.catalog_version

@@ -267,6 +267,20 @@ round_trip = parse_persistable_reference(to_persistable_reference(CRS.from_epsg(
 round_trip.to_crs().equals(CRS.from_epsg(23032), ignore_axis_order=True)
 ```
 
+```{admonition} Generated or published?
+:class: tip
+
+A generated payload describes the same CRS as the one an OSDU catalogue
+publishes for it, but it is not the same string: names, version and
+`authCode` differ. To write the catalogue's own string into an OSDU record,
+look it up in a `proj.db` built from that catalogue with
+{func}`~geodetic_engine.persistablereference.stored_reference`, or
+{meth}`CoordinateReferenceSystem.stored_persistable_reference()
+<geodetic_engine.geodesy.CoordinateReferenceSystem.stored_persistable_reference>`.
+{func}`~geodetic_engine.persistablereference.pretty_persistable_reference`
+lays any payload out for reading. See {ref}`osdu-persistable-references`.
+```
+
 {func}`~geodetic_engine.persistablereference.geogtran` builds just the
 `GEOGTRAN` element as a tree, and
 {func}`~geodetic_engine.persistablereference.esriwkt.write` serialises it:

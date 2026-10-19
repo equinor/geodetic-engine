@@ -20,6 +20,12 @@ Public entry points:
 * :class:`UnitReference` -- a unit, with ``to_si()`` and ``from_si()``.
 * :func:`looks_like_reference` -- whether a string is shaped like one, cheap
   enough to run on any CRS definition a caller passes in.
+* :func:`stored_reference`, :func:`stored_references` and
+  :func:`export_stored_references` -- the exact references an OSDU catalogue
+  publishes, as a proj.db built by :mod:`geodetic_engine.osdudb` recorded
+  them, for one object, as a listing, or as a file.
+* :func:`pretty_persistable_reference` -- any reference laid out for reading,
+  its embedded ESRI WKT optionally included.
 
 These hand back pyproj objects.
 :meth:`~geodetic_engine.geodesy.crs.CoordinateReferenceSystem.from_persistable_reference`
@@ -51,6 +57,7 @@ from geodetic_engine.persistablereference.envelope import (
     looks_like_reference,
 )
 from geodetic_engine.persistablereference.errors import (
+    AmbiguousStoredReferenceError,
     MalformedReferenceError,
     PersistableReferenceError,
     UnresolvableGridError,
@@ -66,23 +73,42 @@ from geodetic_engine.persistablereference.reference import (
     operation_from_geogtran,
     parse_persistable_reference,
 )
+from geodetic_engine.persistablereference.stored import (
+    Entity,
+    ExportFormat,
+    StoredReference,
+    export_stored_references,
+    missing_reference_reason,
+    pretty_persistable_reference,
+    stored_reference,
+    stored_references,
+)
 
 __all__ = [
+    "AmbiguousStoredReferenceError",
     "AnyReference",
     "AuthorityCode",
     "CrsReference",
+    "Entity",
+    "ExportFormat",
     "Kind",
     "MalformedReferenceError",
     "OperationReference",
     "PersistableReferenceError",
     "Reference",
+    "StoredReference",
     "UnitReference",
     "UnresolvableGridError",
     "UnsupportedMethodError",
     "UnsupportedReferenceError",
+    "export_stored_references",
     "geogtran",
     "looks_like_reference",
+    "missing_reference_reason",
     "operation_from_geogtran",
     "parse_persistable_reference",
+    "pretty_persistable_reference",
+    "stored_reference",
+    "stored_references",
     "to_persistable_reference",
 ]

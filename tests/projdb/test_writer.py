@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -12,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from geodetic_engine.persistablereference import Kind
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.errors import (
     ForeignAuthorityCollision,
@@ -23,6 +25,8 @@ from geodetic_engine.projdb.schema import (
     BUILD_HISTORY_TABLE,
     IDENTIFIER_TABLE,
     LEGACY_IDENTIFIER_TABLE,
+    PERSISTABLE_REFERENCE_KINDS,
+    PERSISTABLE_REFERENCE_TABLE,
     verify_schema,
 )
 from geodetic_engine.projdb.writer import ProjDbWriter
@@ -461,23 +465,29 @@ def test_appending_migrates_the_legacy_identifier_table(
     appending = make_config(config.base_proj_db, config.output_db, append=True)
     with ProjDbWriter(appending) as writer:
         assert writer.connection.execute(
-            f"SELECT identifier, table_name, auth_name, code "
-            f"FROM {IDENTIFIER_TABLE}"
-        ).fetchall() == [
-            (_identifier()["identifier"], "projected_crs", "EPSG", 23031)
-        ]
-        assert writer.connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (LEGACY_IDENTIFIER_TABLE,),
-        ).fetchone() is None
-        assert writer.connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = ?",
-            (f"idx_{IDENTIFIER_TABLE}_object",),
-        ).fetchone() is not None
-        assert writer.connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = ?",
-            (f"{IDENTIFIER_TABLE}_insert_trigger",),
-        ).fetchone() is not None
+            f"SELECT identifier, table_name, auth_name, code FROM {IDENTIFIER_TABLE}"
+        ).fetchall() == [(_identifier()["identifier"], "projected_crs", "EPSG", 23031)]
+        assert (
+            writer.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (LEGACY_IDENTIFIER_TABLE,),
+            ).fetchone()
+            is None
+        )
+        assert (
+            writer.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?",
+                (f"idx_{IDENTIFIER_TABLE}_object",),
+            ).fetchone()
+            is not None
+        )
+        assert (
+            writer.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?",
+                (f"{IDENTIFIER_TABLE}_insert_trigger",),
+            ).fetchone()
+            is not None
+        )
         assert writer.write_identifiers([_identifier()]) == (0, 0)
         writer.commit()
 
@@ -579,3 +589,126 @@ def test_overwriting_moves_the_identifier_and_its_alias(
     assert _identifier_aliases(config.output_db) == [
         (identifier, "projected_crs", "EPSG", 23032)
     ]
+
+
+_PAYLOAD = (
+    '{"authCode":{"auth":"EPSG","code":"23031"},"name":"ED_1950_UTM_Zone_31N",'
+    '"type":"LBC","ver":"PE_10_9_1","wkt":"PROJCS[\\"ED_1950_UTM_Zone_31N\\"]"}'
+)
+
+
+def _reference(payload: str = _PAYLOAD, **row: Any) -> dict[str, Any]:
+    """The persistableReference of the record :func:`_identifier` records."""
+    return {
+        "scheme": "OSDU",
+        "identifier": _identifier()["identifier"],
+        "kind": "LBC",
+        "name": "ED_1950_UTM_Zone_31N",
+        "stated_auth_name": "EPSG",
+        "stated_code": "23031",
+        "version": "PE_10_9_1",
+        "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        "persistable_reference": payload,
+        "source": "CRS_CT.json",
+    } | row
+
+
+def _references(database: Path) -> list[tuple[Any, ...]]:
+    with closing(sqlite3.connect(database)) as connection:
+        return connection.execute(
+            f"SELECT identifier, kind, persistable_reference "
+            f"FROM {PERSISTABLE_REFERENCE_TABLE}"
+        ).fetchall()
+
+
+def test_the_reference_kinds_allowed_are_the_kinds_there_are() -> None:
+    assert set(PERSISTABLE_REFERENCE_KINDS) == {kind.value for kind in Kind}
+
+
+def test_a_reference_is_recorded_against_a_recorded_id(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        assert writer.write_persistable_references([_reference()]) == (1, 0)
+        writer.commit()
+    assert _references(config.output_db) == [
+        (_identifier()["identifier"], "LBC", _PAYLOAD)
+    ]
+
+
+def test_a_reference_for_an_unrecorded_id_is_refused(
+    config: ProjDbBuildConfig,
+) -> None:
+    """The foreign key ties every reference to an id, and so to an object."""
+    with (
+        ProjDbWriter(config) as writer,
+        pytest.raises(MissingReferencedObjectError, match="does not record"),
+    ):
+        writer.write_persistable_references([_reference()])
+
+
+def test_recording_a_reference_again_changes_nothing(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference()])
+        writer.commit()
+    appending = make_config(config.base_proj_db, config.output_db, append=True)
+    with ProjDbWriter(appending) as writer:
+        assert writer.write_persistable_references([_reference()]) == (0, 1)
+        writer.commit()
+    assert len(_references(config.output_db)) == 1
+
+
+def test_a_reference_is_not_silently_replaced(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference()])
+        changed = _PAYLOAD.replace("PE_10_9_1", "PE_10_10")
+        with pytest.raises(ForeignAuthorityCollision, match="different"):
+            writer.write_persistable_references([_reference(changed)])
+
+
+def test_overwriting_replaces_the_reference(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference()])
+        writer.commit()
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    changed = _PAYLOAD.replace("PE_10_9_1", "PE_10_10")
+    with ProjDbWriter(overwriting) as writer:
+        assert writer.write_persistable_references([_reference(changed)]) == (1, 0)
+        writer.commit()
+    assert _references(config.output_db) == [
+        (_identifier()["identifier"], "LBC", changed)
+    ]
+
+
+def test_moving_an_id_takes_its_reference_away_with_it(
+    config: ProjDbBuildConfig,
+) -> None:
+    """A reference stated for one object must not be handed out for another."""
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference()])
+        writer.commit()
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        writer.write_identifiers([_identifier(code="23032")])
+        writer.commit()
+    assert _references(config.output_db) == []
+
+
+def test_a_reference_states_a_kind_there_is(config: ProjDbBuildConfig) -> None:
+    with (
+        ProjDbWriter(config) as writer,
+        pytest.raises(MissingReferencedObjectError, match="CHECK"),
+    ):
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference(kind="XYZ")])

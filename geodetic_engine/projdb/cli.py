@@ -10,7 +10,7 @@ from contextlib import closing
 from pathlib import Path
 
 from geodetic_engine.projdb.report import BuildReport, log_summary
-from geodetic_engine.projdb.schema import IDENTIFIER_TABLE
+from geodetic_engine.projdb.schema import IDENTIFIER_TABLE, PERSISTABLE_REFERENCE_TABLE
 from geodetic_engine.projdb.settings import DatabaseSettings
 
 
@@ -24,7 +24,8 @@ def inspect_database(database: Path) -> dict[str, object]:
     """Read a database's version metadata and authority inventory.
 
     The identifiers another scheme gives its objects, OSDU record ids for
-    example, are counted by scheme when the database records any.
+    example, are counted by scheme, and the persistable references recorded
+    against them by kind, when the database records any.
     """
     with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         metadata = dict(connection.execute("SELECT key, value FROM metadata"))
@@ -35,19 +36,17 @@ def inspect_database(database: Path) -> dict[str, object]:
                 "GROUP BY auth_name ORDER BY auth_name"
             )
         }
-        identifiers = (
-            {
-                str(scheme): int(count)
-                for scheme, count in connection.execute(
-                    f"SELECT scheme, COUNT(*) FROM {IDENTIFIER_TABLE} "
-                    "GROUP BY scheme ORDER BY scheme"
-                )
-            }
-            if connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-                (IDENTIFIER_TABLE,),
-            ).fetchone()
-            else {}
+        identifiers = _counts(
+            connection,
+            IDENTIFIER_TABLE,
+            f"SELECT scheme, COUNT(*) FROM {IDENTIFIER_TABLE} "
+            "GROUP BY scheme ORDER BY scheme",
+        )
+        references = _counts(
+            connection,
+            PERSISTABLE_REFERENCE_TABLE,
+            f"SELECT kind, COUNT(*) FROM {PERSISTABLE_REFERENCE_TABLE} "
+            "GROUP BY kind ORDER BY kind",
         )
     return {
         "database": str(database),
@@ -55,7 +54,19 @@ def inspect_database(database: Path) -> dict[str, object]:
         "epsg_version": metadata.get("EPSG.VERSION"),
         "crs_by_authority": authorities,
         "identifiers_by_scheme": identifiers,
+        "persistable_references_by_kind": references,
     }
+
+
+def _counts(
+    connection: sqlite3.Connection, table: str, statement: str
+) -> dict[str, int]:
+    """Counts by key from a table this package adds, or none when it is absent."""
+    if not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+    ).fetchone():
+        return {}
+    return {str(key): int(count) for key, count in connection.execute(statement)}
 
 
 def run_build(

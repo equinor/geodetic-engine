@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import logging
 
-from geodetic_engine.osdudb import bound, crs, identifier, operation
+from geodetic_engine.osdudb import (
+    bound,
+    crs,
+    identifier,
+    operation,
+    persistable_reference,
+)
 from geodetic_engine.osdudb.catalog import OsduCatalog
 from geodetic_engine.osdudb.config import OsduBuildConfig
 from geodetic_engine.osdudb.context import OsduBuildContext, write_staged
@@ -90,10 +96,13 @@ def build(
         common.write_annotations(context, source_described="The catalogue")
         # Once every object exists: an id may only be recorded against one.
         identifiers = identifier.collect_identifiers(context)
+        # Once the ids exist: a reference is recorded against the record's id.
+        references = persistable_reference.collect_persistable_references(context)
         preferences = common.write_authority_preferences(context)
 
         report = _report(config, context, catalog)
         report.identifiers = identifiers
+        report.persistable_references = references
         report.authority_preferences = preferences
         report.rows_by_table = dict(sorted(writer.inserted.items()))
         report.appended = writer.appended

@@ -20,7 +20,8 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
-from typing import Any, Protocol, runtime_checkable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from pyproj.crs import CoordinateOperation
 from pyproj.database import get_authorities
@@ -39,6 +40,9 @@ from geodetic_engine.geodesy.osdu_id import (
     resolve_osdu_id,
     unresolved_reason,
 )
+
+if TYPE_CHECKING:
+    from geodetic_engine.persistablereference.stored import StoredReference
 
 # PROJJSON object types that are coordinate operations. Anything else with an
 # "id" (a CRS, a datum, an ellipsoid, a method, a parameter) is not one, and
@@ -360,6 +364,52 @@ class AppliedOperation:
         except CRSError:
             return None
         return str(operation.to_wkt(pretty=pretty))
+
+    def stored_persistable_reference(
+        self, *, database: Path | None = None
+    ) -> StoredReference | None:
+        """The persistableReference an OSDU catalogue publishes for this operation.
+
+        Read from a proj.db built by :mod:`geodetic_engine.osdudb`, which
+        records it verbatim against the id of the record that publishes it. An
+        operation requested by its OSDU id is looked up by that id; otherwise
+        by the code of the operation applied.
+
+        Args:
+            database: The proj.db to read; the first on PROJ's data path by
+                default.
+
+        Returns:
+            The reference, or None when none is recorded, or the operation
+            applied has no single code: see
+            :func:`~geodetic_engine.persistablereference.missing_reference_reason`.
+
+        Raises:
+            AmbiguousStoredReferenceError: If records publishing different
+                references name the operation applied.
+        """
+        from geodetic_engine.persistablereference.stored import stored_reference
+
+        if self.requested and (osdu := parse_osdu_id(self.requested)) is not None:
+            found = stored_reference(
+                self.requested, entity="operation", database=database
+            )
+            if (
+                osdu.is_transformation
+                and found is not None
+                and (found.auth_name, found.code) == (self.auth_name, self.code)
+            ):
+                return found
+        if self.authority_code is None:
+            return None
+        try:
+            return stored_reference(
+                self.authority_code, entity="operation", database=database
+            )
+        except ValueError:
+            # A code no catalogue record could name, which reads as an id of
+            # neither kind; no reference can be recorded for it.
+            return None
 
 
 @dataclass(frozen=True, slots=True)

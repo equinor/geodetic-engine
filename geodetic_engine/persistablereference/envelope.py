@@ -307,6 +307,25 @@ def authority_code(value: Any) -> AuthorityCode | None:
     return AuthorityCode(authority, code) if authority and code else None
 
 
+def json_object(raw: str) -> JsonObject:
+    """Read a payload's JSON object, undoing any URL encoding, within the limits.
+
+    Unlike :func:`decode` this does not require a recognised kind, so it reads
+    any reference-shaped payload, one of a kind not modelled here included.
+
+    Args:
+        raw: The payload, plain or URL-encoded JSON.
+
+    Returns:
+        The decoded object, in the key order it was written in.
+
+    Raises:
+        MalformedReferenceError: If the payload is too large, too deeply
+            nested, or not a JSON object.
+    """
+    return _object(raw)
+
+
 def _decoded(raw: str) -> str:
     """Undo the URL encoding a payload may still be carrying."""
     if len(raw) > _MAX_LENGTH * 3**_MAX_DECODES:

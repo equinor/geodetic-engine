@@ -21,7 +21,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pyproj import CRS
 from pyproj.exceptions import CRSError
@@ -44,6 +45,9 @@ from geodetic_engine.geodesy.osdu_id import (
     resolve_osdu_id,
     unresolved_reason,
 )
+
+if TYPE_CHECKING:
+    from geodetic_engine.persistablereference.stored import StoredReference
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +283,47 @@ class CoordinateReferenceSystem:
         """``"AUTH:CODE"`` if the CRS is identified in an authority, else None."""
         authority = self._crs.to_authority()
         return None if authority is None else f"{authority[0]}:{authority[1]}"
+
+    def stored_persistable_reference(
+        self, *, database: Path | None = None
+    ) -> StoredReference | None:
+        """The persistableReference an OSDU catalogue publishes for this CRS.
+
+        Read from a proj.db built by :mod:`geodetic_engine.osdudb`, which
+        records it verbatim against the id of the record that publishes it,
+        for EPSG CRSs the base proj.db defines as much as for those the build
+        adds. The CRS is looked up by the OSDU id or authority code it was
+        resolved from, so a bound CRS named by its id gets the bound CRS's
+        reference rather than that of the CRS it wraps. A CRS defined by WKT or
+        PROJJSON is looked up by its authority code only when PROJ is certain
+        of it.
+
+        This is the catalogue's own string, to write into an OSDU record that
+        names this CRS. To generate one from the definition instead, use
+        :func:`~geodetic_engine.persistablereference.to_persistable_reference`.
+
+        Args:
+            database: The proj.db to read; the first on PROJ's data path by
+                default.
+
+        Returns:
+            The reference, or None when none is recorded: see
+            :func:`~geodetic_engine.persistablereference.missing_reference_reason`.
+
+        Raises:
+            AmbiguousStoredReferenceError: If records publishing different
+                references name this CRS's authority code.
+
+        Example:
+            >>> crs = CoordinateReferenceSystem.from_osdu_id(
+            ...     "BoundProjected:EPSG::23031_EPSG::1612"
+            ... )  # doctest: +SKIP
+            >>> crs.stored_persistable_reference().kind  # doctest: +SKIP
+            <Kind.EARLY_BOUND_CRS: 'EBC'>
+        """
+        from geodetic_engine.persistablereference.stored import stored_reference
+
+        return stored_reference(self, database=database)
 
     @property
     def is_dynamic(self) -> bool:

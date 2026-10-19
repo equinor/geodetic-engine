@@ -5,6 +5,10 @@ A build needs nothing but the catalogue file, so the common case is::
     geodetic-osdudb build CRS_CT.json
 
 Everything else has a default or lives in an optional ``geodetic-osdudb.toml``.
+The persistable references a built database records are looked up or exported
+with::
+
+    geodetic-osdudb references build/proj.db EPSG:23031 --pretty
 """
 
 from __future__ import annotations
@@ -17,8 +21,10 @@ from pathlib import Path
 from typing import Any
 
 from geodetic_engine.errors import GeodeticEngineError
+from geodetic_engine.geodesy.database import persistable_references_present
 from geodetic_engine.osdudb.build import build
 from geodetic_engine.osdudb.config import load_config
+from geodetic_engine.persistablereference import Kind, export_stored_references
 from geodetic_engine.projdb.cli import inspect_database as _inspect
 from geodetic_engine.projdb.cli import run_build
 from geodetic_engine.projdb.cli import sidecar as sidecar
@@ -105,6 +111,11 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     build_cmd.add_argument(
+        "--no-persistable-references",
+        action="store_true",
+        help=("do not record the PersistableReference each catalogue record publishes"),
+    )
+    build_cmd.add_argument(
         "--dry-run",
         action="store_true",
         help=(
@@ -127,6 +138,73 @@ def _parser() -> argparse.ArgumentParser:
         "inspect", help="summarise what a built database contains"
     )
     inspect_cmd.add_argument("database", type=Path)
+
+    references_cmd = sub.add_parser(
+        "references",
+        help="look up or export the persistable references a built database records",
+        description=(
+            "Write the PersistableReference strings the catalogue publishes, as "
+            "a database built from it recorded them, with the record id and the "
+            "object each is for. Name objects to look them up, or name none to "
+            "export every one. An object with no reference is written with a "
+            "null reference and the reason."
+        ),
+    )
+    references_cmd.add_argument("database", type=Path)
+    references_cmd.add_argument(
+        "values",
+        nargs="*",
+        metavar="VALUE",
+        help=(
+            "an OSDU record id, with or without its partition, or AUTH:CODE; "
+            "every recorded reference when none is given"
+        ),
+    )
+    references_cmd.add_argument(
+        "--format",
+        choices=("json", "jsonl", "csv"),
+        default="json",
+        help="output format; json by default",
+    )
+    references_cmd.add_argument(
+        "--pretty",
+        action="store_true",
+        help="json only: give each reference as an indented object, not a string",
+    )
+    references_cmd.add_argument(
+        "--pretty-wkt",
+        action="store_true",
+        help=(
+            "json only: also lay each embedded ESRI WKT out over indented lines; "
+            "the output is then for reading and is not JSON"
+        ),
+    )
+    references_cmd.add_argument(
+        "--entity",
+        choices=("crs", "operation"),
+        help="only CRSs, or only coordinate operations",
+    )
+    references_cmd.add_argument(
+        "--kind",
+        action="append",
+        dest="kinds",
+        choices=[kind.value for kind in Kind],
+        help="only references of this kind; repeatable. Not with VALUE",
+    )
+    references_cmd.add_argument(
+        "--authority",
+        action="append",
+        dest="authorities",
+        help="only objects of this authority; repeatable. Not with VALUE",
+    )
+    references_cmd.add_argument(
+        "--active-only",
+        action="store_true",
+        help="leave out records the catalogue marks inactive. Not with VALUE",
+    )
+    references_cmd.add_argument(
+        "--output", type=Path, help="file to write; standard output by default"
+    )
 
     config_cmd = sub.add_parser(
         "config", help="show the resolved settings and where they came from"
@@ -171,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "inspect":
             print(json.dumps(_inspect(args.database), indent=2))
             return 0
+        if args.command == "references":
+            return _references(args)
         if args.command == "config":
             print(json.dumps(_show_config(args), indent=2))
             return 0
@@ -200,6 +280,8 @@ def _overrides(args: argparse.Namespace) -> dict[str, Any]:
         overrides["overwrite_rows"] = True
     if getattr(args, "no_osdu_id_aliases", False):
         overrides["osdu_id_aliases"] = False
+    if getattr(args, "no_persistable_references", False):
+        overrides["osdu_persistable_references"] = False
     return overrides
 
 
@@ -213,6 +295,54 @@ def _build(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         skip_validation=args.skip_validation,
     )
+
+
+def _references(args: argparse.Namespace) -> int:
+    """Look up or export the persistable references a database records."""
+    if (args.pretty or args.pretty_wkt) and args.format != "json":
+        print("error: --pretty and --pretty-wkt need --format json", file=sys.stderr)
+        return 2
+    if args.values and (args.kinds or args.authorities or args.active_only):
+        print(
+            "error: --kind, --authority and --active-only filter a full export "
+            "and cannot be combined with VALUE",
+            file=sys.stderr,
+        )
+        return 2
+    if not args.database.is_file():
+        print(f"error: {args.database} does not exist", file=sys.stderr)
+        return 1
+    if not persistable_references_present(args.database):
+        print(
+            f"note: {args.database} records no persistable references",
+            file=sys.stderr,
+        )
+    options: dict[str, Any] = {
+        "format": args.format,
+        "pretty": args.pretty,
+        "wkt": args.pretty_wkt,
+        "entity": args.entity,
+        "database": args.database,
+    }
+    if args.values:
+        options["values"] = args.values
+    else:
+        options |= {
+            "kinds": args.kinds,
+            "authorities": args.authorities,
+            "include_deprecated": not args.active_only,
+        }
+    try:
+        written = export_stored_references(args.output or sys.stdout, **options)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.output is not None:
+        print(
+            f"wrote {written} persistable reference(s) to {args.output}",
+            file=sys.stderr,
+        )
+    return 0
 
 
 def _show_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -235,6 +365,7 @@ def _show_config(args: argparse.Namespace) -> dict[str, Any]:
         "append": resolved.append,
         "overwrite_rows": resolved.overwrite_rows,
         "osdu_id_aliases": resolved.osdu_id_aliases,
+        "osdu_persistable_references": resolved.osdu_persistable_references,
     }
 
 

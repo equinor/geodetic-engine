@@ -78,6 +78,15 @@ catalog = "local/osdu/CRS_CT.json"
 # to a different CRS. Turn this off if other software reads the database.
 # osdu_id_aliases = true
 
+# Every record's PersistableReference is recorded verbatim against the record's
+# id, including for the EPSG objects the base proj.db already defines, so the
+# exact string the catalogue publishes can be looked up and exported for any
+# object an id names (geodetic-osdudb references). A record that states none,
+# or one that cannot be read, is listed in the build report and never fails the
+# build. Adds about one and a half kilobytes per record. Turn this off to leave
+# them out.
+# osdu_persistable_references = true
+
 # --- Operation selection ----------------------------------------------------
 
 # How the imported operations enter PROJ's choice of transformation. This

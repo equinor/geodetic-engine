@@ -60,6 +60,14 @@ A database built from an OSDU catalogue also holds a
 the object it names, with the catalogue it came from. Validation checks every
 id still names an object the database defines. See {ref}`osdu-record-ids`.
 
+It also holds `geodetic_engine_osdu_persistable_reference`, the
+`PersistableReference` each record publishes, verbatim, keyed by the record id
+with a foreign key to the identifier table, and a SHA-256 of each payload.
+Validation runs the foreign key check, recomputes every digest, and checks each
+reference states the kind of object its id names. The build report lists every
+record that states none, or one that could not be used. See
+{ref}`osdu-persistable-references`.
+
 ## Caching and the search path
 
 Resolution caches are keyed by database path and generation, so a changed

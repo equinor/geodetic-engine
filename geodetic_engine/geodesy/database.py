@@ -77,6 +77,10 @@ _BUILD_HISTORY_TABLE = "geodetic_engine_build_history"
 _IDENTIFIER_TABLE = "geodetic_engine_osdu_object_identifier"
 _LEGACY_IDENTIFIER_TABLE = "geodetic_engine_object_identifier"
 
+# Where a build records the OSDU persistableReference each record publishes,
+# against the record's id. Spelled here for the same reason again.
+_PERSISTABLE_REFERENCE_TABLE = "geodetic_engine_osdu_persistable_reference"
+
 # The object_view vocabulary an identifier can point into, split by what kind
 # of object a caller asked for.
 CRS_OBJECT_TABLES = frozenset(
@@ -448,9 +452,7 @@ def _query_identifiers(
                 if table is None:
                     return []
                 return list(
-                    connection.execute(
-                        statement.format(table=table), parameters
-                    )
+                    connection.execute(statement.format(table=table), parameters)
                 )
         except sqlite3.Error as error:
             logger.debug("could not read identifiers of %s: %s", database, error)
@@ -465,6 +467,352 @@ def _has_table(connection: sqlite3.Connection, table: str) -> bool:
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
         ).fetchone()
     )
+
+
+# A database file as read at one moment: its resolved path, device, inode,
+# size and modification time. Results are cached against this, so a database
+# rebuilt in place is read afresh.
+type DatabaseFile = tuple[str, int, int, int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class StoredReferenceRow:
+    """One persistableReference a build recorded, with the object it is for.
+
+    Attributes:
+        identifier: The id of the record that publishes it, without the data
+            partition.
+        table_name: The table of the object the id names, in the vocabulary of
+            PROJ's ``object_view``.
+        auth_name: The object's authority.
+        code: The object's code.
+        deprecated: Whether the identifying scheme marks the record inactive.
+        kind: The kind of definition stated, for example ``"EBC"``.
+        name: The name the reference states, if any.
+        stated_auth_name: The authority of the ``authCode`` the reference
+            states, which is provenance and may disagree with ``auth_name``.
+        stated_code: The code of that ``authCode``.
+        version: The producer version the reference states.
+        sha256: Hex SHA-256 of ``payload`` encoded as UTF-8.
+        payload: The reference, exactly as the catalogue published it.
+        source: What the build read it from.
+    """
+
+    identifier: str
+    table_name: str
+    auth_name: str
+    code: str
+    deprecated: bool
+    kind: str
+    name: str | None
+    stated_auth_name: str | None
+    stated_code: str | None
+    version: str | None
+    sha256: str
+    payload: str
+    source: str | None
+
+
+def database_file(database: Path | None = None) -> DatabaseFile | None:
+    """Identify a database file, or the one PROJ reads first.
+
+    Args:
+        database: A proj.db to read. When omitted, the first proj.db on PROJ's
+            search path, the one PROJ itself resolves names against.
+
+    Returns:
+        The file's identity, or None when there is no such file.
+    """
+    if database is None:
+        for entry, device, inode, size, modified, _ in database_identity():
+            if Path(entry).is_file():
+                return (entry, device, inode, size, modified)
+        return None
+    path = Path(database)
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    if not path.is_file():
+        return None
+    return (
+        str(path.resolve()),
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_size,
+        stat.st_mtime_ns,
+    )
+
+
+def persistable_references_present(database: Path | None = None) -> bool:
+    """Whether a database records any persistable references at all.
+
+    Tells "this database was never built to answer such lookups" apart from
+    "it was, and this object has none".
+
+    Args:
+        database: The proj.db to read; PROJ's first by default.
+    """
+    found = database_file(database)
+    return found is not None and _references_recorded(found)
+
+
+def stored_reference_rows(
+    scheme: str,
+    *,
+    identifiers: tuple[str, ...] | None = None,
+    table_names: frozenset[str] | None = None,
+    auth_name: str | None = None,
+    code: str | None = None,
+    kinds: frozenset[str] | None = None,
+    authorities: frozenset[str] | None = None,
+    include_deprecated: bool = True,
+    database: Path | None = None,
+) -> tuple[StoredReferenceRow, ...]:
+    """The persistable references a database records, filtered.
+
+    Every filter given must hold. A database that records no persistable
+    references, or cannot be read, answers with nothing rather than failing.
+
+    Args:
+        scheme: The identifying scheme, for example ``"OSDU"``.
+        identifiers: Only references recorded against these ids.
+        table_names: Only those for objects in these ``object_view`` tables.
+        auth_name: Only those for objects of this authority, matched without
+            case.
+        code: Only those for objects with this code.
+        kinds: Only those stating these kinds, for example ``{"EBC"}``.
+        authorities: Only those for objects of these authorities, matched
+            without case.
+        include_deprecated: Include records the scheme marks inactive.
+        database: The proj.db to read; PROJ's first by default.
+
+    Returns:
+        The references, ordered by identifier.
+    """
+    found = database_file(database)
+    if found is None:
+        return ()
+    clauses = ["i.scheme = ?"]
+    parameters: list[str] = [scheme]
+    for column, values in (
+        ("i.identifier", identifiers),
+        ("i.table_name", table_names),
+        ("r.kind", kinds),
+    ):
+        if values is not None:
+            ordered = sorted(values)
+            clauses.append(f"{column} IN ({', '.join('?' * len(ordered))})")
+            parameters.extend(ordered)
+    if authorities is not None:
+        folded = sorted({authority.casefold() for authority in authorities})
+        clauses.append(f"lower(i.auth_name) IN ({', '.join('?' * len(folded))})")
+        parameters.extend(folded)
+    if auth_name is not None:
+        clauses.append("i.auth_name = ? COLLATE NOCASE")
+        parameters.append(auth_name)
+    if code is not None:
+        clauses.append("i.code = ?")
+        parameters.append(str(code))
+    if not include_deprecated:
+        clauses.append("i.deprecated = 0")
+    return _stored_rows(found, " AND ".join(clauses), tuple(parameters))
+
+
+def recorded_identifiers(
+    scheme: str,
+    *,
+    identifiers: tuple[str, ...] | None = None,
+    table_names: frozenset[str] | None = None,
+    auth_name: str | None = None,
+    code: str | None = None,
+    database: Path | None = None,
+) -> tuple[str, ...]:
+    """The ids of a scheme a database records, filtered like the references.
+
+    Args:
+        scheme: The identifying scheme, for example ``"OSDU"``.
+        identifiers: Only these ids.
+        table_names: Only ids naming objects in these ``object_view`` tables.
+        auth_name: Only ids naming objects of this authority, without case.
+        code: Only ids naming objects with this code.
+        database: The proj.db to read; PROJ's first by default.
+
+    Returns:
+        The ids, sorted; empty when the database records none.
+    """
+    found = database_file(database)
+    if found is None:
+        return ()
+    clauses = ["scheme = ?"]
+    parameters: list[str] = [scheme]
+    for column, values in (("identifier", identifiers), ("table_name", table_names)):
+        if values is not None:
+            ordered = sorted(values)
+            clauses.append(f"{column} IN ({', '.join('?' * len(ordered))})")
+            parameters.extend(ordered)
+    if auth_name is not None:
+        clauses.append("auth_name = ? COLLATE NOCASE")
+        parameters.append(auth_name)
+    if code is not None:
+        clauses.append("code = ?")
+        parameters.append(str(code))
+    return _recorded_ids(found, " AND ".join(clauses), tuple(parameters))
+
+
+def unrecorded_reference_reasons(database: Path | None = None) -> Mapping[str, str]:
+    """Why a build recorded no persistable reference for a record, by its id.
+
+    Read from the build history, where each build's report lists the records
+    that stated none and those whose reference could not be used. Later
+    reports win, being the later word on what the database holds.
+
+    Args:
+        database: The proj.db to read; PROJ's first by default.
+
+    Returns:
+        A sentence for each id, empty when the history records none.
+    """
+    found = database_file(database)
+    return {} if found is None else _reference_gaps(found)
+
+
+_STORED_COLUMNS = (
+    "i.identifier, i.table_name, i.auth_name, i.code, i.deprecated, r.kind, "
+    "r.name, r.stated_auth_name, r.stated_code, r.version, r.sha256, "
+    "r.persistable_reference, r.source"
+)
+
+
+@lru_cache(maxsize=8)
+def _references_recorded(found: DatabaseFile) -> bool:
+    """Whether one database file has the persistable reference table."""
+    try:
+        with closing(_read_only(found)) as connection:
+            return _has_table(connection, _PERSISTABLE_REFERENCE_TABLE)
+    except sqlite3.Error as error:
+        logger.debug("could not read %s: %s", found[0], error)
+        return False
+
+
+@lru_cache(maxsize=256)
+def _stored_rows(
+    found: DatabaseFile, where: str, parameters: tuple[str, ...]
+) -> tuple[StoredReferenceRow, ...]:
+    """Run one filtered query for persistable references, once per database."""
+    if not _references_recorded(found):
+        return ()
+    statement = (
+        f"SELECT {_STORED_COLUMNS} FROM {_IDENTIFIER_TABLE} i "
+        f"JOIN {_PERSISTABLE_REFERENCE_TABLE} r "
+        "ON r.scheme = i.scheme AND r.identifier = i.identifier "
+        f"WHERE {where} ORDER BY i.identifier"
+    )
+    try:
+        with closing(_read_only(found)) as connection:
+            rows = connection.execute(statement, parameters).fetchall()
+    except sqlite3.Error as error:
+        logger.debug("could not read persistable references of %s: %s", found[0], error)
+        return ()
+    return tuple(
+        StoredReferenceRow(
+            identifier=str(identifier),
+            table_name=str(table_name),
+            auth_name=str(auth_name),
+            code=str(code),
+            deprecated=bool(deprecated),
+            kind=str(kind),
+            name=_optional(name),
+            stated_auth_name=_optional(stated_auth_name),
+            stated_code=_optional(stated_code),
+            version=_optional(version),
+            sha256=str(digest),
+            payload=str(payload),
+            source=_optional(source),
+        )
+        for (
+            identifier,
+            table_name,
+            auth_name,
+            code,
+            deprecated,
+            kind,
+            name,
+            stated_auth_name,
+            stated_code,
+            version,
+            digest,
+            payload,
+            source,
+        ) in rows
+    )
+
+
+@lru_cache(maxsize=256)
+def _recorded_ids(
+    found: DatabaseFile, where: str, parameters: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Run one filtered query against the identifier table, once per database."""
+    try:
+        with closing(_read_only(found)) as connection:
+            if not _has_table(connection, _IDENTIFIER_TABLE):
+                return ()
+            rows = connection.execute(
+                f"SELECT identifier FROM {_IDENTIFIER_TABLE} WHERE {where} "
+                "ORDER BY identifier",
+                parameters,
+            ).fetchall()
+    except sqlite3.Error as error:
+        logger.debug("could not read identifiers of %s: %s", found[0], error)
+        return ()
+    return tuple(str(identifier) for (identifier,) in rows)
+
+
+@lru_cache(maxsize=8)
+def _reference_gaps(found: DatabaseFile) -> Mapping[str, str]:
+    """The records each build of one database recorded no reference for."""
+    gaps: dict[str, str] = {}
+    try:
+        with closing(_read_only(found)) as connection:
+            if not _has_table(connection, _BUILD_HISTORY_TABLE):
+                return gaps
+            reports = connection.execute(
+                f"SELECT report FROM {_BUILD_HISTORY_TABLE} ORDER BY sequence"
+            ).fetchall()
+    except sqlite3.Error as error:
+        logger.debug("could not read build history of %s: %s", found[0], error)
+        return gaps
+    for (report,) in reports:
+        try:
+            stated = json.loads(report).get("persistable_references") or {}
+        except (ValueError, AttributeError):
+            continue
+        for group, described in (
+            ("missing", "the catalogue record {id} states no persistableReference"),
+            (
+                "invalid",
+                "the persistableReference the catalogue record {id} states was "
+                "not recorded because {reason}",
+            ),
+        ):
+            for entry in stated.get(group) or ():
+                if not isinstance(entry, dict) or not entry.get("identifier"):
+                    continue
+                identifier = str(entry["identifier"])
+                gaps[identifier] = described.format(
+                    id=repr(identifier), reason=entry.get("reason") or "it is unusable"
+                )
+    return gaps
+
+
+def _read_only(found: DatabaseFile) -> sqlite3.Connection:
+    """Open one database file for reading."""
+    return sqlite3.connect(f"file:{found[0]}?mode=ro", uri=True)
+
+
+def _optional(value: object) -> str | None:
+    """A nullable column as text."""
+    return None if value is None else str(value)
 
 
 def _read_into(

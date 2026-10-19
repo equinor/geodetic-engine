@@ -480,6 +480,68 @@ END""",  # noqa: E501
 )
 
 
+# Written by this package, not by PROJ: the OSDU persistableReference each
+# catalogue record publishes, verbatim. Keyed like the identifier table, by the
+# record's id, because a persistableReference belongs to the record rather than
+# to the object it names: two records, or two releases of a catalogue, may state
+# one object differently. The object is reached through the identifier row, so
+# it is not repeated here, and a real foreign key keeps the two in step.
+PERSISTABLE_REFERENCE_TABLE: Final = "geodetic_engine_osdu_persistable_reference"
+PERSISTABLE_REFERENCE_VIEW: Final = "geodetic_engine_osdu_persistable_reference_view"
+
+PERSISTABLE_REFERENCE_COLUMNS: Final[tuple[str, ...]] = (
+    "scheme",
+    "identifier",
+    "kind",
+    "name",
+    "stated_auth_name",
+    "stated_code",
+    "version",
+    "sha256",
+    "persistable_reference",
+    "source",
+)
+
+# The kinds of definition a persistableReference states; see
+# geodetic_engine.persistablereference.envelope.Kind.
+PERSISTABLE_REFERENCE_KINDS: Final[tuple[str, ...]] = (
+    "LBC",
+    "EBC",
+    "ST",
+    "CT",
+    "USO",
+    "UAD",
+)
+
+# An ordinary rowid table rather than WITHOUT ROWID like the identifier table:
+# a payload is around a kilobyte, and SQLite stores a WITHOUT ROWID row whole in
+# its primary key b-tree, which suits rows a twentieth of a page or smaller.
+PERSISTABLE_REFERENCE_DDL: Final[tuple[str, ...]] = (
+    f"""CREATE TABLE IF NOT EXISTS {PERSISTABLE_REFERENCE_TABLE}(
+    scheme TEXT NOT NULL CHECK (length(scheme) >= 1),
+    identifier TEXT NOT NULL CHECK (length(identifier) >= 1),
+    kind TEXT NOT NULL CHECK (kind IN ({", ".join(f"'{kind}'" for kind in PERSISTABLE_REFERENCE_KINDS)})),
+    name TEXT,
+    stated_auth_name TEXT,
+    stated_code TEXT,
+    version TEXT,
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+    persistable_reference TEXT NOT NULL CHECK (length(persistable_reference) >= 2),
+    source TEXT,
+    CONSTRAINT pk_{PERSISTABLE_REFERENCE_TABLE} PRIMARY KEY (scheme, identifier),
+    CONSTRAINT fk_{PERSISTABLE_REFERENCE_TABLE}_identifier FOREIGN KEY (scheme, identifier)
+        REFERENCES {IDENTIFIER_TABLE}(scheme, identifier) ON DELETE CASCADE
+)""",  # noqa: E501
+    f"""CREATE VIEW IF NOT EXISTS {PERSISTABLE_REFERENCE_VIEW} AS
+SELECT i.table_name, i.auth_name, i.code, i.scheme, i.identifier, i.deprecated,
+    r.kind, r.name, r.stated_auth_name, r.stated_code, r.version, r.sha256,
+    r.persistable_reference, r.source
+FROM {IDENTIFIER_TABLE} i
+JOIN {PERSISTABLE_REFERENCE_TABLE} r
+    ON r.scheme = i.scheme AND r.identifier = i.identifier""",
+)
+
+
 def identifier_alias_source(scheme: str) -> str:
     """The ``alias_name.source`` an identifier scheme's aliases are written under.
 

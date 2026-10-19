@@ -170,3 +170,23 @@ class TestOsduIdAliases:
         Path(CONFIG).write_text("[osdudb]\nosdu_id_aliases = false\n", encoding="utf-8")
         config = load_config(catalog=catalog, env={}, load_dotenv_file=False)
         assert config.osdu_id_aliases is False
+
+
+class TestPersistableReferences:
+    def test_references_are_recorded_by_default(self, catalog: Path) -> None:
+        assert load(catalog).osdu_persistable_references is True
+
+    def test_the_environment_can_turn_them_off(self, catalog: Path) -> None:
+        config = load_config(
+            catalog=catalog,
+            env={"GEODETIC_ENGINE_OSDU_PERSISTABLE_REFERENCES": "false"},
+            load_dotenv_file=False,
+        )
+        assert config.osdu_persistable_references is False
+
+    def test_the_config_file_can_turn_them_off(self, catalog: Path) -> None:
+        Path(CONFIG).write_text(
+            "[osdudb]\nosdu_persistable_references = false\n", encoding="utf-8"
+        )
+        config = load_config(catalog=catalog, env={}, load_dotenv_file=False)
+        assert config.osdu_persistable_references is False

@@ -61,6 +61,10 @@ uv run geodetic-osdudb build CRS_CT.json --authority OSDU --authority EPSG
 uv run geodetic-osdudb validate build/proj.db --authority OSDU
 uv run geodetic-osdudb inspect build/proj.db
 uv run geodetic-osdudb config CRS_CT.json
+
+# Look up or export the persistableReference strings the catalogue publishes.
+uv run geodetic-osdudb references build/proj.db EPSG:23031 --pretty
+uv run geodetic-osdudb references build/proj.db --format csv --output refs.csv
 ```
 
 From Python:
@@ -327,6 +331,240 @@ bound CRS over EPSG:1133. This package never resolves ids through the aliases.
 Turn them off with `--no-osdu-id-aliases`, or `osdu_id_aliases = false` in
 `geodetic-osdudb.toml`, if other software reads the database.
 ```
+
+(osdu-persistable-references)=
+## Persistable references
+
+Every catalogue record also publishes a `PersistableReference`. This is the
+JSON envelope around ESRI WKT that OSDU data carries wherever it names a CRS or
+a transformation (see {doc}`persistable-reference`). A build records it
+**verbatim** against the record's id, for **every** record whose id it records.
+That includes the EPSG records the base `proj.db` already defines and the build
+does not import. So for any object a catalogue record names, the exact string
+the catalogue publishes can be looked up, listed or exported. Use it when
+writing an OSDU record that names that object.
+
+This is the catalogue's own string, not one generated from PROJ's definition.
+{func}`~geodetic_engine.persistablereference.to_persistable_reference`
+generates one, which describes the same CRS but is not the same bytes. The two
+are never mixed: a reference the catalogue does not state is never filled in
+with a generated one.
+
+### Looking one up
+
+Name the object by the OSDU id of the record that publishes it, with or without
+its partition, by `AUTH:CODE`, or by a CRS. Lookups read the first `proj.db` on
+PROJ's data path unless you pass `database=`:
+
+```python
+from pathlib import Path
+
+from geodetic_engine.geodesy import CoordinateReferenceSystem, transform
+from geodetic_engine.persistablereference import (
+    missing_reference_reason,
+    stored_reference,
+)
+
+reference = stored_reference(
+    "opendes:reference-data--CoordinateReferenceSystem:"
+    "BoundProjected:EPSG::23031_EPSG::1612"
+)
+reference.kind            # <Kind.EARLY_BOUND_CRS: 'EBC'>
+reference.authority_code  # 'OSDU:23031023'
+reference.payload         # the string exactly as the catalogue publishes it
+
+# EPSG objects the base proj.db defines have theirs too, by id or by code.
+stored_reference("EPSG:23031", database=Path("build/proj.db")).identifier
+# 'reference-data--CoordinateReferenceSystem:Projected:EPSG::23031'
+
+# From a CRS, or from the operation a transformation applied.
+crs = CoordinateReferenceSystem.from_osdu_id("BoundProjected:EPSG::23031_EPSG::1612")
+crs.stored_persistable_reference().kind  # the bound CRS's EBC, not EPSG:23031's LBC
+result = transform("EPSG:23031", "EPSG:4326", [(500000.0, 6600000.0)],
+                   operation="EPSG:1612")
+result.operation.stored_persistable_reference().identifier
+# 'reference-data--CoordinateTransformation:EPSG::1612'
+```
+
+A CRS is looked up by the id or code it was resolved from. A bound CRS named by
+its id therefore gets the bound CRS's reference, not the reference of the CRS it
+wraps. A CRS given as WKT or PROJJSON is looked up by authority code only when
+PROJ is certain which object it is. An `AUTH:CODE` that names a CRS and an
+operation alike can be narrowed with `entity="crs"` or `entity="operation"`.
+The same `entity=` also lets a bare `data.ID` such as `Projected:EPSG::23031`
+be given. If several active records publish *different* references for one
+code, {class}`~geodetic_engine.persistablereference.AmbiguousStoredReferenceError`
+is raised; name the record by its id instead.
+
+### Pretty-printing
+
+{meth}`~geodetic_engine.persistablereference.StoredReference.pretty`, or
+{func}`~geodetic_engine.persistablereference.pretty_persistable_reference` for
+any payload, gives indented JSON in the payload's own key order. It is still
+JSON:
+
+```text
+{
+  "authCode": {
+    "auth": "OSDU",
+    "code": "23031023"
+  },
+  "lateBoundCRS": {
+    "authCode": {
+      "auth": "EPSG",
+      "code": "23031"
+    },
+    "name": "ED_1950_UTM_Zone_31N",
+    "type": "LBC",
+    "ver": "PE_10_9_1",
+    "wkt": "PROJCS[\"ED_1950_UTM_Zone_31N\",GEOGCS[\"GCS_European_1950\",...]"
+  },
+  "name": "ED50 * EPSG-Nor N62 2001 / UTM zone 31N [23031,1612]",
+  "singleCT": { ... },
+  "type": "EBC",
+  "ver": "PE_10_9_1"
+}
+```
+
+`pretty(wkt=True)` also lays each embedded ESRI WKT out over indented lines,
+the way PROJ indents WKT. Only whitespace changes: every name and number is
+kept exactly as written. The result is **for reading and is not JSON**; store
+or send the verbatim payload.
+
+```text
+  "lateBoundCRS": {
+    ...
+    "wkt":
+      PROJCS["ED_1950_UTM_Zone_31N",
+        GEOGCS["GCS_European_1950",
+          DATUM["D_European_1950",
+            SPHEROID["International_1924",6378388.0,297.0]],
+          PRIMEM["Greenwich",0.0],
+          UNIT["Degree",0.0174532925199433]],
+        PROJECTION["Transverse_Mercator"],
+        ...
+        AUTHORITY["EPSG",23031]]
+  },
+```
+
+### Listing and exporting
+
+```python
+from geodetic_engine.persistablereference import (
+    Kind,
+    export_stored_references,
+    stored_references,
+)
+
+bound = stored_references(kinds=[Kind.EARLY_BOUND_CRS], authorities=["OSDU"])
+export_stored_references(Path("refs.json"), pretty=True)
+export_stored_references(Path("refs.csv"), format="csv", entity="operation")
+export_stored_references(Path("some.json"), values=["EPSG:23031", "EPSG:4978"])
+```
+
+Each entry carries the record id, the object (`table_name`, `auth_name`,
+`code`), `deprecated`, `kind`, the `name`, `stated_authority` and `version` the
+reference states, its `sha256`, the `source` catalogue, and
+`persistable_reference`. That is the verbatim string, or the decoded object
+with `pretty`. The formats are JSON, JSONL and CSV; `pretty` and the
+WKT-laid-out display apply to JSON only. On the command line:
+
+```bash
+uv run geodetic-osdudb references build/proj.db                       # every one, JSON
+uv run geodetic-osdudb references build/proj.db --kind EBC --format jsonl
+uv run geodetic-osdudb references build/proj.db EPSG:23031 EPSG:1612 --pretty-wkt
+uv run geodetic-osdudb references build/proj.db --format csv --output refs.csv
+```
+
+### When there is none
+
+A missing reference never fails a build and never raises on lookup:
+
+| Situation | Build | Recorded | Lookup |
+|---|---|---|---|
+| The record states no `PersistableReference`, or an empty one (all geocentric CRSs, which ESRI cannot state) | Listed under `missing`; one `WARNING` with the count | No row | `None` |
+| The reference cannot be read, has malformed WKT, or states a transformation for a CRS (or the reverse) | Listed under `invalid` with the reason; `WARNING` | No row | `None` |
+| One id is published with two different references | Listed under `invalid` | No row | `None` |
+| The reference disagrees with its record: an `authCode` naming another code, an early bound reference on an unbound CRS, no `authCode` | Listed under `warnings`; `WARNING` | Verbatim | The reference |
+| The record's id names nothing in the database | Already listed under the identifiers; counted as `unlinked` | No row | `None` |
+| The database was built before references were recorded, or with them turned off | — | No table | `None` |
+| An append whose catalogue no longer states a usable reference for a record that has one recorded | Listed under `warnings`; with `--overwrite-rows`, listed under `missing` or `invalid` | Kept; with `--overwrite-rows`, removed | The earlier reference; with `--overwrite-rows`, `None` |
+
+Where a lookup returns `None`, an export of named values writes
+`"persistable_reference": null` with a `reason`.
+{func}`~geodetic_engine.persistablereference.missing_reference_reason` gives the
+same sentence, read from the build history where the build recorded one:
+
+```python
+stored_reference("EPSG:4978")  # None
+missing_reference_reason("EPSG:4978")
+# "the catalogue record 'reference-data--CoordinateReferenceSystem:Geocentric:EPSG::4978'
+#  states no persistableReference"
+```
+
+The build report has a `persistable_references` section with `recorded`,
+`written`, `unchanged`, `kept`, `removed`, `unlinked`, and the `missing`,
+`invalid` and `warnings` lists. Its counts include
+`persistable_references_recorded`, `_missing` and `_invalid`. Appending the same
+catalogue again changes nothing. An append that would change a recorded
+reference, for example a newer catalogue with a newer `ver`, is refused unless
+`--overwrite-rows` is given, so a reference never silently changes. For the
+same reason, an append whose catalogue states no usable reference keeps the
+recorded one unless `--overwrite-rows` is given. When `--overwrite-rows` moves
+an id to another object, the old reference goes with it.
+
+Recording references adds about one and a half kilobytes per record: the
+2,900-record catalogue this was measured on grows the database from 18 MB to
+23 MB. Turn it off with `--no-persistable-references` or
+`osdu_persistable_references = false`. An append with it off leaves the
+references an earlier build recorded as they are.
+
+### How they are stored
+
+```sql
+CREATE TABLE geodetic_engine_osdu_persistable_reference(
+    scheme TEXT NOT NULL,             -- 'OSDU'
+    identifier TEXT NOT NULL,         -- the record id, without its partition
+    kind TEXT NOT NULL CHECK (kind IN ('LBC','EBC','ST','CT','USO','UAD')),
+    name TEXT,                        -- the name the reference states
+    stated_auth_name TEXT,            -- its authCode: provenance, may disagree
+    stated_code TEXT,
+    version TEXT,                     -- its "ver", e.g. PE_10_9_1
+    sha256 TEXT NOT NULL,             -- of the verbatim payload
+    persistable_reference TEXT NOT NULL,
+    source TEXT,                      -- the catalogue it was read from
+    PRIMARY KEY (scheme, identifier),
+    FOREIGN KEY (scheme, identifier)
+        REFERENCES geodetic_engine_osdu_object_identifier(scheme, identifier)
+        ON DELETE CASCADE
+);
+-- and geodetic_engine_osdu_persistable_reference_view, joining each reference
+-- to the object (table_name, auth_name, code) its id names
+```
+
+- **Keyed by record id, not by object.** A `persistableReference` belongs to
+  the catalogue record that publishes it, not to the PROJ object. Two records,
+  or two catalogue releases, can state one object differently. The object is
+  reached through the id's row in `geodetic_engine_osdu_object_identifier`
+  rather than named again, so there is one place that says which object an id
+  names.
+- **A real foreign key.** Unlike `object_view`, which PROJ's annotation tables
+  check with a trigger, the identifier table can be referenced by a foreign key.
+  SQLite refuses a reference for an id that is not recorded. The cascade
+  removes a reference when its id is moved or removed. Validation runs SQLite's
+  foreign key check, recomputes each `sha256`, and checks each kind fits the
+  object its id names.
+- **A table of its own.** The identifier table stays small for id resolution,
+  absence of a row is what "no reference" means, existing databases need no
+  migration, and the whole feature can be turned off. It is an ordinary rowid
+  table, because SQLite stores a `WITHOUT ROWID` row whole in its key's b-tree,
+  which suits rows far smaller than a kilobyte.
+- **Joins like PROJ's own tables.** The view gives each reference the
+  `object_view` vocabulary that `alias_name` and `usage` use, so references can
+  be listed with `crs_view`, filtered by extent, and so on. Unit references
+  (`USO`, `UAD`) are already allowed for when units are catalogued.
+
+`geodetic-osdudb inspect` counts the references by kind.
 
 ## Errors
 
