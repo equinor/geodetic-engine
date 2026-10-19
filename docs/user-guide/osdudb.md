@@ -146,16 +146,94 @@ opendes:reference-data--CoordinateTransformation:EPSG::1612
 A build records the id of **every** record in the catalogue against the object
 it names. That includes the EPSG records the base `proj.db` already defines,
 which the build does not import but which are most of the ids a caller will
-use. After a build, those ids work wherever an authority code does:
+use. After a build, those ids work wherever an authority code does.
+
+```{important}
+**The record has to be in `proj.db`.** An id resolves only against a database
+built by `geodetic-osdudb` from a catalogue that publishes the record, and only
+when that database is first on PROJ's data path. The standard PROJ database
+records no OSDU ids, so against it every id is refused with
+{class}`~geodetic_engine.geodesy.UnresolvableCRSError`, even one as plain to
+read as `Projected:EPSG::23031`:
+
+    UnresolvableCRSError: could not resolve 'opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031'
+    as a CRS: the active proj.db records no OSDU ids; build one from the OSDU catalogue that publishes
+    the record with geodetic-osdudb and put it on PROJ's data path
+
+Build and activate one first:
+
+    uv run geodetic-osdudb build CRS_CT.json --output build/proj.db
+    export PROJ_DATA="$PWD/build:$(uv run python -c 'import pyproj; print(pyproj.datadir.get_data_dir())')"
+```
+
+### Instantiating objects by id
+
+The examples below assume a database built as above. Section 8 of the
+{doc}`worked examples notebook </examples/notebooks/geodetic-engine-examples>`
+runs the same steps end to end, building a small database from a five-record
+catalogue first, so its output is what the code produces.
+
+A CRS, from the record's id with or without its partition, or as a reference
+from another record, which ends in a version separator:
 
 ```python
-from geodetic_engine.geodesy import CoordinateReferenceSystem, transform
+from geodetic_engine.geodesy import CoordinateReferenceSystem
 
+crs = CoordinateReferenceSystem.from_user_input(
+    "opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031"
+)
+crs.authority_code  # 'EPSG:23031'
+crs.axis_abbreviations  # ('E', 'N')
+
+# The partition is ignored, and so is a version separator.
+CoordinateReferenceSystem.from_user_input(
+    "reference-data--CoordinateReferenceSystem:Projected:EPSG::23031:"
+).authority_code  # 'EPSG:23031'
+
+# from_osdu_id() takes only OSDU ids, and also a record's bare data.ID.
+CoordinateReferenceSystem.from_osdu_id("Projected:EPSG::23031").authority_code
+# 'EPSG:23031'
+```
+
+A bound CRS, which resolves to the bound CRS with its transformation, not to
+the CRS it wraps:
+
+```python
 bound = CoordinateReferenceSystem.from_user_input(
     "opendes:reference-data--CoordinateReferenceSystem:"
     "BoundProjected:EPSG::23031_EPSG::1133"
 )
-bound.crs.is_bound  # True: the CRS carries EPSG:1133
+bound.crs.is_bound  # True
+bound.crs.source_crs.name  # 'ED50 / UTM zone 31N'
+bound.crs.to_json_dict()["transformation"]["id"]
+# {'authority': 'EPSG', 'code': 1133}
+```
+
+A transformation with both ends named by id. The bound CRS settles the datum
+change itself, so no operation is named:
+
+```python
+from geodetic_engine.geodesy import Transformation
+
+BOUND = (
+    "opendes:reference-data--CoordinateReferenceSystem:"
+    "BoundProjected:EPSG::23031_EPSG::1133"
+)
+WGS84 = "opendes:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326"
+
+result = Transformation(BOUND, WGS84).transform([(500000.0, 6600000.0)])
+result.operation.authority_code  # 'EPSG:1133'
+result.operation.route  # bound
+result.coordinates[0]  # (2.9983507609032416, 59.536415666522224)
+```
+
+An operation named by the id of its `CoordinateTransformation` record, through
+`operation=` on {class}`~geodetic_engine.geodesy.Transformation` or
+{func}`~geodetic_engine.geodesy.transform`. It is applied and checked exactly
+as if named by its code:
+
+```python
+from geodetic_engine.geodesy import transform
 
 result = transform(
     "opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031",
@@ -163,12 +241,36 @@ result = transform(
     [(500000.0, 6600000.0)],
     operation="opendes:reference-data--CoordinateTransformation:EPSG::1612",
 )
+result.operation.authority_code  # 'EPSG:1612'
+result.coordinates[0]  # (2.9984073671068487, 59.536434448565075)
 ```
 
-{meth}`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_osdu_id` also
-accepts a record's bare `data.ID`, such as `Projected:EPSG::23031`.
+What is refused, rather than resolved to something close:
 
-How an id is matched:
+```python
+# A near miss: one digit short of EPSG::1133.
+CoordinateReferenceSystem.from_user_input(
+    "opendes:reference-data--CoordinateReferenceSystem:"
+    "BoundProjected:EPSG::23031_EPSG::113"
+)  # UnresolvableCRSError: ... records no OSDU id ...
+
+# A transformation's id where a CRS is needed, and the reverse.
+CoordinateReferenceSystem.from_user_input(
+    "opendes:reference-data--CoordinateTransformation:EPSG::1612"
+)  # UnresolvableCRSError: ... is the OSDU id of a coordinate transformation, not of a CRS
+transform(
+    "EPSG:23031", "EPSG:4326", [(500000.0, 6600000.0)],
+    operation="opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031",
+)  # ValueError: ... is the OSDU id of a coordinate reference system, not of a coordinate transformation
+
+# A transformation id the database does not record.
+transform(
+    "EPSG:23031", "EPSG:4326", [(500000.0, 6600000.0)],
+    operation="opendes:reference-data--CoordinateTransformation:EPSG::161",
+)  # OperationNotAvailableError: ... names no coordinate operation: ...
+```
+
+### How an id is matched
 
 - **The data partition is ignored.** `opendes:` above differs between
   operators, and OSDU builds the rest of the id the same way in every partition
@@ -187,6 +289,8 @@ How an id is matched:
 - **The database must have been built from a catalogue.** A `proj.db` no build
   of this kind has written records no ids, so every id is refused, with a
   message saying so.
+
+### What a build records
 
 The report accounts for every record:
 

@@ -79,7 +79,10 @@ All notable changes to this project are documented here. The format follows
   names an object. Each id is also written as a PROJ alias (source `OSDU_ID`)
   for tools reading the database through PROJ; PROJ matches aliases
   approximately, so `--no-osdu-id-aliases` / `osdu_id_aliases = false` leaves
-  them out. `inspect` counts the ids by scheme.
+  them out. `inspect` counts the ids by scheme. The OSDU user guide shows how
+  to instantiate CRSs, bound CRSs and operations by id, and section 8 of the
+  worked examples notebook runs those examples against a small database it
+  builds first, since an id resolves only once its record is in `proj.db`.
 
 ### Changed
 

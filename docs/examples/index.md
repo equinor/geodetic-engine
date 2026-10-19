@@ -27,8 +27,10 @@ and an OSDU payload.
 
 Longer cases: ED50 to WGS 84, OSDU bound CRS round trips through UTM, chained
 operations, Norwegian NN54 heights with and without a datum change, an
-engineering CRS, operation discovery by area of use, coordinate export, and
-ten OSDU `persistableReference` scenarios.
+engineering CRS, operation discovery by area of use, coordinate export,
+ten OSDU `persistableReference` scenarios, projection factors, and CRSs and
+operations named by OSDU record id, resolved against a small OSDU database the
+notebook builds first.
 :::
 
 :::{grid-item-card} Well trajectories
