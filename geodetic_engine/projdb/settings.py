@@ -107,11 +107,16 @@ class PreferenceSettings(DatabaseSettings, Protocol):
 
 
 def default_base_proj_db() -> Path:
-    """Find the sole database on PROJ's path, refusing an ambiguous base.
+    """Find the official database on PROJ's path, refusing an ambiguous base.
+
+    A database this package built is skipped: it is never a starting point,
+    and the devcontainer puts one ahead of the installed database on PROJ's
+    path so that the OSDU catalogue is available by default.
 
     Raises:
-        ConfigurationError: If the search path has zero or multiple databases;
-            specify base_proj_db explicitly in that case.
+        ConfigurationError: If the search path has zero or multiple databases
+            this package did not build; specify base_proj_db explicitly in that
+            case.
     """
     from pyproj.datadir import get_data_dir
 
@@ -120,12 +125,28 @@ def default_base_proj_db() -> Path:
         for directory in get_data_dir().split(os.pathsep)
         if (path := Path(directory) / "proj.db").is_file()
     }
-    if len(candidates) != 1:
+    official = {path for path in candidates if not _built_by_this_package(path)}
+    if len(official) != 1:
         raise ConfigurationError(
             "set base_proj_db explicitly: PROJ's search path does not "
             "identify one unambiguous database"
         )
-    return candidates.pop()
+    return official.pop()
+
+
+def _built_by_this_package(database: Path) -> bool:
+    """Whether a database records a build of this package's."""
+    try:
+        with closing(
+            sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        ) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (BUILD_HISTORY_TABLE,),
+            ).fetchone()
+    except sqlite3.Error:
+        return False
+    return row is not None
 
 
 def check_build_target(output_db: Path, base_proj_db: Path) -> None:

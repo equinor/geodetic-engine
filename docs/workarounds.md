@@ -379,7 +379,7 @@ Symptom
 What the package does
 : Parses and writes ESRI WKT itself, translating method and parameter names and
   units through fixed tables. Anything that cannot be stated exactly is
-  refused ({doc}`/user-guide/persistable-reference`).
+  refused ({doc}`/persistable-reference/usage`).
 
 Code
 : `geodetic_engine/persistablereference/esriwkt.py`,
@@ -441,8 +441,8 @@ What the package does
   database **under the repository**: it runs as the last step of
   `scripts/build-projdb.sh` on `build/proj.db`, and
   `.devcontainer/link-local-grids.sh --patched-copy` writes a patched copy of
-  the stock database to `local/proj-data/proj.db` for the developer to put
-  first on `PROJ_DATA` by hand. The installed `proj.db` is never modified;
+  the stock database to `local/proj-data/proj.db`, the database the
+  devcontainer reads first. The installed `proj.db` is never modified;
   `tests/test_environment.py` fails if it is. The patch is idempotent and
   leaves an existing row untouched.
 

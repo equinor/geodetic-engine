@@ -47,11 +47,26 @@ report records:
 - every imported object, and every skipped object with its reason;
 - every supersession written or dropped;
 - every authority preference rule applied;
+- for an OSDU build, how many record ids were recorded, and every id that
+  names nothing in the database, with the reason;
 - the validation outcome, including grids that were not installed.
 
 So a transformation result produced from a custom database can be traced back
 to the register entries that defined it: the result's fingerprint identifies
 the database, and the database's history identifies the inputs.
+
+A database built from an OSDU catalogue also holds a
+`geodetic_engine_osdu_object_identifier` table, recording each record id against
+the object it names, with the catalogue it came from. Validation checks every
+id still names an object the database defines. See {ref}`osdu-record-ids`.
+
+It also holds `geodetic_engine_osdu_persistable_reference`, the
+`PersistableReference` each record publishes, verbatim, keyed by the record id
+with a foreign key to the identifier table, and a SHA-256 of each payload.
+Validation runs the foreign key check, recomputes every digest, and checks each
+reference states the kind of object its id names. The build report lists every
+record that states none, or one that could not be used. See
+{ref}`osdu-persistable-references`.
 
 ## Caching and the search path
 

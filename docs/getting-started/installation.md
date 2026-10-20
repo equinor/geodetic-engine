@@ -30,8 +30,66 @@ built from source instead. `pyproject.toml` enforces this for `uv` with
 Open the repository in VS Code and choose **Reopen in Container**.
 `.devcontainer/Dockerfile` builds PROJ from source with the `proj-data` grid
 package. After the container is created, `postCreateCommand` installs the
-Python dependencies and runs the environment check. CI builds and tests in the
-same image, so your results match CI's.
+Python dependencies, installs the official OSDU catalogue (below) and runs the
+environment check. CI builds and tests in the same image, so your results match
+CI's.
+
+### The OSDU catalogue, installed by default
+
+On creation the devcontainer runs `scripts/install-osdu-projdb.sh`. It builds
+the official OSDU catalogue into `build/proj.db`: the `CRS_CT.json` OSDU
+publishes, committed in this repository as
+`catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json`, byte for byte, with the
+OSDU commit it came from recorded beside it. Nothing is downloaded. That
+database is what PROJ reads: `PROJ_DATA` lists `local/proj-data` first, and
+its `proj.db` links to `build/proj.db`. OSDU CRSs, bound CRSs and
+transformations, OSDU record ids and the catalogue's persistable references
+then resolve with no further setup ({doc}`/user-guide/osdudb`). The installed
+`proj.db` is not modified.
+
+**A failure never fails container creation.** If the build fails, the script
+prints a warning that says why. A build is published only once it succeeds,
+so an earlier `build/proj.db` stays in use, with the OSDU catalogue it holds.
+Without one, the warning says that no OSDU objects are available,
+`local/proj-data/proj.db` links to the stock database, and everything else
+works as usual. The same status is reported again on every start. To retry:
+
+```bash
+scripts/install-osdu-projdb.sh
+```
+
+A rebuilt container reuses `build/proj.db` when it already holds the committed
+catalogue. When a pull brings a newer one, the next start says so and the next
+run imports it. `--force` imports it again regardless. CI builds the
+documentation the same way, and runs the tests with the stock database only.
+
+A `build/proj.db` built for another PROJ release or database layout than the
+installed one, after the container's PROJ is upgraded for example, is never
+linked: PROJ cannot open a database of another layout at all, and every
+lookup, `EPSG:4326` included, would fail. On start PROJ reads the stock
+database instead and a note says so; the next run moves the old database to
+`build/proj.db.stale` and builds the official catalogue from scratch. Anything
+another source imported into it, such as the Georepository register, has to
+be built again with `scripts/build-projdb.sh`.
+
+To move to the newest catalogue OSDU publishes, download it over the committed
+one, then review and commit the change:
+
+```bash
+scripts/install-osdu-projdb.sh --update
+git diff --stat catalogs/osdu/
+```
+
+`--update` replaces the committed catalogue only once the new one has arrived
+whole, matches the digest OSDU's server states and reads as a manifest. If it
+fails, for example with no network, the script warns and builds the committed
+catalogue instead. `--ref` fetches a given OSDU revision rather than the
+newest.
+
+An organisation's own catalogue goes in `local/catalogs/custom/`. It is built
+on top of the official one on every run: its own CRSs are added, and a record
+it states differently replaces the official definition, named as `REPLACED` in
+the build summary. See {ref}`osdu-custom-catalogue`.
 
 ## Option 2: by hand
 
@@ -49,6 +107,11 @@ PROJ_DIR=/usr/local PROJ_WHEEL=false uv sync --extra dev
 
 # 4. Verify.
 uv run pytest tests/test_environment.py
+
+# 5. Optional: the official OSDU catalogue. Put local/proj-data first on
+#    PROJ_DATA so PROJ reads the database it links to.
+scripts/install-osdu-projdb.sh
+export PROJ_DATA="$PWD/local/proj-data:/usr/local/share/proj"
 ```
 
 `install-proj.sh` configures PROJ with `-DEMBED_RESOURCE_FILES=OFF`. Do not
@@ -85,10 +148,12 @@ grid dropped there is found under its own filename; the installed data
 directory and its `proj.db` are never modified, and `tests/test_environment.py`
 fails if they are. A grid an EPSG operation names by a legacy filename PROJ has
 no `grid_alternatives` row for needs a patched database: `build/proj.db` from
-`scripts/build-projdb.sh` carries the patch, or run
-`.devcontainer/link-local-grids.sh --patched-copy` and put the copy it writes
-first on `PROJ_DATA` as it tells you to (see {doc}`/workarounds`). `local/` is
-gitignored, so these grids are not available in CI.
+`scripts/build-projdb.sh` carries the patch, and so does the OSDU database the
+devcontainer installs. Alternatively, run
+`.devcontainer/link-local-grids.sh --patched-copy`, which writes a patched copy
+of the stock database to `local/proj-data/proj.db` in its place (see
+{doc}`/workarounds`). `local/` is gitignored, so these grids are not available
+in CI.
 
 ## Optional extras
 

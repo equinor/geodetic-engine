@@ -4,22 +4,22 @@
 # PROJ's installed data directory.
 #
 # Nothing under /usr/local/share/proj is modified: not the grids and not
-# proj.db. The installed database stays the stock build of PROJ, so the
-# database fingerprint a TransformationResult reports in the devcontainer is
-# the one a stock installation reports, a test that passes here passes on a
-# stock installation too, and scripts/build-projdb.sh still finds exactly one
-# database to start from on PROJ's search path.
+# proj.db. The installed database stays the stock build of PROJ, so a test
+# that passes against it passes on a stock installation too, and
+# scripts/build-projdb.sh can always start from it.
 #
 # The grids are read in place: .devcontainer/devcontainer.json lists local/grids
-# after the installed directory on PROJ_DATA (after, because pyproj reads
-# proj.db from the first entry only). A grid is then found under its own
-# filename. A grid an EPSG operation names by a legacy filename PROJ has no
-# grid_alternatives row for (see scripts/patch-grid-alternatives.sh) is found
-# only through a patched database, which is deliberately not the installed
-# one: build/proj.db, written by scripts/build-projdb.sh, carries the patch, or
-# --patched-copy below writes a patched copy of the stock database to
-# local/proj-data/ for the developer to put first on PROJ_DATA by hand. Either
-# way the choice is explicit and local, and local/ is gitignored.
+# last on PROJ_DATA. A grid is then found under its own filename. A grid an
+# EPSG operation names by a legacy filename PROJ has no grid_alternatives row
+# for (see scripts/patch-grid-alternatives.sh) is found only through a patched
+# database, which is deliberately not the installed one.
+#
+# The database PROJ reads is local/proj-data/proj.db, first on PROJ_DATA. By
+# default it is a link that scripts/install-osdu-projdb.sh manages: to
+# build/proj.db, which carries the OSDU catalogue and the grid patch, or to the
+# stock database when the catalogue could not be installed. --patched-copy
+# below replaces it with a patched copy of the stock database instead. Either
+# way the choice is local, and local/ is gitignored.
 #
 # Run by the devcontainer on every start to create local/grids/ and report
 # what is in it. Safe to run repeatedly.
@@ -82,14 +82,16 @@ $check_only && exit 0
 
 $patched_copy || exit 0
 
-# The installed, stock database: the first entry of PROJ_DATA that holds one
-# other than the copy itself, or PROJ's default location.
+# The installed, stock database: the first entry of PROJ_DATA that holds one,
+# other than the copy's own directory, or PROJ's default location.
 installed_db=""
 IFS=':' read -r -a search_path <<<"${PROJ_DATA:-$INSTALLED_DIR}"
 for entry in "${search_path[@]}"; do
     candidate="${entry}/proj.db"
-    # -ef compares the file itself, however PROJ_DATA spells or links its path.
-    if [[ -f "$candidate" && ! "$candidate" -ef "$OVERLAY_DB" ]]; then
+    # The directory is compared, not the file: local/proj-data/proj.db may be a
+    # link to the stock database itself, which must not then be skipped. -ef
+    # compares the directory however PROJ_DATA spells or links its path.
+    if [[ -f "$candidate" ]] && ! [[ -d "$OVERLAY" && "$entry" -ef "$OVERLAY" ]]; then
         installed_db="$candidate"
         break
     fi

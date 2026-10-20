@@ -4,7 +4,16 @@ A build needs nothing but the catalogue file, so the common case is::
 
     geodetic-osdudb build CRS_CT.json
 
+The official OSDU catalogue is committed in ``catalogs/osdu/``. It is updated
+to the newest OSDU publishes, for the change to be reviewed and committed, with::
+
+    geodetic-osdudb download
+
 Everything else has a default or lives in an optional ``geodetic-osdudb.toml``.
+The persistable references a built database records are looked up or exported
+with::
+
+    geodetic-osdudb references build/proj.db EPSG:23031 --pretty
 """
 
 from __future__ import annotations
@@ -17,8 +26,18 @@ from pathlib import Path
 from typing import Any
 
 from geodetic_engine.errors import GeodeticEngineError
+from geodetic_engine.geodesy.database import persistable_references_present
 from geodetic_engine.osdudb.build import build
 from geodetic_engine.osdudb.config import load_config
+from geodetic_engine.osdudb.download import (
+    DEFAULT_CATALOG_DESTINATION,
+    LATEST,
+    download_official_catalog,
+)
+from geodetic_engine.persistablereference import (
+    Kind,
+    export_persistable_references_from_catalog,
+)
 from geodetic_engine.projdb.cli import inspect_database as _inspect
 from geodetic_engine.projdb.cli import run_build
 from geodetic_engine.projdb.cli import sidecar as sidecar
@@ -88,7 +107,9 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "replace a colliding row of this build's own authorities instead "
-            "of aborting; another authority's rows are still never touched"
+            "of aborting, so this catalogue's definitions win; each one "
+            "replaced is listed in the build summary. Another authority's rows "
+            "are still never touched"
         ),
     )
     build_cmd.add_argument(
@@ -97,12 +118,54 @@ def _parser() -> argparse.ArgumentParser:
         help="write the database without checking that PROJ can read it back",
     )
     build_cmd.add_argument(
+        "--no-osdu-id-aliases",
+        action="store_true",
+        help=(
+            "record OSDU record ids only in the identifier table, not also as "
+            "PROJ aliases; PROJ matches aliases approximately"
+        ),
+    )
+    build_cmd.add_argument(
+        "--no-persistable-references",
+        action="store_true",
+        help=("do not record the PersistableReference each catalogue record publishes"),
+    )
+    build_cmd.add_argument(
         "--dry-run",
         action="store_true",
         help=(
             "run the whole build and report what it would write, then discard "
             "it; nothing is left on disk"
         ),
+    )
+
+    download_cmd = sub.add_parser(
+        "download",
+        help="update the committed official OSDU catalogue to the newest",
+        description=(
+            "Download the CRS_CT.json catalogue OSDU publishes in its Data "
+            "Definitions repository, verify its SHA-256, and replace the copy "
+            "committed in this repository with it, recording where it came "
+            "from beside it. Review and commit the change. Prints what was "
+            "downloaded as JSON."
+        ),
+    )
+    download_cmd.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_CATALOG_DESTINATION,
+        help=f"where to write it; {DEFAULT_CATALOG_DESTINATION} by default",
+    )
+    download_cmd.add_argument(
+        "--ref",
+        default=LATEST,
+        help=f"the revision to fetch; {LATEST}, the newest, by default",
+    )
+    download_cmd.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="seconds to wait for the server; 120 by default",
     )
 
     validate_cmd = sub.add_parser("validate", help="validate an existing proj.db")
@@ -119,6 +182,73 @@ def _parser() -> argparse.ArgumentParser:
         "inspect", help="summarise what a built database contains"
     )
     inspect_cmd.add_argument("database", type=Path)
+
+    references_cmd = sub.add_parser(
+        "references",
+        help="look up or export the persistable references a built database records",
+        description=(
+            "Write the PersistableReference strings the catalogue publishes, as "
+            "a database built from it recorded them, with the record id and the "
+            "object each is for. Name objects to look them up, or name none to "
+            "export every one. An object with no reference is written with a "
+            "null reference and the reason."
+        ),
+    )
+    references_cmd.add_argument("database", type=Path)
+    references_cmd.add_argument(
+        "values",
+        nargs="*",
+        metavar="VALUE",
+        help=(
+            "an OSDU record id, with or without its partition, or AUTH:CODE; "
+            "every recorded reference when none is given"
+        ),
+    )
+    references_cmd.add_argument(
+        "--format",
+        choices=("json", "jsonl", "csv"),
+        default="json",
+        help="output format; json by default",
+    )
+    references_cmd.add_argument(
+        "--pretty",
+        action="store_true",
+        help="json only: give each reference as an indented object, not a string",
+    )
+    references_cmd.add_argument(
+        "--pretty-wkt",
+        action="store_true",
+        help=(
+            "json only: also lay each embedded ESRI WKT out over indented lines; "
+            "the output is then for reading and is not JSON"
+        ),
+    )
+    references_cmd.add_argument(
+        "--entity",
+        choices=("crs", "operation"),
+        help="only CRSs, or only coordinate operations",
+    )
+    references_cmd.add_argument(
+        "--kind",
+        action="append",
+        dest="kinds",
+        choices=[kind.value for kind in Kind],
+        help="only references of this kind; repeatable. Not with VALUE",
+    )
+    references_cmd.add_argument(
+        "--authority",
+        action="append",
+        dest="authorities",
+        help="only objects of this authority; repeatable. Not with VALUE",
+    )
+    references_cmd.add_argument(
+        "--active-only",
+        action="store_true",
+        help="leave out records the catalogue marks inactive. Not with VALUE",
+    )
+    references_cmd.add_argument(
+        "--output", type=Path, help="file to write; standard output by default"
+    )
 
     config_cmd = sub.add_parser(
         "config", help="show the resolved settings and where they came from"
@@ -153,6 +283,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "build":
             return _build(args)
+        if args.command == "download":
+            return _download(args)
         if args.command == "validate":
             print(
                 json.dumps(
@@ -163,6 +295,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "inspect":
             print(json.dumps(_inspect(args.database), indent=2))
             return 0
+        if args.command == "references":
+            return _references(args)
         if args.command == "config":
             print(json.dumps(_show_config(args), indent=2))
             return 0
@@ -190,6 +324,10 @@ def _overrides(args: argparse.Namespace) -> dict[str, Any]:
         overrides["replace"] = True
     if getattr(args, "overwrite_rows", False):
         overrides["overwrite_rows"] = True
+    if getattr(args, "no_osdu_id_aliases", False):
+        overrides["osdu_id_aliases"] = False
+    if getattr(args, "no_persistable_references", False):
+        overrides["osdu_persistable_references"] = False
     return overrides
 
 
@@ -203,6 +341,75 @@ def _build(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         skip_validation=args.skip_validation,
     )
+
+
+def _download(args: argparse.Namespace) -> int:
+    """Download the official catalogue and print what was written."""
+    result = download_official_catalog(args.output, ref=args.ref, timeout=args.timeout)
+    print(
+        json.dumps(
+            {
+                "path": str(result.path),
+                "ref": result.ref,
+                "commit": result.commit,
+                "sha256": result.sha256,
+                "changed": result.changed,
+                "url": result.url,
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _references(args: argparse.Namespace) -> int:
+    """Look up or export the persistable references a database records."""
+    if (args.pretty or args.pretty_wkt) and args.format != "json":
+        print("error: --pretty and --pretty-wkt need --format json", file=sys.stderr)
+        return 2
+    if args.values and (args.kinds or args.authorities or args.active_only):
+        print(
+            "error: --kind, --authority and --active-only filter a full export "
+            "and cannot be combined with VALUE",
+            file=sys.stderr,
+        )
+        return 2
+    if not args.database.is_file():
+        print(f"error: {args.database} does not exist", file=sys.stderr)
+        return 1
+    if not persistable_references_present(args.database):
+        print(
+            f"note: {args.database} records no persistable references",
+            file=sys.stderr,
+        )
+    options: dict[str, Any] = {
+        "format": args.format,
+        "pretty": args.pretty,
+        "wkt": args.pretty_wkt,
+        "entity": args.entity,
+        "database": args.database,
+    }
+    if args.values:
+        options["values"] = args.values
+    else:
+        options |= {
+            "kinds": args.kinds,
+            "authorities": args.authorities,
+            "include_deprecated": not args.active_only,
+        }
+    try:
+        written = export_persistable_references_from_catalog(
+            args.output or sys.stdout, **options
+        )
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if args.output is not None:
+        print(
+            f"wrote {written} persistable reference(s) to {args.output}",
+            file=sys.stderr,
+        )
+    return 0
 
 
 def _show_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -224,6 +431,8 @@ def _show_config(args: argparse.Namespace) -> dict[str, Any]:
         "unsupported_method_codes": sorted(resolved.unsupported_method_codes),
         "append": resolved.append,
         "overwrite_rows": resolved.overwrite_rows,
+        "osdu_id_aliases": resolved.osdu_id_aliases,
+        "osdu_persistable_references": resolved.osdu_persistable_references,
     }
 
 

@@ -43,7 +43,37 @@ for value in (
 A string that is a `persistableReference` is recognised automatically. Use
 {meth}`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_persistable_reference`
 to require one, so any other input is refused. See
-{doc}`/user-guide/persistable-reference`.
+{doc}`/persistable-reference/usage`.
+
+The id of an OSDU CRS record is recognised too, with or without its data
+partition. A bound CRS's id gives the bound CRS, transformation and all, and
+{meth}`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_osdu_id`, which
+takes nothing but OSDU ids, also takes a record's bare `data.ID`:
+
+```python
+utm31 = CoordinateReferenceSystem.from_user_input(
+    "opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031"
+)
+utm31.authority_code  # 'EPSG:23031'
+
+bound = CoordinateReferenceSystem.from_osdu_id(
+    "BoundProjected:EPSG::23031_EPSG::1133"
+)
+bound.crs.is_bound  # True: it carries EPSG:1133
+```
+
+```{important}
+An OSDU id resolves only against a `proj.db` built by `geodetic-osdudb` from a
+catalogue that publishes the record, put first on PROJ's data path. Against the
+standard PROJ database, which records no OSDU ids, it is refused with
+{class}`~geodetic_engine.geodesy.UnresolvableCRSError`, never read as the
+`EPSG:23031` its spelling suggests. The id is looked up exactly, so one
+character off is refused too. That is why the examples above are not run on
+this page. {ref}`osdu-record-ids` shows how to build the database and has more
+examples, and section 8 of the
+{doc}`worked examples notebook </examples/notebooks/geodetic-engine-examples>`
+runs them against a small database built on the spot.
+```
 
 An unresolvable input raises
 {class}`~geodetic_engine.geodesy.UnresolvableCRSError`, not a raw pyproj error:

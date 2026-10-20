@@ -203,7 +203,7 @@ target axis. The message includes PROJ's own error.
 Raised when an operation must be written as the single, unit-less
 `ABRIDGEDTRANSFORMATION` a bound CRS carries and cannot be. You see these when
 building bound CRSs: through
-{doc}`/user-guide/persistable-reference`, a {doc}`custom database build
+{doc}`/persistable-reference/usage`, a {doc}`custom database build
 </user-guide/projdb>`, or directly through {doc}`helmert`:
 
 ```{code-cell} python
@@ -220,7 +220,7 @@ collapse_concatenated(CoordinateOperation.from_epsg(1612))  # a single step: not
 
 | Module | Base class | Raised for |
 |---|---|---|
-| `persistablereference` | {class}`~geodetic_engine.persistablereference.PersistableReferenceError` | Malformed payloads, unsupported methods, unresolvable grids ({doc}`/user-guide/persistable-reference`) |
+| `persistablereference` | {class}`~geodetic_engine.persistablereference.PersistableReferenceError` | Malformed payloads, unsupported methods, unresolvable grids ({doc}`/persistable-reference/usage`) |
 | `georepository` | {class}`~geodetic_engine.georepository.GeorepositoryError` | Configuration, authentication, HTTP, truncated pagination ({doc}`/user-guide/georepository`) |
 | `projdb`, `osdudb` | {class}`~geodetic_engine.projdb.ProjDbBuildError` | Anything that stops a database build ({doc}`/user-guide/projdb`) |
 | `bingrid` | {class}`~geodetic_engine.bingrid.BinGridError` | Corners that are not a bin grid's, coordinates that cannot be theirs, a parameter out of range, a CRS that cannot carry a grid ({doc}`/user-guide/bingrid`) |

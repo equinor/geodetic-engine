@@ -437,6 +437,124 @@ OBJECT_TABLE_NAME: Final[Mapping[str, str]] = {
 # that contributed to a database.
 BUILD_HISTORY_TABLE: Final = "geodetic_engine_build_history"
 
+# Written by this package, not by PROJ: OSDU record identifiers for objects in
+# proj.db, keyed by scheme and identifier. Rows name their object in the
+# vocabulary of PROJ's object_view, so the table joins with crs_view,
+# coordinate_operation_view and usage the way alias_name does, and an object
+# of any authority can be identified, EPSG's included.
+IDENTIFIER_TABLE: Final = "geodetic_engine_osdu_object_identifier"
+LEGACY_IDENTIFIER_TABLE: Final = "geodetic_engine_object_identifier"
+
+IDENTIFIER_COLUMNS: Final[tuple[str, ...]] = (
+    "scheme",
+    "identifier",
+    "table_name",
+    "auth_name",
+    "code",
+    "deprecated",
+    "source",
+)
+
+# Not in TABLE_COLUMNS: verify_schema requires those tables to exist in the
+# base proj.db, and this one only ever exists once a build has created it. The
+# trigger is PROJ's own alias_name_insert_trigger, applied to this table.
+IDENTIFIER_DDL: Final[tuple[str, ...]] = (
+    f"""CREATE TABLE IF NOT EXISTS {IDENTIFIER_TABLE}(
+    scheme TEXT NOT NULL CHECK (length(scheme) >= 1),
+    identifier TEXT NOT NULL CHECK (length(identifier) >= 1),
+    table_name TEXT NOT NULL CHECK (length(table_name) >= 1),
+    auth_name TEXT NOT NULL CHECK (length(auth_name) >= 1),
+    code INTEGER_OR_TEXT NOT NULL CHECK (length(code) >= 1),
+    deprecated BOOLEAN NOT NULL CHECK (deprecated IN (0, 1)),
+    source TEXT,
+    CONSTRAINT pk_{IDENTIFIER_TABLE} PRIMARY KEY (scheme, identifier)
+) WITHOUT ROWID""",
+    f"CREATE INDEX IF NOT EXISTS idx_{IDENTIFIER_TABLE}_object "
+    f"ON {IDENTIFIER_TABLE}(table_name, auth_name, code)",
+    f"""CREATE TRIGGER IF NOT EXISTS {IDENTIFIER_TABLE}_insert_trigger
+BEFORE INSERT ON {IDENTIFIER_TABLE}
+FOR EACH ROW BEGIN
+    SELECT RAISE(ABORT, 'insert on {IDENTIFIER_TABLE} violates constraint: new entry refers to unexisting code')
+        WHERE NOT EXISTS (SELECT 1 FROM object_view o WHERE o.table_name = NEW.table_name AND o.auth_name = NEW.auth_name AND o.code = NEW.code);
+END""",  # noqa: E501
+)
+
+
+# Written by this package, not by PROJ: the OSDU persistableReference each
+# catalogue record publishes, verbatim. Keyed like the identifier table, by the
+# record's id, because a persistableReference belongs to the record rather than
+# to the object it names: two records, or two releases of a catalogue, may state
+# one object differently. The object is reached through the identifier row, so
+# it is not repeated here, and a real foreign key keeps the two in step.
+PERSISTABLE_REFERENCE_TABLE: Final = "geodetic_engine_osdu_persistable_reference"
+PERSISTABLE_REFERENCE_VIEW: Final = "geodetic_engine_osdu_persistable_reference_view"
+
+PERSISTABLE_REFERENCE_COLUMNS: Final[tuple[str, ...]] = (
+    "scheme",
+    "identifier",
+    "kind",
+    "name",
+    "stated_auth_name",
+    "stated_code",
+    "version",
+    "sha256",
+    "persistable_reference",
+    "source",
+)
+
+# The kinds of definition a persistableReference states; see
+# geodetic_engine.persistablereference.envelope.Kind.
+PERSISTABLE_REFERENCE_KINDS: Final[tuple[str, ...]] = (
+    "LBC",
+    "EBC",
+    "ST",
+    "CT",
+    "USO",
+    "UAD",
+)
+
+# An ordinary rowid table rather than WITHOUT ROWID like the identifier table:
+# a payload is around a kilobyte, and SQLite stores a WITHOUT ROWID row whole in
+# its primary key b-tree, which suits rows a twentieth of a page or smaller.
+PERSISTABLE_REFERENCE_DDL: Final[tuple[str, ...]] = (
+    f"""CREATE TABLE IF NOT EXISTS {PERSISTABLE_REFERENCE_TABLE}(
+    scheme TEXT NOT NULL CHECK (length(scheme) >= 1),
+    identifier TEXT NOT NULL CHECK (length(identifier) >= 1),
+    kind TEXT NOT NULL CHECK (kind IN ({", ".join(f"'{kind}'" for kind in PERSISTABLE_REFERENCE_KINDS)})),
+    name TEXT,
+    stated_auth_name TEXT,
+    stated_code TEXT,
+    version TEXT,
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+    persistable_reference TEXT NOT NULL CHECK (length(persistable_reference) >= 2),
+    source TEXT,
+    CONSTRAINT pk_{PERSISTABLE_REFERENCE_TABLE} PRIMARY KEY (scheme, identifier),
+    CONSTRAINT fk_{PERSISTABLE_REFERENCE_TABLE}_identifier FOREIGN KEY (scheme, identifier)
+        REFERENCES {IDENTIFIER_TABLE}(scheme, identifier) ON DELETE CASCADE
+)""",  # noqa: E501
+    f"""CREATE VIEW IF NOT EXISTS {PERSISTABLE_REFERENCE_VIEW} AS
+SELECT i.table_name, i.auth_name, i.code, i.scheme, i.identifier, i.deprecated,
+    r.kind, r.name, r.stated_auth_name, r.stated_code, r.version, r.sha256,
+    r.persistable_reference, r.source
+FROM {IDENTIFIER_TABLE} i
+JOIN {PERSISTABLE_REFERENCE_TABLE} r
+    ON r.scheme = i.scheme AND r.identifier = i.identifier""",
+)
+
+
+def identifier_alias_source(scheme: str) -> str:
+    """The ``alias_name.source`` an identifier scheme's aliases are written under.
+
+    Kept apart from the naming systems a source's own aliases come from, so
+    refreshing an object's aliases never removes its identifiers, and the
+    reverse.
+
+    Example:
+        >>> identifier_alias_source("OSDU")
+        'OSDU_ID'
+    """
+    return f"{scheme}_ID"
+
 
 def verify_schema(connection: sqlite3.Connection) -> None:
     """Check that every table and column this builder writes exists.

@@ -21,6 +21,10 @@ class OsduCatalogError(ProjDbBuildError):
     """The OSDU catalogue file cannot be read or is not a manifest."""
 
 
+class CatalogDownloadError(OsduCatalogError):
+    """The official OSDU catalogue could not be downloaded, or not verified."""
+
+
 class UnreadableDefinitionError(ProjDbBuildError):
     """An OSDU record carries no WKT, or WKT that PROJ will not parse.
 
@@ -30,6 +34,7 @@ class UnreadableDefinitionError(ProjDbBuildError):
 
 
 __all__ = [
+    "CatalogDownloadError",
     "ConfigurationError",
     "ForeignAuthorityCollision",
     "MissingReferencedObjectError",

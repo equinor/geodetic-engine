@@ -5,7 +5,14 @@ from __future__ import annotations
 import pytest
 
 from geodetic_engine.persistablereference import MalformedReferenceError
-from geodetic_engine.persistablereference.esriwkt import Node, Word, read, write
+from geodetic_engine.persistablereference.envelope import json_object
+from geodetic_engine.persistablereference.esriwkt import (
+    Node,
+    Word,
+    pretty,
+    read,
+    write,
+)
 
 GEOGTRAN = (
     'GEOGTRAN["ED_1950_To_WGS_1984_23",'
@@ -114,3 +121,74 @@ def test_oversized_bare_wkt_is_refused() -> None:
 def test_nonfinite_numeric_values_are_refused(number: str) -> None:
     with pytest.raises(MalformedReferenceError, match="finite"):
         read(f'PARAMETER["X_Axis_Translation",{number}]')
+
+
+def test_pretty_lays_each_nested_element_on_a_line_of_its_own() -> None:
+    assert pretty(GEOGTRAN) == (
+        'GEOGTRAN["ED_1950_To_WGS_1984_23",\n'
+        '    GEOGCS["GCS_European_1950",\n'
+        '        DATUM["D_European_1950",\n'
+        '            SPHEROID["International_1924",6378388.0,297.0]],\n'
+        '        PRIMEM["Greenwich",0.0],\n'
+        '        UNIT["Degree",0.0174532925199433]],\n'
+        '    GEOGCS["GCS_WGS_1984",\n'
+        '        DATUM["D_WGS_1984",\n'
+        '            SPHEROID["WGS_1984",6378137.0,298.257223563]],\n'
+        '        PRIMEM["Greenwich",0.0],\n'
+        '        UNIT["Degree",0.0174532925199433]],\n'
+        '    METHOD["Position_Vector"],\n'
+        '    PARAMETER["X_Axis_Translation",-116.641],\n'
+        '    PARAMETER["Scale_Difference",-3.52],\n'
+        "    OPERATIONACCURACY[1.0],\n"
+        '    AUTHORITY["EPSG",1612]]'
+    )
+
+
+def test_pretty_keeps_every_literal_as_written() -> None:
+    """Only whitespace changes; a number is not respelled through a float."""
+    text = (
+        'GEOGTRAN["a ""b"" c",METHOD["Polynomial"],'
+        'PARAMETER["A0",-0.00000556098],PARAMETER["B1",1.2335E-07],'
+        'PARAMETER["C",0.12345678901234567890],AXIS["Lat",north]]'
+    )
+    laid_out = pretty(text, indent=2)
+    assert "".join(laid_out.split("\n  ")) == text
+    assert read(laid_out) == read(text)
+    assert "-0.00000556098" in laid_out
+    assert "1.2335E-07" in laid_out
+    assert "0.12345678901234567890" in laid_out
+
+
+def test_an_element_with_no_nested_element_stays_on_one_line() -> None:
+    assert pretty('UNIT["Meter",1.0]') == 'UNIT["Meter",1.0]'
+
+
+def test_pretty_refuses_what_it_cannot_read() -> None:
+    with pytest.raises(MalformedReferenceError):
+        pretty('GEOGCS["a",')
+
+
+def test_pretty_is_lossless_for_every_real_payload(payloads: dict[str, str]) -> None:
+    def wkt(value: object) -> list[str]:
+        if isinstance(value, dict):
+            return [
+                found
+                for key, member in value.items()
+                for found in (
+                    [member]
+                    if key.casefold() == "wkt" and isinstance(member, str)
+                    else wkt(member)
+                )
+            ]
+        if isinstance(value, list):
+            return [found for member in value for found in wkt(member)]
+        return []
+
+    checked = 0
+    for raw in payloads.values():
+        for text in wkt(json_object(raw)):
+            laid_out = pretty(text)
+            assert read(laid_out) == read(text)
+            assert "".join(line.strip() for line in laid_out.split("\n")) == text
+            checked += 1
+    assert checked

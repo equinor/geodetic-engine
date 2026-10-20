@@ -18,10 +18,13 @@ permissions:
   contents: read
 
 env:
-  # DOCS_BRANCH labels the built site with the branch it came from.
+  # DOCS_BRANCH labels the built site with the branch it came from. PROJ_DATA
+  # puts local/proj-data first, as the devcontainer does, so the executed
+  # examples read the database the OSDU install step below links there.
   DOCKER_RUN: >-
     docker run --rm --user root --env LC_ALL=C.UTF-8
     --env DOCS_BRANCH=${{ github.head_ref || github.ref_name }}
+    --env PROJ_DATA=/workspace/local/proj-data:/usr/local/share/proj
     --volume ${{ github.workspace }}:/workspace --workdir /workspace
     geodetic-engine-devcontainer:ci
 
@@ -45,10 +48,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Install dependencies and check the environment
+      # The examples resolve OSDU ids and look up the catalogue's persistable
+      # references, so they need the official OSDU catalogue committed in
+      # catalogs/osdu/ built into the database they read, as the devcontainer
+      # does on creation. Nothing is downloaded. --strict: without it the
+      # examples cannot run, and this says why more plainly than a failing
+      # notebook cell would.
+      - name: Install dependencies and the OSDU catalogue, and check the environment
         run: |
           $DOCKER_RUN bash -euo pipefail -c '
             uv sync --locked --extra dev --extra docs
+            GEODETIC_RUNNER="uv run --no-sync" bash scripts/install-osdu-projdb.sh --strict
             uv run --no-sync pytest tests/test_environment.py -q
           '
 

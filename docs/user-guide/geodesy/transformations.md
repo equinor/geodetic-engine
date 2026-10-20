@@ -262,8 +262,8 @@ print(transform("EPSG:5800", "EPSG:4221", (10000.0, 20000.0), operation="EPSG:10
 
 A {term}`bound CRS` carries its transformation to a hub, so no operation needs
 naming. It can be built with pyproj, parsed from an OSDU payload
-({doc}`/user-guide/persistable-reference`), or looked up by code in a
-{doc}`custom database </user-guide/projdb>`:
+({doc}`/persistable-reference/usage`), or looked up by code or by
+{term}`OSDU record id` in a {doc}`custom database </user-guide/projdb>`:
 
 ```{code-cell} python
 from pyproj import CRS
@@ -291,6 +291,48 @@ Instead of a code, the operation can be given in full as an OSDU
 {class}`~geodetic_engine.persistablereference.OperationReference`. It is then
 applied exactly as written, parameters and all, not looked up in PROJ's
 database. See {ref}`persistable-reference-stated-operation`.
+
+### An operation by OSDU record id
+
+`operation=` also takes the id of an OSDU `CoordinateTransformation` record,
+with or without its data partition, wherever it takes a code. A CRS can be
+named by its record's id too, so a transformation can be stated entirely in
+OSDU ids:
+
+```python
+utm31 = "opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031"
+wgs84 = "opendes:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326"
+
+result = transform(
+    utm31,
+    wgs84,
+    [(500000.0, 6600000.0)],
+    operation="opendes:reference-data--CoordinateTransformation:EPSG::1612",
+)
+result.operation.authority_code  # 'EPSG:1612'
+
+# A bound CRS's id needs no operation: the CRS carries its own.
+bound = (
+    "opendes:reference-data--CoordinateReferenceSystem:"
+    "BoundProjected:EPSG::23031_EPSG::1133"
+)
+transform(bound, wgs84, [(500000.0, 6600000.0)]).operation.authority_code
+# 'EPSG:1133'
+```
+
+The operation an id names is then applied and checked like one named by its
+code. An id that names a CRS rather than a transformation is refused with a
+`ValueError`; one the database does not record raises
+{class}`~geodetic_engine.geodesy.OperationNotAvailableError`.
+
+```{important}
+OSDU ids resolve only against a `proj.db` built by `geodetic-osdudb` from a
+catalogue that publishes the records, put first on PROJ's data path. Against
+the standard PROJ database every one is refused, which is why the example
+above is not run on this page. See {ref}`osdu-record-ids`, and section 8 of the
+{doc}`worked examples notebook </examples/notebooks/geodetic-engine-examples>`,
+which runs it against a small database built on the spot.
+```
 
 ## Choosing between `transform` and `Transformation`
 
