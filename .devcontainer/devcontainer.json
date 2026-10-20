@@ -18,7 +18,8 @@
 	// PROJ_DATA puts local/proj-data (gitignored) first. Its proj.db is a link
 	// scripts/install-osdu-projdb.sh manages: to build/proj.db, built on
 	// container creation from the official OSDU catalogue committed in
-	// catalogs/osdu/, or to the stock database when that could not be done. pyproj reads proj.db from the first entry,
+	// catalogs/osdu/, or to the stock database when there is no build/proj.db
+	// made for the installed PROJ. pyproj reads proj.db from the first entry,
 	// so something is always linked there. The installed directory is never
 	// modified and follows, for the grids and as the base every build starts
 	// from; local/grids (gitignored, may be empty) comes last, so a grid dropped
@@ -34,9 +35,11 @@
 		"SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt"
 	},
 	// The OSDU install downloads nothing and never fails container creation: on
-	// a failure it warns, and PROJ reads the stock database. On every start the
-	// link is checked and whether the OSDU catalogue is installed is reported
-	// again.
+	// a failure it warns, and PROJ reads the earlier build/proj.db or, without
+	// one, the stock database. A build/proj.db made for another PROJ release,
+	// after an image upgrade say, is set aside and built again from scratch. On
+	// every start the link is checked and whether the OSDU catalogue is
+	// installed is reported again.
 	"postCreateCommand": "uv sync --extra dev --extra docs && bash scripts/install-osdu-projdb.sh && uv run pytest tests/test_environment.py -q",
 	"postStartCommand": "bash .devcontainer/link-local-grids.sh && bash scripts/install-osdu-projdb.sh --check",
 	"customizations": {

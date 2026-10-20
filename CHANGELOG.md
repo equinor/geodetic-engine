@@ -126,8 +126,12 @@ All notable changes to this project are documented here. The format follows
   build runs it too. A committed catalogue changed by a pull is imported again
   on the next run, and `--check`, run on every start, says when it has not
   been yet. A failure never fails container creation: it prints a warning
-  saying why and that no OSDU objects are available, and links the stock
-  database instead; `--strict` makes it exit non-zero. `--update` first
+  saying why and keeps an earlier `build/proj.db` in use, or, without one,
+  says that no OSDU objects are available and links the stock database
+  instead; `--strict` makes it exit non-zero. A `build/proj.db` built for
+  another PROJ release or database layout, which PROJ cannot open, is never
+  linked: it is moved to `build/proj.db.stale` and the official catalogue is
+  built from scratch. `--update` first
   replaces the committed catalogue with the newest OSDU publishes, for the
   change to be reviewed and committed, through the new `geodetic-osdudb
   download` and `geodetic_engine.osdudb.download_official_catalog`. These read

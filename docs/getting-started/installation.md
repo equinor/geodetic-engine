@@ -48,10 +48,11 @@ then resolve with no further setup ({doc}`/user-guide/osdudb`). The installed
 `proj.db` is not modified.
 
 **A failure never fails container creation.** If the build fails, the script
-prints a warning that says why, and that no OSDU objects are available.
-`local/proj-data/proj.db` then links to the stock database, and everything
-else works as usual. The same status is reported again on every start. To
-retry:
+prints a warning that says why. A build is published only once it succeeds,
+so an earlier `build/proj.db` stays in use, with the OSDU catalogue it holds.
+Without one, the warning says that no OSDU objects are available,
+`local/proj-data/proj.db` links to the stock database, and everything else
+works as usual. The same status is reported again on every start. To retry:
 
 ```bash
 scripts/install-osdu-projdb.sh
@@ -61,6 +62,15 @@ A rebuilt container reuses `build/proj.db` when it already holds the committed
 catalogue. When a pull brings a newer one, the next start says so and the next
 run imports it. `--force` imports it again regardless. CI builds the
 documentation the same way, and runs the tests with the stock database only.
+
+A `build/proj.db` built for another PROJ release or database layout than the
+installed one, after the container's PROJ is upgraded for example, is never
+linked: PROJ cannot open a database of another layout at all, and every
+lookup, `EPSG:4326` included, would fail. On start PROJ reads the stock
+database instead and a note says so; the next run moves the old database to
+`build/proj.db.stale` and builds the official catalogue from scratch. Anything
+another source imported into it, such as the Georepository register, has to
+be built again with `scripts/build-projdb.sh`.
 
 To move to the newest catalogue OSDU publishes, download it over the committed
 one, then review and commit the change:

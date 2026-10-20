@@ -13,17 +13,24 @@
 # publishes (geodetic-osdudb download), for the change to be reviewed and
 # committed.
 #
-# A failure never fails the caller. The devcontainer is still created, a
-# warning says what went wrong and that no OSDU objects are available, and
-# local/proj-data/proj.db points at the stock database instead, so PROJ works
-# exactly as installed. A failed --update warns and builds the committed
-# catalogue. --strict exits non-zero on a failure instead.
+# A failure never fails the caller. The devcontainer is still created and a
+# warning says what went wrong. A build is published only once it succeeds, so
+# an earlier build/proj.db made for the installed PROJ stays in use, with the
+# OSDU catalogue it holds. Without one, the warning says no OSDU objects are
+# available and local/proj-data/proj.db points at the stock database instead,
+# so PROJ works exactly as installed. A failed --update warns and builds the
+# committed catalogue. --strict exits non-zero on a failure instead.
 #
 # build/proj.db is reused when it already holds the committed catalogue, so a
 # rebuilt container builds nothing. A catalogue changed by --update, or by a
 # pull that brought a newer one, is imported again, as is any with --force. A
 # database that also holds another source's import, such as the Georepository
-# register's, is added to and never replaced.
+# register's, is added to and never replaced, unless it was built for another
+# PROJ release or database layout than the installed one, after a PROJ upgrade
+# say. PROJ cannot open a database of another layout at all, and one of another
+# release holds that release's EPSG dataset, so it is never linked: it is moved
+# to build/proj.db.stale and the official catalogue is built from scratch.
+# Whatever another source had imported into it has to be built again.
 #
 # Catalogues of your own are built on top, after the official one, every time:
 # each *.json in local/catalogs/custom/ in name order, then each --custom. Each
@@ -53,6 +60,7 @@ readonly INVOCATION_DIR="$PWD"
 readonly ACTIVE_DIR="${REPO_ROOT}/local/proj-data"
 readonly ACTIVE_DB="${ACTIVE_DIR}/proj.db"
 readonly BUILT_DB="${REPO_ROOT}/build/proj.db"
+readonly STALE_DB="${BUILT_DB}.stale"
 # Relative, so the link survives the repository being mounted elsewhere.
 readonly BUILT_DB_LINK="../../build/proj.db"
 readonly DEFAULT_CATALOG="${REPO_ROOT}/catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json"
@@ -91,9 +99,10 @@ Options:
                       build/proj.db already holds it.
       --strict        Exit non-zero when a catalogue could not be installed or
                       updated. By default a failure only warns.
-      --check         Build nothing: make sure local/proj-data/proj.db exists
-                      and report whether the OSDU catalogue is in the database
-                      PROJ reads.
+      --check         Build nothing: point local/proj-data/proj.db at
+                      build/proj.db, or at the stock database when there is
+                      none built for the installed PROJ, and report whether
+                      the OSDU catalogue is in the database PROJ reads.
   -h, --help          Show this message.
 EOF
 }
@@ -244,12 +253,58 @@ activate() {
     mv -fT -- "$staged" "$ACTIVE_DB"
 }
 
-# Something must be at local/proj-data/proj.db before any Python runs: pyproj
+# The PROJ release and database layout a database was made for, as PROJ
+# records them in its metadata; a build keeps those of the base it started
+# from. Empty when they cannot be read.
+release_of() {
+    query "$1" "SELECT 'PROJ ' || p.value || ', layout ' || major.value || '.' || minor.value FROM metadata p, metadata major, metadata minor WHERE p.key = 'PROJ.VERSION' AND major.key = 'DATABASE.LAYOUT.VERSION.MAJOR' AND minor.key = 'DATABASE.LAYOUT.VERSION.MINOR'"
+}
+
+# Whether build/proj.db exists and was built for the installed PROJ: from a
+# base of the same release and layout as the stock database. With no stock
+# database to compare with, an existing build is taken as it is.
+build_usable() {
+    [[ -f "$BUILT_DB" ]] || return 1
+    local stock built
+    stock="$(stock_db)"
+    [[ -n "$stock" ]] || return 0
+    built="$(release_of "$BUILT_DB")"
+    [[ -n "$built" && "$built" == "$(release_of "$stock")" ]]
+}
+
+# Why build/proj.db cannot be used with the installed PROJ, as a clause.
+mismatch() {
+    local built
+    built="$(release_of "$BUILT_DB")"
+    echo "build/proj.db was built for ${built:-an unreadable PROJ release}," \
+        "but the installed PROJ is $(release_of "$(stock_db)")"
+}
+
+# Move a build/proj.db made for another PROJ aside, so the official catalogue
+# is built from scratch instead of being appended to it. Under the lock
+# build-projdb.sh publishes under, so no build is reading it meanwhile.
+retire_stale_build() {
+    [[ -f "$BUILT_DB" ]] || return 0
+    build_usable && return 0
+    local reason lock
+    reason="$(mismatch)"
+    exec {lock}>"${BUILT_DB}.lock"
+    flock "$lock"
+    mv -f -- "$BUILT_DB" "$STALE_DB"
+    exec {lock}>&-
+    echo "note: ${reason}; moved it to build/proj.db.stale and building the" \
+        "official OSDU catalogue from scratch. Anything another source" \
+        "imported into it, the Georepository register for one, has to be" \
+        "built again with scripts/build-projdb.sh." >&2
+}
+
+# Point local/proj-data/proj.db at build/proj.db when it was built for the
+# installed PROJ, and at the stock database otherwise, so PROJ always reads a
+# database it can open. Something must be there before any Python runs: pyproj
 # reads the database from the first entry of PROJ_DATA, and warns when there is
 # none there.
-ensure_active() {
-    [[ -e "$ACTIVE_DB" ]] && return 0
-    if [[ -f "$BUILT_DB" ]]; then
+link_active() {
+    if build_usable; then
         activate "$BUILT_DB_LINK"
         return
     fi
@@ -327,10 +382,12 @@ report() {
     fi
 }
 
-ensure_active
-
 if $check_only; then
-    if [[ -f "$DEFAULT_CATALOG" && -f "$BUILT_DB" ]]; then
+    link_active || true
+    if [[ -f "$BUILT_DB" ]] && ! build_usable; then
+        echo "note: $(mismatch), so PROJ does not read it; run" \
+            "scripts/install-osdu-projdb.sh to build it again" >&2
+    elif [[ -f "$DEFAULT_CATALOG" && -f "$BUILT_DB" ]]; then
         committed="$(version_of "$DEFAULT_CATALOG")"
         if ! holds_version "$BUILT_DB" "$committed"; then
             echo "note: build/proj.db does not hold the committed OSDU catalogue" \
@@ -340,6 +397,9 @@ if $check_only; then
     report ""
     exit 0
 fi
+
+retire_stale_build
+link_active || true
 
 failure=""
 if $update; then
@@ -407,9 +467,7 @@ for custom in ${customs[@]+"${customs[@]}"}; do
     fi
 done
 
-if [[ -f "$BUILT_DB" ]]; then
-    activate "$BUILT_DB_LINK" || true
-fi
+link_active || true
 report "$failure"
 for shown in ${unapplied[@]+"${unapplied[@]}"}; do
     warn_box "the custom catalogue ${shown} was NOT applied." \
