@@ -127,6 +127,30 @@ def test_an_expected_digest_is_enforced(tmp_path: Path) -> None:
     assert _leftovers(tmp_path) == []
 
 
+@pytest.mark.parametrize(
+    "earlier", [b"the committed copy", None], ids=["over-a-copy", "first-copy"]
+)
+def test_a_record_that_cannot_be_written_leaves_the_catalogue_as_it_was(
+    tmp_path: Path, earlier: bytes | None
+) -> None:
+    """The catalogue and its record are replaced together or not at all."""
+    destination = tmp_path / "CRS_CT.json"
+    if earlier is not None:
+        destination.write_bytes(earlier)
+    # A directory cannot be replaced by the record's file.
+    provenance_path(destination).mkdir()
+
+    with pytest.raises(CatalogDownloadError, match="left as they were"):
+        download_official_catalog(destination, transport=_server())
+
+    if earlier is None:
+        assert not destination.exists()
+    else:
+        assert destination.read_bytes() == earlier
+    assert provenance_path(destination).is_dir()
+    assert _leftovers(tmp_path) == []
+
+
 def test_a_body_that_does_not_match_the_stated_digest_is_refused(
     tmp_path: Path,
 ) -> None:

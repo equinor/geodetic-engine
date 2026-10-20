@@ -190,9 +190,12 @@ version_of() {
     echo "${OFFICIAL_SOURCE}@${commit:-sha256:${sha}}"
 }
 
-# Whether a build of exactly this catalogue contributed to a database.
+# Whether the latest build of an official catalogue into a database was of
+# exactly this one. An earlier build of it does not count: a later official
+# catalogue has replaced what it wrote. Custom catalogues record no
+# source_version of this form and are passed over.
 holds_version() {
-    [[ "$(query "$1" "SELECT count(*) FROM geodetic_engine_build_history WHERE report LIKE '%\"source_version\": \"$2\"%'")" -gt 0 ]]
+    [[ "$(query "$1" "SELECT count(*) FROM (SELECT report FROM geodetic_engine_build_history WHERE report LIKE '%\"source_version\": \"${OFFICIAL_SOURCE}@%' ORDER BY sequence DESC LIMIT 1) WHERE report LIKE '%\"source_version\": \"$2\"%'")" -gt 0 ]]
 }
 
 # The code spaces a catalogue publishes its own records under, one per line:
@@ -284,7 +287,8 @@ warn_no_osdu() {
 }
 
 first_on_proj_data() {
-    local first="${PROJ_DATA%%:*}"
+    local first="${PROJ_DATA:-}"
+    first="${first%%:*}"
     [[ -n "$first" && -d "$ACTIVE_DIR" && "$first" -ef "$ACTIVE_DIR" ]]
 }
 

@@ -27,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,7 +126,9 @@ def download_official_catalog(
 
     Raises:
         CatalogDownloadError: If the server cannot be reached, does not answer
-            with the file, or the file does not match its digest.
+            with the file, the file does not match its digest, or it cannot be
+            written; the copy at ``destination`` and its record are then left
+            as they were.
         OsduCatalogError: If the file is not an OSDU manifest.
 
     Example:
@@ -134,14 +137,15 @@ def download_official_catalog(
     """
     url = official_catalog_url()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    handle, name = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".part", dir=destination.parent
-    )
-    staged = Path(name)
+    provenance = provenance_path(destination)
+    staged = _staged(destination)
+    staged_provenance: Path | None = None
+    backup: Path | None = None
+    published = False
     try:
         logger.info("downloading the OSDU catalogue at %s from %s", ref, url)
         with (
-            os.fdopen(handle, "wb") as stream,
+            staged.open("wb") as stream,
             httpx.Client(timeout=timeout, transport=transport) as client,
         ):
             sha256, headers = _fetch(client, url, ref, stream)
@@ -159,18 +163,42 @@ def download_official_catalog(
                 f"expected {expected_sha256}; refusing it"
             )
         OsduCatalog.from_file(staged)
+        commit = headers.get("x-gitlab-last-commit-id") or headers.get(
+            "x-gitlab-commit-id"
+        )
         changed = not destination.is_file() or _file_sha256(destination) != sha256
+        # Both files are written before either is published, so the catalogue
+        # and its record are replaced together or not at all.
+        if changed or not provenance.is_file():
+            staged_provenance = _staged(provenance)
+            _write_provenance(
+                staged_provenance, url=url, ref=ref, commit=commit, sha256=sha256
+            )
         if changed:
             # mkstemp's 0600 would hide a public file from other users.
             staged.chmod(0o644)
+            if destination.is_file():
+                backup = _staged(destination)
+                shutil.copy2(destination, backup)
             os.replace(staged, destination)
+            published = True
+        if staged_provenance is not None:
+            os.replace(staged_provenance, provenance)
+    except OSError as error:
+        if published:
+            if backup is not None:
+                os.replace(backup, destination)
+            else:
+                destination.unlink(missing_ok=True)
+        raise CatalogDownloadError(
+            f"could not write the OSDU catalogue to {destination}: {error}; it "
+            "and the record of where it came from were left as they were"
+        ) from error
     finally:
-        staged.unlink(missing_ok=True)
+        for leftover in (staged, staged_provenance, backup):
+            if leftover is not None:
+                leftover.unlink(missing_ok=True)
 
-    commit = headers.get("x-gitlab-last-commit-id") or headers.get("x-gitlab-commit-id")
-    provenance = provenance_path(destination)
-    if changed or not provenance.is_file():
-        _write_provenance(provenance, url=url, ref=ref, commit=commit, sha256=sha256)
     logger.info(
         "%s the OSDU catalogue at %s in %s",
         "wrote" if changed else "already had",
@@ -216,6 +244,15 @@ def _fetch(
         raise CatalogDownloadError(
             f"could not download the OSDU catalogue from {url}: {error}"
         ) from error
+
+
+def _staged(beside: Path) -> Path:
+    """A new, empty hidden file in the directory of ``beside``."""
+    handle, name = tempfile.mkstemp(
+        prefix=f".{beside.name}.", suffix=".part", dir=beside.parent
+    )
+    os.close(handle)
+    return Path(name)
 
 
 def _write_provenance(

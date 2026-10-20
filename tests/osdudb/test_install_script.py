@@ -121,7 +121,11 @@ def _runner(tmp_path: Path, newest: Path | None = None) -> str:
 
 
 def _run(
-    checkout: Path, stock: Path, runner: str, *arguments: str
+    checkout: Path,
+    stock: Path,
+    runner: str,
+    *arguments: str,
+    proj_data: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     environment = {
         key: value
@@ -130,6 +134,8 @@ def _run(
     }
     environment["GEODETIC_RUNNER"] = runner
     environment["PROJ_DATA"] = f"{checkout / 'local/proj-data'}:{stock.parent}"
+    if not proj_data:
+        del environment["PROJ_DATA"]
     return subprocess.run(
         ["bash", str(checkout / "scripts/install-osdu-projdb.sh"), *arguments],
         env=environment,
@@ -204,6 +210,27 @@ def test_the_committed_catalogue_is_built_offline_and_rebuilt_when_it_changes(
     assert pulled.returncode == 0, pulled.stdout + pulled.stderr
     assert f"osdu/data/data-definitions@{SECOND}" in pulled.stdout
     assert _name(built, "geodetic_crs", "4100") == "Example 2020 revised"
+
+    # Back to the first, on another branch say: its earlier build no longer
+    # counts, since the second one replaced what it wrote.
+    _commit(checkout, FIRST, with_id(geographic(), GEOGRAPHIC_ID))
+    back = _run(checkout, stock, _runner(tmp_path))
+    assert back.returncode == 0, back.stdout + back.stderr
+    assert "already holds" not in back.stdout
+    assert _name(built, "geodetic_crs", "4100") == "Example 2020"
+
+
+def test_the_status_is_reported_with_proj_data_unset(
+    checkout: Path, stock: Path, tmp_path: Path
+) -> None:
+    """PROJ finds its data without PROJ_DATA, and a manual install may lack it."""
+    result = _run(
+        checkout, stock, _offline_runner(tmp_path), "--check", proj_data=False
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "unbound variable" not in result.stderr
+    assert "local/proj-data is not first on PROJ_DATA" in result.stderr
 
 
 def test_update_replaces_the_committed_catalogue_with_the_newest_and_builds_it(
