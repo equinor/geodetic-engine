@@ -195,10 +195,18 @@ Hub CRS
   through which coordinates can be transformed to other CRSs. It is commonly
   WGS 84.
 
+OSDU record id
+  The id of the OSDU reference data record that publishes a CRS or a
+  transformation, such as
+  `opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031`.
+  The first segment is the data partition, which differs between operators and
+  is ignored. Resolved exactly against a database built by `geodetic-osdudb`.
+  See {ref}`osdu-record-ids`.
+
 
 persistableReference
   OSDU's JSON envelope around ESRI WKT, stating a CRS, transformation or unit.
-  See {doc}`/user-guide/persistable-reference`.
+  See {doc}`/persistable-reference/index`.
 
 Pipeline
   PROJ's explicit, step-by-step description of a coordinate operation. Each step

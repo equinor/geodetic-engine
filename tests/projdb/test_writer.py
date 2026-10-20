@@ -2,22 +2,33 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import stat
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from geodetic_engine.persistablereference import Kind
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.errors import (
     ForeignAuthorityCollision,
+    MissingReferencedObjectError,
     OutputWouldBeDiscarded,
     SchemaDriftError,
 )
-from geodetic_engine.projdb.schema import BUILD_HISTORY_TABLE, verify_schema
+from geodetic_engine.projdb.schema import (
+    BUILD_HISTORY_TABLE,
+    IDENTIFIER_TABLE,
+    LEGACY_IDENTIFIER_TABLE,
+    PERSISTABLE_REFERENCE_KINDS,
+    PERSISTABLE_REFERENCE_TABLE,
+    verify_schema,
+)
 from geodetic_engine.projdb.writer import ProjDbWriter
 from tests.projdb.conftest import make_config
 
@@ -333,6 +344,100 @@ def test_overwrite_rows_replaces_only_its_own_authority(
     assert scope == "Rewritten"
 
 
+def test_overwrite_rows_reports_what_it_replaced_and_leaves_the_rest(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as first:
+        first.insert("scope", [_SCOPE_ROW, _SCOPE_ROW | {"code": "2"}])
+        first.commit()
+
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        writer.insert(
+            "scope", [_SCOPE_ROW | {"scope": "Rewritten"}, _SCOPE_ROW | {"code": "2"}]
+        )
+        overrides = writer.overrides()
+        writer.commit()
+
+    assert overrides["objects"] == [
+        {
+            "table": "scope",
+            "auth_name": "Example",
+            "code": "1",
+            "name": None,
+            "previous_name": None,
+            "changed": ["scope"],
+        }
+    ]
+    assert overrides["unchanged"] == 1
+
+
+def _coordinate_system(orientation: str) -> list[tuple[str, list[dict[str, Any]]]]:
+    axes = [
+        ("Easting", "E", "east", 1),
+        ("Northing", "N", orientation, 2),
+    ]
+    return [
+        (
+            "coordinate_system",
+            [
+                {
+                    "auth_name": "Example",
+                    "code": "1",
+                    "type": "Cartesian",
+                    "dimension": 2,
+                }
+            ],
+        ),
+        (
+            "axis",
+            [
+                {
+                    "auth_name": "Example",
+                    "code": str(order),
+                    "name": name,
+                    "abbrev": abbrev,
+                    "orientation": direction,
+                    "coordinate_system_auth_name": "Example",
+                    "coordinate_system_code": "1",
+                    "coordinate_system_order": order,
+                    "uom_auth_name": "EPSG",
+                    "uom_code": "9001",
+                }
+                for name, abbrev, direction, order in axes
+            ],
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("orientation", "replaced"), [("north", []), ("south", ["axes"])]
+)
+def test_a_coordinate_system_is_replaced_with_its_axes(
+    config: ProjDbBuildConfig, orientation: str, replaced: list[str]
+) -> None:
+    with ProjDbWriter(config) as first:
+        for table, rows in _coordinate_system("north"):
+            first.insert(table, rows)
+        first.commit()
+
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        for table, rows in _coordinate_system(orientation):
+            writer.insert(table, rows)
+        overrides = writer.overrides()
+        writer.commit()
+
+    assert [item["changed"] for item in overrides["objects"]] == (
+        [replaced] if replaced else []
+    )
+    assert overrides["unchanged"] == (0 if replaced else 1)
+
+
 def test_overwrite_rows_still_cannot_reach_epsg(
     config: ProjDbBuildConfig,
 ) -> None:
@@ -371,3 +476,365 @@ def test_schema_drift_is_detected(copy_of_proj_db: Path) -> None:
     with pytest.raises(SchemaDriftError, match="inv_flattening"):
         verify_schema(connection)
     connection.close()
+
+
+def _identifier(code: str = "23031", **row: Any) -> dict[str, Any]:
+    """An OSDU id recorded against an EPSG projected CRS PROJ ships."""
+    return {
+        "scheme": "OSDU",
+        "identifier": "reference-data--CoordinateReferenceSystem:Projected:EPSG::23031",
+        "table_name": "projected_crs",
+        "auth_name": "EPSG",
+        "code": code,
+        "deprecated": 0,
+        "source": "CRS_CT.json",
+    } | row
+
+
+def _identifiers(database: Path) -> list[tuple[Any, ...]]:
+    with closing(sqlite3.connect(database)) as connection:
+        return connection.execute(
+            f"SELECT identifier, table_name, auth_name, code FROM {IDENTIFIER_TABLE}"
+        ).fetchall()
+
+
+def _identifier_aliases(database: Path) -> list[tuple[Any, ...]]:
+    with closing(sqlite3.connect(database)) as connection:
+        return connection.execute(
+            "SELECT alt_name, table_name, auth_name, code FROM alias_name "
+            "WHERE source = 'OSDU_ID'"
+        ).fetchall()
+
+
+def test_appending_migrates_the_legacy_identifier_table(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+
+    with closing(sqlite3.connect(config.output_db)) as connection:
+        connection.execute(
+            f"""CREATE TABLE {LEGACY_IDENTIFIER_TABLE}(
+                scheme TEXT NOT NULL,
+                identifier TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                auth_name TEXT NOT NULL,
+                code INTEGER_OR_TEXT NOT NULL,
+                deprecated BOOLEAN NOT NULL,
+                source TEXT,
+                PRIMARY KEY (scheme, identifier)
+            ) WITHOUT ROWID"""
+        )
+        connection.execute(
+            f"CREATE INDEX idx_{LEGACY_IDENTIFIER_TABLE}_object "
+            f"ON {LEGACY_IDENTIFIER_TABLE}(table_name, auth_name, code)"
+        )
+        connection.execute(
+            f"""CREATE TRIGGER {LEGACY_IDENTIFIER_TABLE}_insert_trigger
+                BEFORE INSERT ON {LEGACY_IDENTIFIER_TABLE}
+                FOR EACH ROW BEGIN
+                    SELECT RAISE(ABORT, 'invalid target')
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM object_view o
+                        WHERE o.table_name = NEW.table_name
+                            AND o.auth_name = NEW.auth_name
+                            AND o.code = NEW.code
+                    );
+                END"""
+        )
+        connection.execute(
+            f"INSERT INTO {LEGACY_IDENTIFIER_TABLE} VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "OSDU",
+                _identifier()["identifier"],
+                "projected_crs",
+                "EPSG",
+                23031,
+                0,
+                "CRS_CT.json",
+            ),
+        )
+        connection.commit()
+
+    appending = make_config(config.base_proj_db, config.output_db, append=True)
+    with ProjDbWriter(appending) as writer:
+        assert writer.connection.execute(
+            f"SELECT identifier, table_name, auth_name, code FROM {IDENTIFIER_TABLE}"
+        ).fetchall() == [(_identifier()["identifier"], "projected_crs", "EPSG", 23031)]
+        assert (
+            writer.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (LEGACY_IDENTIFIER_TABLE,),
+            ).fetchone()
+            is None
+        )
+        assert (
+            writer.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?",
+                (f"idx_{IDENTIFIER_TABLE}_object",),
+            ).fetchone()
+            is not None
+        )
+        assert (
+            writer.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?",
+                (f"{IDENTIFIER_TABLE}_insert_trigger",),
+            ).fetchone()
+            is not None
+        )
+        assert writer.write_identifiers([_identifier()]) == (0, 0)
+        writer.commit()
+
+    assert _identifiers(config.output_db) == [
+        (_identifier()["identifier"], "projected_crs", "EPSG", 23031)
+    ]
+
+
+def test_an_identifier_may_name_another_authoritys_object(
+    config: ProjDbBuildConfig,
+) -> None:
+    """It annotates the EPSG object rather than defining one, like an alias."""
+    with ProjDbWriter(config) as writer:
+        assert writer.write_identifiers([_identifier()], aliases=True) == (1, 1)
+        writer.commit()
+    identifier = _identifier()["identifier"]
+    assert _identifiers(config.output_db) == [
+        (identifier, "projected_crs", "EPSG", 23031)
+    ]
+    assert _identifier_aliases(config.output_db) == [
+        (identifier, "projected_crs", "EPSG", 23031)
+    ]
+
+
+def test_aliases_are_only_written_when_asked_for(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        assert writer.write_identifiers([_identifier()]) == (1, 0)
+        writer.commit()
+    assert _identifier_aliases(config.output_db) == []
+
+
+def test_an_identifier_for_an_absent_object_is_refused(
+    config: ProjDbBuildConfig,
+) -> None:
+    with (
+        ProjDbWriter(config) as writer,
+        pytest.raises(MissingReferencedObjectError, match="does not define"),
+    ):
+        writer.write_identifiers([_identifier(code="99999999")])
+
+
+def test_recording_an_identifier_again_changes_nothing(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()], aliases=True)
+        writer.commit()
+    appending = make_config(config.base_proj_db, config.output_db, append=True)
+    with ProjDbWriter(appending) as writer:
+        assert writer.write_identifiers([_identifier()], aliases=True) == (0, 0)
+        writer.commit()
+    assert len(_identifiers(config.output_db)) == 1
+    assert len(_identifier_aliases(config.output_db)) == 1
+
+
+def test_an_identifier_is_not_silently_moved_to_another_object(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()], aliases=True)
+        writer.commit()
+    appending = make_config(config.base_proj_db, config.output_db, append=True)
+    with (
+        ProjDbWriter(appending) as writer,
+        pytest.raises(ForeignAuthorityCollision, match="already names"),
+    ):
+        writer.write_identifiers([_identifier(code="23032")], aliases=True)
+
+
+def test_a_changed_inactive_flag_is_a_collision_too(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_identifiers([_identifier()])
+        with pytest.raises(ForeignAuthorityCollision, match="inactive"):
+            writer.write_identifiers([_identifier(deprecated=1)])
+
+
+def test_overwriting_moves_the_identifier_and_its_alias(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()], aliases=True)
+        writer.commit()
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        assert writer.write_identifiers([_identifier(code="23032")], aliases=True) == (
+            1,
+            1,
+        )
+        writer.commit()
+    identifier = _identifier()["identifier"]
+    assert _identifiers(config.output_db) == [
+        (identifier, "projected_crs", "EPSG", 23032)
+    ]
+    assert _identifier_aliases(config.output_db) == [
+        (identifier, "projected_crs", "EPSG", 23032)
+    ]
+
+
+_PAYLOAD = (
+    '{"authCode":{"auth":"EPSG","code":"23031"},"name":"ED_1950_UTM_Zone_31N",'
+    '"type":"LBC","ver":"PE_10_9_1","wkt":"PROJCS[\\"ED_1950_UTM_Zone_31N\\"]"}'
+)
+
+
+def _reference(payload: str = _PAYLOAD, **row: Any) -> dict[str, Any]:
+    """The persistableReference of the record :func:`_identifier` records."""
+    return {
+        "scheme": "OSDU",
+        "identifier": _identifier()["identifier"],
+        "kind": "LBC",
+        "name": "ED_1950_UTM_Zone_31N",
+        "stated_auth_name": "EPSG",
+        "stated_code": "23031",
+        "version": "PE_10_9_1",
+        "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        "persistable_reference": payload,
+        "source": "CRS_CT.json",
+    } | row
+
+
+def _references(database: Path) -> list[tuple[Any, ...]]:
+    with closing(sqlite3.connect(database)) as connection:
+        return connection.execute(
+            f"SELECT identifier, kind, persistable_reference "
+            f"FROM {PERSISTABLE_REFERENCE_TABLE}"
+        ).fetchall()
+
+
+def test_the_reference_kinds_allowed_are_the_kinds_there_are() -> None:
+    assert set(PERSISTABLE_REFERENCE_KINDS) == {kind.value for kind in Kind}
+
+
+def test_a_reference_is_recorded_against_a_recorded_id(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        assert writer.write_persistable_references([_reference()]) == (1, 0)
+        writer.commit()
+    assert _references(config.output_db) == [
+        (_identifier()["identifier"], "LBC", _PAYLOAD)
+    ]
+
+
+def test_a_reference_for_an_unrecorded_id_is_refused(
+    config: ProjDbBuildConfig,
+) -> None:
+    """The foreign key ties every reference to an id, and so to an object."""
+    with (
+        ProjDbWriter(config) as writer,
+        pytest.raises(MissingReferencedObjectError, match="does not record"),
+    ):
+        writer.write_persistable_references([_reference()])
+
+
+def test_recording_a_reference_again_changes_nothing(
+    config: ProjDbBuildConfig,
+) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference()])
+        writer.commit()
+    appending = make_config(config.base_proj_db, config.output_db, append=True)
+    with ProjDbWriter(appending) as writer:
+        assert writer.write_persistable_references([_reference()]) == (0, 1)
+        writer.commit()
+    assert len(_references(config.output_db)) == 1
+
+
+def test_a_reference_is_not_silently_replaced(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference()])
+        changed = _PAYLOAD.replace("PE_10_9_1", "PE_10_10")
+        with pytest.raises(ForeignAuthorityCollision, match="different"):
+            writer.write_persistable_references([_reference(changed)])
+
+
+def test_overwriting_replaces_the_reference(config: ProjDbBuildConfig) -> None:
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference()])
+        writer.commit()
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    changed = _PAYLOAD.replace("PE_10_9_1", "PE_10_10")
+    with ProjDbWriter(overwriting) as writer:
+        assert writer.write_persistable_references([_reference(changed)]) == (1, 0)
+        writer.commit()
+    assert _references(config.output_db) == [
+        (_identifier()["identifier"], "LBC", changed)
+    ]
+
+
+def test_moving_an_id_takes_its_reference_away_with_it(
+    config: ProjDbBuildConfig,
+) -> None:
+    """A reference stated for one object must not be handed out for another."""
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference()])
+        writer.commit()
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        writer.write_identifiers([_identifier(code="23032")])
+        writer.commit()
+    assert _references(config.output_db) == []
+
+
+def test_a_changed_inactive_flag_keeps_the_reference(
+    config: ProjDbBuildConfig,
+) -> None:
+    """The id still names the same object, so its reference still belongs to it.
+
+    Appended with references turned off, nothing would record it again.
+    """
+    with ProjDbWriter(config) as writer:
+        writer.write_identifiers([_identifier()], aliases=True)
+        writer.write_persistable_references([_reference()])
+        writer.commit()
+    overwriting = make_config(
+        config.base_proj_db, config.output_db, append=True, overwrite_rows=True
+    )
+    with ProjDbWriter(overwriting) as writer:
+        assert writer.write_identifiers([_identifier(deprecated=1)], aliases=True) == (
+            1,
+            0,
+        )
+        (moved,) = writer.overrides()["identifiers"]
+        writer.commit()
+    assert moved["now"].endswith("(inactive)")
+    assert _references(config.output_db) == [
+        (_identifier()["identifier"], "LBC", _PAYLOAD)
+    ]
+    with closing(sqlite3.connect(config.output_db)) as connection:
+        assert connection.execute(
+            f"SELECT deprecated FROM {IDENTIFIER_TABLE}"
+        ).fetchall() == [(1,)]
+    assert len(_identifier_aliases(config.output_db)) == 1
+
+
+def test_a_reference_states_a_kind_there_is(config: ProjDbBuildConfig) -> None:
+    with (
+        ProjDbWriter(config) as writer,
+        pytest.raises(MissingReferencedObjectError, match="CHECK"),
+    ):
+        writer.write_identifiers([_identifier()])
+        writer.write_persistable_references([_reference(kind="XYZ")])

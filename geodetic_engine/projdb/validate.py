@@ -24,6 +24,7 @@ which is what is under test.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -38,8 +39,37 @@ from pathlib import Path
 from typing import Any
 
 from geodetic_engine.projdb.errors import ProjDbBuildError
+from geodetic_engine.projdb.schema import (
+    IDENTIFIER_TABLE,
+    PERSISTABLE_REFERENCE_TABLE,
+    identifier_alias_source,
+)
 
 logger = logging.getLogger(__name__)
+
+# Which tables, in object_view vocabulary, the object a persistableReference's
+# record names may be in, by the kind of definition the reference states.
+_REFERENCE_KIND_TABLES: dict[str, tuple[str, ...]] = {
+    "LBC": (
+        "geodetic_crs",
+        "projected_crs",
+        "vertical_crs",
+        "compound_crs",
+        "engineering_crs",
+        "derived_projected_crs",
+    ),
+    "ST": (
+        "conversion",
+        "helmert_transformation",
+        "grid_transformation",
+        "other_transformation",
+        "concatenated_operation",
+    ),
+    "USO": ("unit_of_measure",),
+}
+_REFERENCE_KIND_TABLES["EBC"] = _REFERENCE_KIND_TABLES["LBC"]
+_REFERENCE_KIND_TABLES["CT"] = _REFERENCE_KIND_TABLES["ST"]
+_REFERENCE_KIND_TABLES["UAD"] = _REFERENCE_KIND_TABLES["USO"]
 
 _CRS_TABLES = (
     "geodetic_crs",
@@ -129,7 +159,11 @@ def _validate_in_process(
     with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         _check_integrity(connection)
         _check_foreign_keys(connection)
-        logger.info("integrity and foreign key checks passed")
+        identifiers = _check_identifiers(connection)
+        references = _check_persistable_references(connection)
+        logger.info(
+            "integrity, foreign key, identifier and persistable reference checks passed"
+        )
         if imported is None:
             crs_keys = _custom_objects(connection, _CRS_TABLES, authority_list)
             operation_keys = _custom_objects(
@@ -158,6 +192,8 @@ def _validate_in_process(
     return {
         "crs_checked": len(crs_keys),
         "operations_checked": len(operation_keys),
+        "identifiers_checked": identifiers,
+        "persistable_references_checked": references,
         "grids": grids,
         "missing_grids": missing,
     }
@@ -178,6 +214,113 @@ def _check_foreign_keys(connection: sqlite3.Connection) -> None:
         raise ProjDbBuildError(
             f"{len(violations)} foreign key violations in the built database: {sample}"
         )
+
+
+def _check_identifiers(connection: sqlite3.Connection) -> int:
+    """Check every recorded identifier names an object the database defines.
+
+    The table's insert trigger already refuses a dangling row, but nothing
+    stops a later build replacing or removing the object one names. An
+    identifier alias must also still agree with the identifier it mirrors, or
+    PROJ's name search would resolve the identifier to a different object
+    than this package does.
+
+    Returns:
+        How many identifiers were checked; 0 when the database records none.
+    """
+    if not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (IDENTIFIER_TABLE,),
+    ).fetchone():
+        return 0
+    dangling = connection.execute(
+        f"SELECT i.scheme, i.identifier, i.table_name, i.auth_name, i.code "
+        f"FROM {IDENTIFIER_TABLE} i WHERE NOT EXISTS (SELECT 1 FROM object_view o "
+        "WHERE o.table_name = i.table_name AND o.auth_name = i.auth_name "
+        "AND o.code = i.code)"
+    ).fetchall()
+    if dangling:
+        sample = "; ".join(
+            f"{scheme} {identifier!r} -> {table} {auth}:{code}"
+            for scheme, identifier, table, auth, code in dangling[:5]
+        )
+        raise ProjDbBuildError(
+            f"{len(dangling)} identifiers name objects the database does not "
+            f"define: {sample}"
+        )
+    stray: list[str] = []
+    schemes = [
+        str(scheme)
+        for (scheme,) in connection.execute(
+            f"SELECT DISTINCT scheme FROM {IDENTIFIER_TABLE}"
+        )
+    ]
+    for scheme in schemes:
+        rows = connection.execute(
+            "SELECT a.alt_name, a.table_name, a.auth_name, a.code FROM alias_name a "
+            f"WHERE a.source = ? AND NOT EXISTS (SELECT 1 FROM {IDENTIFIER_TABLE} i "
+            "WHERE i.scheme = ? AND i.identifier = a.alt_name "
+            "AND i.table_name = a.table_name AND i.auth_name = a.auth_name "
+            "AND i.code = a.code)",
+            (identifier_alias_source(scheme), scheme),
+        )
+        stray.extend(
+            f"{alias!r} -> {table} {auth}:{code}" for alias, table, auth, code in rows
+        )
+    if stray:
+        raise ProjDbBuildError(
+            f"{len(stray)} identifier aliases disagree with the identifiers they "
+            f"mirror: {'; '.join(stray[:5])}"
+        )
+    (count,) = connection.execute(f"SELECT COUNT(*) FROM {IDENTIFIER_TABLE}").fetchone()
+    return int(count)
+
+
+def _check_persistable_references(connection: sqlite3.Connection) -> int:
+    """Check every recorded persistableReference is intact and fits its object.
+
+    The foreign key to the identifier table, checked with every other foreign
+    key, already ties each reference to a recorded id. What it cannot catch is
+    a payload changed after it was written without its digest, or a reference
+    stating a CRS for an id that names a transformation: either way a caller
+    would be handed something other than what the catalogue published for
+    that object.
+
+    Returns:
+        How many references were checked; 0 when the database records none.
+    """
+    if not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (PERSISTABLE_REFERENCE_TABLE,),
+    ).fetchone():
+        return 0
+    altered: list[str] = []
+    mismatched: list[str] = []
+    count = 0
+    rows = connection.execute(
+        "SELECT r.scheme, r.identifier, r.kind, r.sha256, r.persistable_reference, "
+        f"i.table_name FROM {PERSISTABLE_REFERENCE_TABLE} r "
+        f"LEFT JOIN {IDENTIFIER_TABLE} i "
+        "ON i.scheme = r.scheme AND i.identifier = r.identifier"
+    )
+    for scheme, identifier, kind, digest, payload, table in rows:
+        count += 1
+        actual = hashlib.sha256(str(payload).encode("utf-8")).hexdigest()
+        if actual != digest:
+            altered.append(f"{scheme} {identifier!r}")
+        if table is not None and table not in _REFERENCE_KIND_TABLES.get(kind, ()):
+            mismatched.append(f"{scheme} {identifier!r}: {kind} for a {table}")
+    if altered:
+        raise ProjDbBuildError(
+            f"{len(altered)} persistable references no longer match the digest "
+            f"recorded with them: {'; '.join(altered[:5])}"
+        )
+    if mismatched:
+        raise ProjDbBuildError(
+            f"{len(mismatched)} persistable references state a different kind "
+            f"of object than the one their id names: {'; '.join(mismatched[:5])}"
+        )
+    return count
 
 
 def _custom_objects(

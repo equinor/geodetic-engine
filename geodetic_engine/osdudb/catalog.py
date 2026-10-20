@@ -22,6 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from geodetic_engine.geodesy.osdu_id import CRS_ENTITY as CRS_KIND
+from geodetic_engine.geodesy.osdu_id import TRANSFORMATION_ENTITY as TRANSFORMATION_KIND
+from geodetic_engine.geodesy.osdu_id import parse_osdu_id
 from geodetic_engine.osdudb import translate as tr
 from geodetic_engine.osdudb.errors import OsduCatalogError
 
@@ -32,11 +35,10 @@ JsonObject = dict[str, Any]
 # The array of records in an OSDU manifest.
 REFERENCE_DATA = "ReferenceData"
 
-# Record kinds, matched loosely because the manifest carries a full versioned
-# kind such as ``osdu:wks:reference-data--CoordinateReferenceSystem:1.2.0`` and
-# minor version changes must not silently drop half the catalogue.
-CRS_KIND = "reference-data--CoordinateReferenceSystem"
-TRANSFORMATION_KIND = "reference-data--CoordinateTransformation"
+# Record kinds, CRS_KIND and TRANSFORMATION_KIND above, are matched loosely
+# because the manifest carries a full versioned kind such as
+# ``osdu:wks:reference-data--CoordinateReferenceSystem:1.2.0`` and minor
+# version changes must not silently drop half the catalogue.
 
 # ``CoordinateReferenceSystemType`` values.
 GEODETIC_CRS = "GeodeticCRS"
@@ -62,6 +64,9 @@ class Record:
             ``CoordinateTransformationType``.
         is_operation: Whether this is a coordinate operation rather than a CRS.
         data: The record's ``data`` object, verbatim.
+        osdu_id: The record's id without its data partition, for example
+            ``reference-data--CoordinateReferenceSystem:Projected:EPSG::23031``,
+            or None when the record states none.
     """
 
     auth_name: str
@@ -69,6 +74,7 @@ class Record:
     type: str
     is_operation: bool
     data: JsonObject
+    osdu_id: str | None = None
 
     @property
     def name(self) -> str:
@@ -238,4 +244,23 @@ def _record(entry: JsonObject) -> Record | None:
         type=record_type,
         is_operation=is_operation,
         data=data,
+        osdu_id=_osdu_id(
+            entry, data, TRANSFORMATION_KIND if is_operation else CRS_KIND
+        ),
     )
+
+
+def _osdu_id(entry: JsonObject, data: JsonObject, entity: str) -> str | None:
+    """Read a record's id without its partition, from ``id`` or ``data.ID``.
+
+    The record's own ``id`` is preferred, being what other records reference;
+    ``data.ID`` repeats it without the partition and entity type. An id of
+    the other entity type is not this record's.
+    """
+    for raw, expected in ((entry.get("id"), None), (data.get("ID"), entity)):
+        if not isinstance(raw, str):
+            continue
+        parsed = parse_osdu_id(raw, entity=expected)
+        if parsed is not None and parsed.entity == entity:
+            return parsed.identifier
+    return None

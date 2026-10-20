@@ -79,6 +79,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
+# Example notebooks favour readable cells over line length and import order.
+# Rules that catch real errors, such as F821 undefined names, still apply.
+"examples/*.ipynb" = ["E501", "I001"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

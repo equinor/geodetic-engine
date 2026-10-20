@@ -73,7 +73,9 @@ class SkippedObject:
 
     Whether it was deprecated matters when reading the report: a deprecated
     object that could not be imported is usually of no consequence, while an
-    active one is a gap in the database.
+    active one is a gap in the database. The identifier another scheme gives
+    it, an OSDU record id for one, is kept so a caller naming the object that
+    way is told why it is missing too.
     """
 
     table: str
@@ -82,6 +84,7 @@ class SkippedObject:
     name: str | None
     reason: str
     deprecated: bool = False
+    identifier: str | None = None
 
 
 class AnyBuildContext(Protocol):
@@ -264,6 +267,7 @@ def base_report(
                 "name": item.name,
                 "deprecated": item.deprecated,
                 "reason": item.reason,
+                **({"identifier": item.identifier} if item.identifier else {}),
             }
             for item in context.skipped
         ],

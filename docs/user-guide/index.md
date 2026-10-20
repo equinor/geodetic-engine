@@ -28,12 +28,12 @@ survey by minimum curvature, place it in a CRS, and plot it in 3D.
 :::
 
 :::{grid-item-card} Persistable references
-:link: persistable-reference
+:link: /persistable-reference/index
 :link-type: doc
 
-`geodetic_engine.persistablereference`: read and write the OSDU
+`geodetic_engine.persistablereference`: read, write and look up the OSDU
 `persistableReference` JSON/ESRI-WKT envelope for CRSs, transformations and
-units.
+units. Documented in the Reference section.
 :::
 
 :::{grid-item-card} Georepository client

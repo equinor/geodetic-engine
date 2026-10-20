@@ -59,11 +59,12 @@ def test_installed_database_is_not_patched() -> None:
     """The stock proj.db is copied, never modified in place.
 
     A patched database belongs under the repository -- build/proj.db from
-    scripts/build-projdb.sh, or the opt-in copy .devcontainer/link-local-grids.sh
-    writes -- and is put on PROJ_DATA by hand. Every database outside the
-    repository must be free of the patch rows: otherwise results here carry a
-    fingerprint no stock installation reproduces, and a test can pass here on
-    a mapping a user's installation does not have.
+    scripts/build-projdb.sh, which the devcontainer reads through
+    local/proj-data, or the opt-in copy .devcontainer/link-local-grids.sh
+    writes there. Every database outside the repository must be free of the
+    patch rows: otherwise results here carry a fingerprint no stock
+    installation reproduces, and a test can pass here on a mapping a user's
+    installation does not have.
     """
     installed = [
         directory / "proj.db"

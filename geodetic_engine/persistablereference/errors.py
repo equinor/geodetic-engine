@@ -46,3 +46,11 @@ class UnresolvableGridError(PersistableReferenceError):
     database knows, and a name that matches none of them, or more than one, is
     refused rather than guessed at.
     """
+
+
+class AmbiguousCatalogReferenceError(PersistableReferenceError):
+    """More than one different persistableReference is recorded for an object.
+
+    Raised rather than returning one of them, because each was published by a
+    different catalogue record. Naming the record by its OSDU id settles it.
+    """

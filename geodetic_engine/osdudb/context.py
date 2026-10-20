@@ -77,6 +77,9 @@ class OsduBuildContext:
     deprecated_keys: set[ObjectKey] = field(default_factory=set)
     imported_keys: list[ObjectKey] = field(default_factory=list)
     processed: set[ObjectKey] = field(default_factory=set)
+    # The catalogue records whose id was recorded, by id. Filled once every
+    # object exists, and read by whatever is recorded against those ids.
+    recorded_identifiers: dict[str, Record] = field(default_factory=dict)
 
     def should_import(self, table: str, auth: str, code: str | None) -> bool:
         """Select new or explicitly replaceable objects, never base definitions."""
@@ -179,7 +182,13 @@ class OsduBuildContext:
         deprecated = tr.is_deprecated(record.data)
         self.skipped.append(
             SkippedObject(
-                table, record.auth_name, record.code, record.name, reason, deprecated
+                table,
+                record.auth_name,
+                record.code,
+                record.name,
+                reason,
+                deprecated,
+                identifier=record.osdu_id,
             )
         )
         logger.info(

@@ -1,0 +1,9 @@
+{
+  "project": "https://community.opengroup.org/osdu/data/data-definitions",
+  "path": "ReferenceValues/Manifests/reference-data/LOCAL/CRS_CT.json",
+  "license": "Apache-2.0",
+  "ref": "master",
+  "commit": "e173a56b7e4e7957e402bf14c274b84fcd19352b",
+  "sha256": "c97814107c5c4a82a9e422497da710dae103b1c5ad22984b54dc5ed8d69da587",
+  "url": "https://community.opengroup.org/api/v4/projects/osdu%2Fdata%2Fdata-definitions/repository/files/ReferenceValues%2FManifests%2Freference-data%2FLOCAL%2FCRS_CT.json/raw"
+}
