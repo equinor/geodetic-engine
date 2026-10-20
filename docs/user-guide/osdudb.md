@@ -406,7 +406,8 @@ The report accounts for every record:
   skipped by the build, not in the base `proj.db` (`--authority EPSG` imports
   it), or the record states no id;
 - an id the catalogue publishes for two different objects is recorded for
-  neither;
+  neither; one object published under one id both active and inactive is not
+  ambiguous, and is recorded from its active record;
 - where the catalogue and `proj.db` disagree about an object, usually an EPSG
   rename, it is reported and the id still names the object.
 
@@ -414,10 +415,19 @@ Appending the same catalogue again changes nothing. Appending one that would
 move an id to a different object, because OSDU renumbered a bound CRS for
 example, is refused unless `--overwrite-rows` is given, so an id never silently
 starts resolving to something else. The superseded object itself stays in the
-database. The same holds for an append that publishes an earlier id for more
-than one object: it is refused, and with `--overwrite-rows` the id is removed
-with its alias and persistable reference, so it stops resolving rather than
-going on naming the earlier object.
+database. A persistable reference recorded for a moved id stated the earlier
+object, so it goes with it, even with persistable references turned off; the
+build lists it under the overrides as removed, or as replaced when the
+catalogue publishes a different one for the id. The same holds for an append
+that publishes an earlier id for more than one object: it is refused, and with
+`--overwrite-rows` the id is removed with its alias and persistable reference,
+so it stops resolving rather than going on naming the earlier object.
+
+With `include_deprecated` off, inactive records are left out, but an id an
+earlier build recorded as active whose record the catalogue now marks inactive
+is marked inactive rather than left resolving as active. That is a change to
+the id, so it follows the same `--overwrite-rows` rule. The report counts these
+as `marked_inactive`.
 
 The ids are stored in a table this package adds,
 `geodetic_engine_osdu_object_identifier`, keyed by scheme (`OSDU`) and id, and

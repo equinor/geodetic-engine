@@ -65,9 +65,12 @@ _OPERATION_TABLES: tuple[str, ...] = (
 def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
     """Record the id of every catalogue record that names an object here.
 
-    Inactive records follow ``include_deprecated``, as they do for import. The
-    configured authorities do not limit this: an EPSG record names an EPSG
-    object whether or not EPSG objects are being imported.
+    Inactive records follow ``include_deprecated``, as they do for import,
+    except that an id an earlier build recorded as active is marked inactive
+    when its record now is. The configured authorities do not limit this: an
+    EPSG record names an EPSG object whether or not EPSG objects are being
+    imported. An object published under one id both active and inactive is
+    recorded once, from its active record.
 
     Returns:
         The report's account of it: how many ids were recorded, how many of
@@ -80,9 +83,12 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
     unmapped: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
     by_identifier: dict[str, list[Record]] = defaultdict(list)
+    excluded: dict[str, list[Record]] = defaultdict(list)
 
     for record in context.catalog.records():
         if tr.is_deprecated(record.data) and not context.config.include_deprecated:
+            if record.osdu_id is not None:
+                excluded[record.osdu_id].append(record)
             continue
         if record.osdu_id is None:
             unmapped.append(_entry(record, "the record states no id"))
@@ -93,15 +99,12 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
     ambiguous: list[tuple[str, str, str]] = []
     for identifier, records in by_identifier.items():
         # Before asking whether the object is here: an id published for two
-        # objects is ambiguous even when only one of them was imported.
-        targets = {
-            (record.auth_name, record.code, tr.deprecated_flag(record.data))
-            for record in records
-        }
+        # objects is ambiguous even when only one of them was imported. The
+        # inactive flag is not part of what an id names, so one object
+        # published both active and inactive is not ambiguous.
+        targets = {(record.auth_name, record.code) for record in records}
         if len(targets) > 1:
-            named = ", ".join(
-                sorted(f"{record.auth_name}:{record.code}" for record in records)
-            )
+            named = ", ".join(sorted(f"{auth}:{code}" for auth, code in targets))
             for record in records:
                 unmapped.append(
                     _entry(
@@ -118,7 +121,10 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
                 )
             )
             continue
-        record = records[0]
+        # An active record speaks for the object over an inactive one.
+        record = next(
+            (item for item in records if not tr.is_deprecated(item.data)), records[0]
+        )
         table = _table(context, record)
         if table is None:
             unmapped.append(_entry(record, _missing(context, record, skipped)))
@@ -136,6 +142,9 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
         )
         context.recorded_identifiers[identifier] = record
         warnings.extend(_drift(context, record, table))
+
+    retired = _retired(context, excluded, by_identifier, source)
+    rows.extend(retired)
 
     # An earlier build may have recorded an id this catalogue makes ambiguous;
     # left alone, it would go on resolving while the report says it does not.
@@ -161,9 +170,50 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
         "mapped": len(rows),
         "written": written,
         "aliases_written": aliased,
+        "marked_inactive": len(retired),
         "unmapped": unmapped,
         "warnings": warnings,
     }
+
+
+def _retired(
+    context: OsduBuildContext,
+    excluded: dict[str, list[Record]],
+    included: dict[str, list[Record]],
+    source: str,
+) -> list[dict[str, Any]]:
+    """Ids recorded as active whose records the catalogue now marks inactive.
+
+    With ``include_deprecated`` off an inactive record is left out, but an id
+    an earlier build recorded for it would otherwise go on resolving as
+    active. Only the flag is brought up to date, which like any change to a
+    recorded id needs ``overwrite_rows``: the id keeps naming the object it
+    did, and one whose inactive records name another object is left alone.
+    """
+    rows: list[dict[str, Any]] = []
+    for identifier, records in excluded.items():
+        if identifier in included:
+            continue
+        recorded = context.writer.recorded_identifier(SCHEME, identifier)
+        if recorded is None or recorded[3]:
+            continue
+        table_name, auth_name, code, _ = recorded
+        if any(
+            (record.auth_name, record.code) != (auth_name, code) for record in records
+        ):
+            continue
+        rows.append(
+            {
+                "scheme": SCHEME,
+                "identifier": identifier,
+                "table_name": table_name,
+                "auth_name": auth_name,
+                "code": code,
+                "deprecated": 1,
+                "source": source,
+            }
+        )
+    return rows
 
 
 def _table(context: OsduBuildContext, record: Record) -> str | None:

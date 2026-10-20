@@ -128,7 +128,9 @@ class OsduBuildConfig:
             id, so it can be looked up and exported for the object the id
             names. Enabled by default. When disabled, nothing is written to
             that table and whatever an earlier build recorded there is left as
-            it was.
+            it was, except the reference of an id that ``overwrite_rows`` moves
+            to another object or removes: that stated the earlier object, so it
+            goes with it and the build reports it removed.
         source_file: The config file the settings were read from, if any.
     """
 

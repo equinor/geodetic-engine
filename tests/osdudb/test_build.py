@@ -924,6 +924,73 @@ class TestOsduIds:
         assert moved["now"].startswith("nothing: ")
         assert report.overrides["persistable_references_removed"] == [EPSG_PROJECTED_ID]
 
+    def test_a_moved_id_reports_the_reference_it_takes_with_it(
+        self, run: Build, output_db: Path
+    ) -> None:
+        """It stated the earlier object, so it goes, even with references off."""
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        report = run(
+            epsg_projected(Code="23032"),
+            append=True,
+            overwrite_rows=True,
+            osdu_persistable_references=False,
+        )
+        assert references(output_db) == {}
+        assert report.overrides["persistable_references_removed"] == [EPSG_PROJECTED_ID]
+        assert report.overrides["persistable_references"] == []
+
+    def test_a_moved_id_with_a_new_reference_reports_it_replaced(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        restated = PROJECTED_REFERENCE | {"name": "ED_1950_UTM_Zone_32N"}
+        report = run(
+            referenced(epsg_projected(Code="23032"), restated),
+            append=True,
+            overwrite_rows=True,
+        )
+        assert references(output_db)[EPSG_PROJECTED_ID][-1] == payload(restated)
+        (replaced,) = report.overrides["persistable_references"]
+        assert replaced["identifier"] == EPSG_PROJECTED_ID
+        assert replaced["previous_sha256"] != replaced["sha256"]
+        assert report.overrides["persistable_references_removed"] == []
+
+    def test_one_object_published_active_and_inactive_is_not_ambiguous(
+        self, run: Build, output_db: Path
+    ) -> None:
+        stale = PROJECTED_REFERENCE | {"ver": "PE_10_3_1"}
+        report = run(
+            referenced(epsg_projected(InactiveIndicator=True), stale),
+            referenced(epsg_projected(), PROJECTED_REFERENCE),
+        )
+        assert identifiers(output_db) == {
+            (EPSG_PROJECTED_ID, "projected_crs", "EPSG", "23031", 0)
+        }
+        assert report.identifiers["unmapped"] == []
+        # The active record's reference, not refused as two different ones.
+        assert references(output_db)[EPSG_PROJECTED_ID][-1] == payload(
+            PROJECTED_REFERENCE
+        )
+
+    def test_an_id_whose_record_turns_inactive_is_marked_inactive(
+        self, run: Build, output_db: Path
+    ) -> None:
+        """Even with inactive records left out, it stops resolving as active."""
+        run(epsg_projected())
+        inactive = epsg_projected(InactiveIndicator=True)
+        with pytest.raises(ProjDbBuildError, match="already names"):
+            run(inactive, append=True, include_deprecated=False)
+        report = run(
+            inactive, append=True, include_deprecated=False, overwrite_rows=True
+        )
+        assert identifiers(output_db) == {
+            (EPSG_PROJECTED_ID, "projected_crs", "EPSG", "23031", 1)
+        }
+        assert report.identifiers["marked_inactive"] == 1
+        # Left out otherwise: nothing else is recorded for it.
+        again = run(inactive, append=True, include_deprecated=False)
+        assert again.identifiers["marked_inactive"] == 0
+
     def test_validation_refuses_an_alias_that_disagrees_with_its_id(
         self, run: Build, output_db: Path
     ) -> None:

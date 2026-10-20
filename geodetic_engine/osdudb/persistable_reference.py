@@ -121,9 +121,14 @@ def collect_persistable_references(context: OsduBuildContext) -> dict[str, Any]:
 
     for identifier, records in published.items():
         record = context.recorded_identifiers[identifier]
+        # The id was recorded from its active record when it has one, so that
+        # record's reference is the one for it, not an inactive duplicate's.
+        speaking = [
+            item for item in records if not tr.is_deprecated(item.data)
+        ] or records
         stated = {
             raw
-            for item in records
+            for item in speaking
             if isinstance(raw := item.data.get(FIELD), str) and raw.strip()
         }
         try:

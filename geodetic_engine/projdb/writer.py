@@ -103,6 +103,9 @@ class ProjDbWriter:
         self._moved_identifiers: list[dict[str, str]] = []
         self._replaced_references: list[dict[str, str]] = []
         self._removed_references: list[str] = []
+        # The digest of each reference removed with an identifier that moved
+        # to another object, so one recorded again is reported as replaced.
+        self._displaced_references: dict[tuple[str, str], str] = {}
 
     def is_base_object(self, table: str, auth: str, code: str) -> bool:
         """Whether a key belongs to the protected base database."""
@@ -484,7 +487,10 @@ class ProjDbWriter:
         so the same source can be appended twice. Recording it against a
         different object is a collision, refused unless ``overwrite_rows`` is
         configured, because a caller already resolving that identifier would
-        otherwise silently get a different object.
+        otherwise silently get a different object. A persistableReference
+        recorded for a moved identifier stated the earlier object, so it is
+        removed with it and reported, as removed or, once this build records
+        another for the identifier, as replaced.
 
         Args:
             rows: Mappings with every column of ``IDENTIFIER_COLUMNS``; the
@@ -556,6 +562,12 @@ class ProjDbWriter:
                         ):
                             aliased += 1
                         continue
+                    # The reference stated the object the id named, so the
+                    # foreign key removes it with the id; report that.
+                    digest = self._reference_digest(scheme, identifier)
+                    if digest is not None:
+                        self._displaced_references[(scheme, identifier)] = digest
+                        self._removed_references.append(identifier)
                     self.connection.execute(
                         f"DELETE FROM {IDENTIFIER_TABLE} "
                         "WHERE scheme = ? AND identifier = ?",
@@ -736,6 +748,20 @@ class ProjDbWriter:
                     "WHERE scheme = ? AND identifier = ?",
                     (scheme, identifier),
                 )
+            elif (
+                displaced := self._displaced_references.pop((scheme, identifier), None)
+            ) is not None:
+                # Removed earlier in this build with an id that moved, and now
+                # recorded again: a replacement, not a removal.
+                self._removed_references.remove(identifier)
+                if displaced != str(row["sha256"]):
+                    self._replaced_references.append(
+                        {
+                            "identifier": identifier,
+                            "previous_sha256": displaced,
+                            "sha256": str(row["sha256"]),
+                        }
+                    )
             try:
                 self.connection.execute(
                     f"INSERT INTO {PERSISTABLE_REFERENCE_TABLE} ({columns}) "
@@ -756,16 +782,44 @@ class ProjDbWriter:
 
     def persistable_reference_recorded(self, scheme: str, identifier: str) -> bool:
         """Whether a persistableReference is already recorded for a record id."""
-        if not self.connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (PERSISTABLE_REFERENCE_TABLE,),
-        ).fetchone():
-            return False
+        return self._reference_digest(scheme, identifier) is not None
+
+    def _reference_digest(self, scheme: str, identifier: str) -> str | None:
+        """The digest of the reference recorded for a record id, if any."""
+        if not self._table_exists(PERSISTABLE_REFERENCE_TABLE):
+            return None
+        found = self.connection.execute(
+            f"SELECT sha256 FROM {PERSISTABLE_REFERENCE_TABLE} "
+            "WHERE scheme = ? AND identifier = ?",
+            (scheme, identifier),
+        ).fetchone()
+        return None if found is None else str(found[0])
+
+    def recorded_identifier(
+        self, scheme: str, identifier: str
+    ) -> tuple[str, str, str, bool] | None:
+        """The object an earlier build recorded an identifier against, if any.
+
+        Returns:
+            The object's ``table_name``, ``auth_name`` and ``code``, and the
+            identifier's inactive flag; None when it is not recorded.
+        """
+        if not self._table_exists(IDENTIFIER_TABLE):
+            return None
+        found = self.connection.execute(
+            f"SELECT table_name, auth_name, code, deprecated FROM {IDENTIFIER_TABLE} "
+            "WHERE scheme = ? AND identifier = ?",
+            (scheme, identifier),
+        ).fetchone()
+        if found is None:
+            return None
+        return str(found[0]), str(found[1]), str(found[2]), bool(found[3])
+
+    def _table_exists(self, table: str) -> bool:
         return bool(
             self.connection.execute(
-                f"SELECT 1 FROM {PERSISTABLE_REFERENCE_TABLE} "
-                "WHERE scheme = ? AND identifier = ?",
-                (scheme, identifier),
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
             ).fetchone()
         )
 
