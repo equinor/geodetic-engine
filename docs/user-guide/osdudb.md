@@ -414,7 +414,10 @@ Appending the same catalogue again changes nothing. Appending one that would
 move an id to a different object, because OSDU renumbered a bound CRS for
 example, is refused unless `--overwrite-rows` is given, so an id never silently
 starts resolving to something else. The superseded object itself stays in the
-database.
+database. The same holds for an append that publishes an earlier id for more
+than one object: it is refused, and with `--overwrite-rows` the id is removed
+with its alias and persistable reference, so it stops resolving rather than
+going on naming the earlier object.
 
 The ids are stored in a table this package adds,
 `geodetic_engine_osdu_object_identifier`, keyed by scheme (`OSDU`) and id, and

@@ -75,9 +75,10 @@ All notable changes to this project are documented here. The format follows
   approximately, so a mistyped id is refused rather than resolved to a near
   miss. A bound CRS's id resolves to the bound CRS. Ids that name nothing are
   listed in the report with the reason, an id published for two objects is
-  recorded for neither, an append that would move an id to another object is
-  refused without `--overwrite-rows`, and validation checks every id still
-  names an object. Each id is also written as a PROJ alias (source `OSDU_ID`)
+  recorded for neither, an append that would move an id to another object, or
+  publish an earlier id for more than one object, is refused without
+  `--overwrite-rows`, which moves or removes it, and validation checks every id
+  still names an object. Each id is also written as a PROJ alias (source `OSDU_ID`)
   for tools reading the database through PROJ; PROJ matches aliases
   approximately, so `--no-osdu-id-aliases` / `osdu_id_aliases = false` leaves
   them out. `inspect` counts the ids by scheme. The OSDU user guide shows how

@@ -897,6 +897,33 @@ class TestOsduIds:
         assert {row[3] for row in identifiers(output_db)} == {"23032"}
         assert {row[3] for row in identifier_aliases(output_db)} == {"23032"}
 
+    def test_an_append_that_makes_an_earlier_id_ambiguous_is_refused(
+        self, run: Build, output_db: Path
+    ) -> None:
+        run(epsg_projected())
+        with pytest.raises(ProjDbBuildError, match="would name nothing"):
+            run(epsg_projected(), epsg_projected(Code="23032"), append=True)
+        assert {row[3] for row in identifiers(output_db)} == {"23031"}
+
+    def test_overwriting_removes_an_id_the_append_makes_ambiguous(
+        self, run: Build, output_db: Path
+    ) -> None:
+        """It stops resolving, rather than go on naming the earlier object."""
+        run(referenced(epsg_projected(), PROJECTED_REFERENCE))
+        report = run(
+            epsg_projected(),
+            epsg_projected(Code="23032"),
+            append=True,
+            overwrite_rows=True,
+        )
+        assert identifiers(output_db) == set()
+        assert identifier_aliases(output_db) == set()
+        assert references(output_db) == {}
+        (moved,) = report.overrides["identifiers"]
+        assert moved["identifier"] == EPSG_PROJECTED_ID
+        assert moved["now"].startswith("nothing: ")
+        assert report.overrides["persistable_references_removed"] == [EPSG_PROJECTED_ID]
+
     def test_validation_refuses_an_alias_that_disagrees_with_its_id(
         self, run: Build, output_db: Path
     ) -> None:
@@ -1173,6 +1200,21 @@ class TestPersistableReferences:
                 "WKT is malformed",
             ),
             (payload(envelope("EBC", "EPSG", "23031", "x")), "malformed"),
+            (
+                payload(
+                    envelope(
+                        "EBC",
+                        "EPSG",
+                        "23031",
+                        "x",
+                        lateBoundCRS=payload(
+                            envelope("LBC", "EPSG", "23031", "x", wkt='PROJCS["x",')
+                        ),
+                        singleCT=TRANSFORMATION_REFERENCE,
+                    )
+                ),
+                "WKT is malformed",
+            ),
             (payload(TRANSFORMATION_REFERENCE), "states a single transformation"),
         ],
         ids=[
@@ -1181,6 +1223,7 @@ class TestPersistableReferences:
             "not-a-string",
             "bad-wkt",
             "no-ct",
+            "bad-wkt-in-a-string-encoded-member",
             "wrong-entity",
         ],
     )

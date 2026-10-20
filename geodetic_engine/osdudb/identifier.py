@@ -90,6 +90,7 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
         by_identifier[record.osdu_id].append(record)
 
     rows: list[dict[str, Any]] = []
+    ambiguous: list[tuple[str, str, str]] = []
     for identifier, records in by_identifier.items():
         # Before asking whether the object is here: an id published for two
         # objects is ambiguous even when only one of them was imported.
@@ -109,6 +110,13 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
                         f"one object ({named}), so it is recorded for none",
                     )
                 )
+            ambiguous.append(
+                (
+                    SCHEME,
+                    identifier,
+                    f"the catalogue publishes it for more than one object ({named})",
+                )
+            )
             continue
         record = records[0]
         table = _table(context, record)
@@ -129,6 +137,9 @@ def collect_identifiers(context: OsduBuildContext) -> dict[str, Any]:
         context.recorded_identifiers[identifier] = record
         warnings.extend(_drift(context, record, table))
 
+    # An earlier build may have recorded an id this catalogue makes ambiguous;
+    # left alone, it would go on resolving while the report says it does not.
+    context.writer.remove_identifiers(ambiguous)
     written, aliased = context.writer.write_identifiers(
         rows, aliases=context.config.osdu_id_aliases
     )

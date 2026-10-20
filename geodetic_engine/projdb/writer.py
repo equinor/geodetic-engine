@@ -429,8 +429,8 @@ class ProjDbWriter:
             ``objects``, each object whose definition changed, with the columns
             (or ``axes``, ``steps``) that did; ``unchanged``, how many objects
             this build stated exactly as they already were; ``identifiers``,
-            each id that now names a different object or changed its inactive
-            flag; and
+            each id that now names a different object or nothing, or changed
+            its inactive flag; and
             ``persistable_references`` and ``persistable_references_removed``,
             each record id whose reference was replaced or removed.
         """
@@ -576,6 +576,67 @@ class ProjDbWriter:
         if aliased:
             self.inserted["alias_name"] += aliased
         return written, aliased
+
+    def remove_identifiers(self, removals: Sequence[tuple[str, str, str]]) -> int:
+        """Remove identifiers an earlier build recorded that a source now refuses.
+
+        An identifier this database does not record is passed over. One it
+        does is removed with its alias and, through the foreign key, its
+        persistableReference, so that it stops resolving rather than going on
+        naming the earlier object.
+
+        Args:
+            removals: The scheme, the identifier, and why the source records it
+                for nothing, as a clause about the identifier.
+
+        Returns:
+            How many identifiers were removed.
+
+        Raises:
+            ForeignAuthorityCollision: If an identifier is recorded and
+                ``overwrite_rows`` is not configured, since removing it changes
+                what it resolves to.
+        """
+        if not removals:
+            return 0
+        for statement in IDENTIFIER_DDL:
+            self.connection.execute(statement)
+        removed = 0
+        for scheme, identifier, why in removals:
+            existing = self.connection.execute(
+                f"SELECT table_name, auth_name, code, deprecated FROM "
+                f"{IDENTIFIER_TABLE} WHERE scheme = ? AND identifier = ?",
+                (scheme, identifier),
+            ).fetchone()
+            if existing is None:
+                continue
+            previous = (str(existing[0]), str(existing[1]), str(existing[2]))
+            was = (
+                f"{previous[0]} {previous[1]}:{previous[2]}"
+                f"{' (inactive)' if existing[3] else ''}"
+            )
+            if not self._config.overwrite_rows:
+                raise ForeignAuthorityCollision(
+                    f"{scheme} identifier {identifier!r} already names {was}, but "
+                    f"{why}, so it would name nothing. The build is aborted rather "
+                    f"than changing what the identifier resolves to.{_OVERWRITE_HINT}"
+                )
+            if self.persistable_reference_recorded(scheme, identifier):
+                self._removed_references.append(identifier)
+            self.connection.execute(
+                f"DELETE FROM {IDENTIFIER_TABLE} WHERE scheme = ? AND identifier = ?",
+                (scheme, identifier),
+            )
+            self.connection.execute(
+                "DELETE FROM alias_name WHERE table_name = ? AND "
+                "auth_name = ? AND code = ? AND alt_name = ? AND source = ?",
+                (*previous, identifier, identifier_alias_source(scheme)),
+            )
+            self._moved_identifiers.append(
+                {"identifier": identifier, "previous": was, "now": f"nothing: {why}"}
+            )
+            removed += 1
+        return removed
 
     def _insert_identifier(self, row: Row) -> None:
         values = tuple(row.get(column) for column in IDENTIFIER_COLUMNS)

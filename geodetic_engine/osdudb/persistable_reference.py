@@ -48,7 +48,12 @@ from geodetic_engine.osdudb.catalog import (
 from geodetic_engine.osdudb.context import OsduBuildContext
 from geodetic_engine.osdudb.identifier import catalogue_source
 from geodetic_engine.persistablereference import esriwkt
-from geodetic_engine.persistablereference.envelope import Envelope, Kind, decode
+from geodetic_engine.persistablereference.envelope import (
+    Envelope,
+    Kind,
+    decode,
+    json_object,
+)
 from geodetic_engine.persistablereference.errors import (
     MalformedReferenceError,
     PersistableReferenceError,
@@ -64,6 +69,9 @@ FIELD = "PersistableReference"
 
 _CRS_KINDS = frozenset({Kind.LATE_BOUND_CRS, Kind.EARLY_BOUND_CRS})
 _OPERATION_KINDS = frozenset({Kind.TRANSFORMATION, Kind.CONCATENATED_TRANSFORMATION})
+
+# Members holding a nested reference, which may be published as a JSON string.
+_NESTED_MEMBERS = frozenset({"lateboundcrs", "singlect", "compoundct", "cts"})
 
 # The kind a record of each type is expected to state. A CRS type absent here
 # expects a late bound CRS.
@@ -271,11 +279,11 @@ def _envelope(record: Record, raw: str) -> Envelope:
         raise _Unusable(f"it is malformed: {error}") from error
     except PersistableReferenceError:
         pass
-    for wkt in _wkt(envelope.data):
-        try:
+    try:
+        for wkt in _wkt(envelope.data):
             esriwkt.read(wkt)
-        except MalformedReferenceError as error:
-            raise _Unusable(f"its WKT is malformed: {error}") from error
+    except MalformedReferenceError as error:
+        raise _Unusable(f"its WKT is malformed: {error}") from error
 
     expected = _OPERATION_KINDS if record.is_operation else _CRS_KINDS
     if envelope.kind not in expected:
@@ -327,17 +335,27 @@ def _row(identifier: str, raw: str, envelope: Envelope, source: str) -> dict[str
     }
 
 
-def _wkt(data: Any) -> Iterator[str]:
-    """Every ESRI WKT a reference carries, at any depth."""
-    if isinstance(data, dict):
+def _wkt(data: Any, *, nested: bool = False) -> Iterator[str]:
+    """Every ESRI WKT a reference carries, at any depth.
+
+    A nested reference published as a JSON string is decoded and walked too.
+
+    Raises:
+        MalformedReferenceError: If such a string is not a readable object.
+    """
+    if isinstance(data, str):
+        if nested:
+            yield from _wkt(json_object(data))
+    elif isinstance(data, dict):
         for key, value in data.items():
-            if key.casefold() == "wkt" and isinstance(value, str):
+            folded = key.casefold()
+            if folded == "wkt" and isinstance(value, str):
                 yield value
             else:
-                yield from _wkt(value)
+                yield from _wkt(value, nested=folded in _NESTED_MEMBERS)
     elif isinstance(data, list):
         for value in data:
-            yield from _wkt(value)
+            yield from _wkt(value, nested=nested)
 
 
 def _described(kind: Kind) -> str:

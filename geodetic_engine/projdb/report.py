@@ -63,9 +63,10 @@ class BuildReport:
             does: every object whose definition changed and the columns that
             did (``objects``), how many objects were stated exactly as they
             already were (``unchanged``), every id that now names a different
-            object or changed its inactive flag (``identifiers``), and every
-            record id whose persistableReference was replaced or removed
-            (``persistable_references``, ``persistable_references_removed``).
+            object or nothing, or changed its inactive flag (``identifiers``),
+            and every record id whose persistableReference was replaced or
+            removed (``persistable_references``,
+            ``persistable_references_removed``).
     """
 
     built_at: str
@@ -299,8 +300,8 @@ def _log_overrides(overrides: dict[str, Any]) -> None:
             logger.log(level, "      changed: %s", ", ".join(item["changed"]))
     if identifiers := overrides.get("identifiers"):
         logger.warning(
-            "%d id(s) an earlier build recorded now name a different object, "
-            "or the same one with its inactive flag changed:",
+            "%d id(s) an earlier build recorded now name a different object or "
+            "nothing, or the same one with its inactive flag changed:",
             len(identifiers),
         )
         for level, item in _listed(identifiers):
