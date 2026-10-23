@@ -119,7 +119,9 @@ dtypes are accepted and converted at this boundary. Result buffers remain
 valid after subsequent calls; there is no reusable scratch buffer that
 silently overwrites earlier results. The result's attributes are frozen,
 but callers may modify its arrays. Complex and masked arrays are rejected
-rather than silently discarding imaginary components or masks.
+rather than silently discarding imaginary components or masks. Masked rows
+or scalars nested inside sequences or object arrays are also rejected before
+array conversion; ordinary numeric arrays are not scanned element by element.
 
 Use `numeric.to_numpy()` only when a row-oriented array is needed: it allocates
 and combines the columns. `numeric.to_result()` explicitly materialises the

@@ -657,9 +657,30 @@ class Transformation:
         )
 
 
+def _require_unmasked(values: object) -> None:
+    pending = [values]
+    visited: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if np.ma.isMaskedArray(value):
+            raise TypeError("masked coordinates must be resolved before transformation")
+        children: Iterable[object]
+        if isinstance(value, np.ndarray):
+            if not value.dtype.hasobject:
+                continue
+            children = value.flat
+        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+            children = iter(value)
+        else:
+            continue
+        if id(value) not in visited:
+            visited.add(id(value))
+            pending.extend(children)
+
+
 def _numeric_array(values: ArrayLike) -> NDArray[np.generic]:
-    if np.ma.isMaskedArray(values):
-        raise TypeError("masked coordinates must be resolved before transformation")
+    # Coercion discards masks on nested arrays as well as top-level arrays.
+    _require_unmasked(values)
     array = np.asarray(values)
     if np.iscomplexobj(array):
         raise TypeError("coordinate values must be real numbers")

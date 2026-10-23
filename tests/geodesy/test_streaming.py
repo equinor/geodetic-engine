@@ -200,6 +200,35 @@ def test_input_is_unchanged_after_proj_failure(projection: Transformation) -> No
     np.testing.assert_array_equal(rows, before)
 
 
+@pytest.mark.parametrize("container", ["list", "tuple", "object-array"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_nested_masked_rows_are_rejected(
+    projection: Transformation, container: str, streaming: bool
+) -> None:
+    row = np.ma.array([10.0, 60.0], mask=[False, True])
+    batch: ArrayLike
+    if container == "object-array":
+        rows = np.empty(1, dtype=object)
+        rows[0] = row
+        batch = rows
+    elif container == "tuple":
+        batch = (row,)
+    else:
+        batch = [row]
+    with pytest.raises(TypeError, match="masked coordinates"):
+        if streaming:
+            next(projection.transform_batches([batch]))
+        else:
+            projection.transform_arrays(batch)
+
+
+def test_nested_masked_axis_scalars_are_rejected(
+    projection: Transformation,
+) -> None:
+    with pytest.raises(TypeError, match="masked coordinates"):
+        projection.transform_arrays([10.0], [np.ma.masked])
+
+
 def test_batch_consumption_is_lazy_and_results_are_independent(
     projection: Transformation,
 ) -> None:
