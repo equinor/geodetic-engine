@@ -15,9 +15,73 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 from geodetic_engine.geodesy.operation import AppliedOperation, GridUsage
+
+type FloatArray = NDArray[np.float64]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class ArrayTransformationResult:
+    """A numeric batch with provenance, without Python objects per point.
+
+    ``columns`` contains one contiguous, writable ``float64`` array per output
+    axis, in coordinate value order. These buffers belong to this result:
+    inputs are never modified, and later batches do not overwrite them.
+    The dataclass is frozen, but its arrays can be modified by the caller.
+
+    Provenance fields have the same meaning as on :class:`TransformationResult`.
+    Use :meth:`to_result` only when the tuple-based API or JSON export is needed.
+    """
+
+    columns: tuple[FloatArray, ...]
+    source_crs: CoordinateReferenceSystem
+    target_crs: CoordinateReferenceSystem
+    operation: AppliedOperation
+    grids: tuple[GridUsage, ...]
+    coordinate_epoch: float | None
+    coordinate_order: str = "xy"
+    pipeline: str | None = None
+    database_fingerprints: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def count(self) -> int:
+        """Number of points in this batch."""
+        return len(self.columns[0])
+
+    def to_numpy(self) -> FloatArray:
+        """Allocate a row-oriented array of shape ``(count, output_axes)``."""
+        return np.column_stack(self.columns)
+
+    def metadata_json_dict(self) -> dict[str, Any]:
+        """Export provenance only, without allocating coordinate rows.
+
+        A streaming adapter can encode this once before sending numeric batches
+        with the same CRS pair, operation and epoch.
+        """
+        return _metadata_json_dict(self)
+
+    def to_result(self) -> TransformationResult:
+        """Materialise Python coordinate tuples and retain all provenance."""
+        return TransformationResult(
+            coordinates=Coordinates(
+                (
+                    tuple(float(value) for value in row)
+                    for row in zip(*self.columns, strict=True)
+                ),
+                target_crs=self.target_crs,
+            ),
+            source_crs=self.source_crs,
+            target_crs=self.target_crs,
+            operation=self.operation,
+            grids=self.grids,
+            coordinate_epoch=self.coordinate_epoch,
+            coordinate_order=self.coordinate_order,
+            pipeline=self.pipeline,
+            database_fingerprints=self.database_fingerprints,
+        )
 
 
 class Coordinates(tuple[tuple[float, ...], ...]):
@@ -277,47 +341,7 @@ class TransformationResult:
         """
         return {
             "coordinates": [list(row) for row in self.coordinates],
-            "coordinate_order": self.coordinate_order,
-            "coordinate_epoch": self.coordinate_epoch,
-            "source_crs": self.source_crs.authority_code or self.source_crs.name,
-            "target_crs": self.target_crs.authority_code or self.target_crs.name,
-            "source_crs_wkt": self.source_crs.crs.to_wkt(),
-            "target_crs_wkt": self.target_crs.crs.to_wkt(),
-            "source_axes": list(self.source_axes),
-            "source_units": list(self.source_units),
-            "target_axes": list(self.target_axes),
-            "target_units": list(self.target_units),
-            "operation": {
-                "requested": self.operation.requested,
-                "applied": self.operation.authority_code,
-                "name": self.operation.name,
-                "method": self.operation.method_name,
-                "accuracy_m": self.operation.accuracy,
-                "route": str(self.operation.route),
-                "steps": list(self.operation.steps),
-                "ballpark": self.operation.ballpark,
-                "requires_epoch": self.operation.requires_epoch,
-                "execution_direction": self.operation.execution_direction.value,
-                "bound_operations": list(self.operation.bound_operations),
-                "axis_order_corrected": self.operation.axis_order_corrected,
-                "definition": json.loads(self.operation.projjson)
-                if self.operation.projjson
-                else None,
-            },
-            "grids": [
-                {
-                    "name": grid.name,
-                    "available": grid.available,
-                    "package": grid.package_name,
-                    "url": grid.url,
-                    "full_name": grid.full_name,
-                    "open_license": grid.open_license,
-                    "direct_download": grid.direct_download,
-                }
-                for grid in self.grids
-            ],
-            "pipeline": self.pipeline,
-            "database_fingerprints": dict(self.database_fingerprints),
+            **_metadata_json_dict(self),
         }
 
     def to_json(self, *, pretty: bool = True) -> str:
@@ -336,3 +360,52 @@ class TransformationResult:
             {"coordinates": [[10.7522, 59.9139]], ...}
         """
         return json.dumps(self.to_json_dict(), indent=2 if pretty else None)
+
+
+def _metadata_json_dict(
+    result: TransformationResult | ArrayTransformationResult,
+) -> dict[str, Any]:
+    """The shared provenance schema, independent of coordinate storage."""
+    return {
+        "coordinate_order": result.coordinate_order,
+        "coordinate_epoch": result.coordinate_epoch,
+        "source_crs": result.source_crs.authority_code or result.source_crs.name,
+        "target_crs": result.target_crs.authority_code or result.target_crs.name,
+        "source_crs_wkt": result.source_crs.crs.to_wkt(),
+        "target_crs_wkt": result.target_crs.crs.to_wkt(),
+        "source_axes": list(result.source_crs.axis_abbreviations),
+        "source_units": list(result.source_crs.axis_units),
+        "target_axes": list(result.target_crs.axis_abbreviations),
+        "target_units": list(result.target_crs.axis_units),
+        "operation": {
+            "requested": result.operation.requested,
+            "applied": result.operation.authority_code,
+            "name": result.operation.name,
+            "method": result.operation.method_name,
+            "accuracy_m": result.operation.accuracy,
+            "route": str(result.operation.route),
+            "steps": list(result.operation.steps),
+            "ballpark": result.operation.ballpark,
+            "requires_epoch": result.operation.requires_epoch,
+            "execution_direction": result.operation.execution_direction.value,
+            "bound_operations": list(result.operation.bound_operations),
+            "axis_order_corrected": result.operation.axis_order_corrected,
+            "definition": json.loads(result.operation.projjson)
+            if result.operation.projjson
+            else None,
+        },
+        "grids": [
+            {
+                "name": grid.name,
+                "available": grid.available,
+                "package": grid.package_name,
+                "url": grid.url,
+                "full_name": grid.full_name,
+                "open_license": grid.open_license,
+                "direct_download": grid.direct_download,
+            }
+            for grid in result.grids
+        ],
+        "pipeline": result.pipeline,
+        "database_fingerprints": dict(result.database_fingerprints),
+    }
