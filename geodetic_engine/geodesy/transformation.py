@@ -513,10 +513,17 @@ class Transformation:
             >>> tfm.transform(-144.0, 72.0, 548.4082).coordinates
             ((556.38...,),)
         """
+        # Object arrays keep the value-by-value normalisation below, as lists
+        # do: it reads a 1D array of (lon, lat) tuples, such as a pandas
+        # Series of them after to_numpy(), as one point per tuple.
         if (
             isinstance(x, np.ndarray)
             and (y is None or isinstance(y, np.ndarray | int | float))
             and (z is None or isinstance(z, np.ndarray | int | float))
+            and not any(
+                isinstance(value, np.ndarray) and value.dtype.hasobject
+                for value in (x, y, z)
+            )
         ):
             return self.transform_arrays(
                 x, y, z, coordinate_epoch=coordinate_epoch
