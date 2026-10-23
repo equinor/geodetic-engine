@@ -31,13 +31,15 @@ import json
 import math
 import os
 import warnings
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Generator, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
 from pyproj import CRS, Transformer, datadir
 from pyproj.crs import CoordinateOperation
 from pyproj.enums import TransformDirection
@@ -82,7 +84,11 @@ from geodetic_engine.geodesy.operation import (
     parse_operations,
     requires_epoch,
 )
-from geodetic_engine.geodesy.result import Coordinates, TransformationResult
+from geodetic_engine.geodesy.result import (
+    ArrayTransformationResult,
+    FloatArray,
+    TransformationResult,
+)
 
 _VERTICAL_DIRECTIONS = frozenset({"up", "down"})
 
@@ -164,12 +170,16 @@ class _Pipeline:
         return self.steps if self.corrected is None else self.corrected
 
     def run(
-        self, columns: Sequence[Sequence[float]], epoch: float | None
-    ) -> list[list[float]]:
-        """Apply every step in order, carrying all coordinate components through."""
-        values: list[list[float]] = [list(column) for column in columns]
+        self, columns: tuple[FloatArray, ...], epoch: float | None
+    ) -> tuple[FloatArray, ...]:
+        """Apply every step in place to privately owned coordinate buffers."""
+        values = columns
+        times = None if epoch is None else np.full(len(columns[0]), epoch)
         for transformer, direction in self.executed:
-            values = _apply(transformer, values, epoch, direction)
+            if times is not None and epoch is not None:
+                # Every leg reads the observation year, not the previous output time.
+                times.fill(epoch)
+            values = _apply(transformer, values, times, direction)
         return values
 
     @property
@@ -292,6 +302,7 @@ class Transformation:
         "_database_fingerprints",
         "_grids",
         "_pipeline",
+        "_pipeline_text",
         "_requests",
         "_requires_epoch",
         "_source",
@@ -410,6 +421,7 @@ class Transformation:
             requires_epoch=self._requires_epoch,
         )
         self._pipeline = pipeline
+        self._pipeline_text = pipeline.text
 
     @property
     def source_crs(self) -> CoordinateReferenceSystem:
@@ -501,6 +513,21 @@ class Transformation:
             >>> tfm.transform(-144.0, 72.0, 548.4082).coordinates
             ((556.38...,),)
         """
+        # Object arrays keep the value-by-value normalisation below, as lists
+        # do: it reads a 1D array of (lon, lat) tuples, such as a pandas
+        # Series of them after to_numpy(), as one point per tuple.
+        if (
+            isinstance(x, np.ndarray)
+            and (y is None or isinstance(y, np.ndarray | int | float))
+            and (z is None or isinstance(z, np.ndarray | int | float))
+            and not any(
+                isinstance(value, np.ndarray) and value.dtype.hasobject
+                for value in (x, y, z)
+            )
+        ):
+            return self.transform_arrays(
+                x, y, z, coordinate_epoch=coordinate_epoch
+            ).to_result()
         if y is None:
             if z is not None:
                 raise TypeError(
@@ -520,11 +547,72 @@ class Transformation:
             columns = _columns_from_axes(
                 self._source, cast("Iterable[float] | float", x), y, z
             )
+        return self._transform_columns(
+            tuple(np.array(column, dtype=np.float64) for column in columns),
+            coordinate_epoch,
+        ).to_result()
+
+    def transform_arrays(
+        self,
+        x: ArrayLike,
+        y: ArrayLike | None = None,
+        z: ArrayLike | None = None,
+        *,
+        coordinate_epoch: float | None = None,
+    ) -> ArrayTransformationResult:
+        """Transform a numeric batch without materialising Python point objects.
+
+        Accept a row array of shape ``(n_points, n_values)`` (or one flat
+        point), or separate one-dimensional axes. Scalar axes broadcast.
+        Each input axis is copied once into a private contiguous float64
+        working buffer, then transformed in place through every pipeline step.
+        Strided, read-only and non-float64 inputs are accepted; caller buffers
+        are never modified, including when execution fails.
+
+        Output columns are independent of the inputs and of later calls.
+        Geodetic rules, output dimensions and errors match :meth:`transform`.
+        Use :meth:`transform_batches` for a lazy stream of bounded row batches.
+        """
+        return self._transform_columns(
+            _array_columns(self._source, x, y, z), coordinate_epoch
+        )
+
+    def transform_batches(
+        self,
+        batches: Iterable[ArrayLike],
+        *,
+        coordinate_epoch: float | None = None,
+    ) -> Generator[ArrayTransformationResult]:
+        """Lazily transform row batches, with no prefetch or retained history.
+
+        The producer controls each batch's size and when it is available.
+        Only the next batch is read when the consumer advances the iterator.
+        Results own their arrays and remain valid after subsequent batches.
+        Range and non-finite-result errors report stream-global point indexes.
+        Errors stop iteration; batches already yielded are not rolled back.
+        No network I/O, threads or asynchronous scheduling are performed here.
+        """
+        offset = 0
+        for batch in batches:
+            result = self._transform_columns(
+                _array_columns(self._source, batch, None, None),
+                coordinate_epoch,
+                point_offset=offset,
+            )
+            offset += result.count
+            yield result
+
+    def _transform_columns(
+        self,
+        columns: tuple[FloatArray, ...],
+        coordinate_epoch: float | None,
+        *,
+        point_offset: int = 0,
+    ) -> ArrayTransformationResult:
         if coordinate_epoch is not None and not math.isfinite(coordinate_epoch):
             raise MissingCoordinateEpochError("coordinate epoch must be finite")
-        count = len(columns[0]) if columns else 0
 
-        _require_in_range(self._source, columns)
+        _require_in_range(self._source, columns, point_offset=point_offset)
 
         # PROJ workaround, see the note above _entry_step: remove this call
         # once PROJ no longer leaves a residual axisswap at a vertical end.
@@ -550,18 +638,16 @@ class Transformation:
             ) from error
 
         indices = _output_indices(self._target, len(produced))
-        rows = tuple(
-            tuple(produced[index][point] for index in indices) for point in range(count)
-        )
-        _require_finite(rows, self._source, self._target)
+        output = tuple(produced[index] for index in indices)
+        _require_finite(output, self._source, self._target, point_offset=point_offset)
 
         applied, grids = self._applied, self._grids
-        pipeline_text = self._pipeline.text
+        pipeline_text = self._pipeline_text
         if swapped:
             pipeline_text = _report_horizontal_swap(pipeline_text)
 
-        return TransformationResult(
-            coordinates=Coordinates(rows, target_crs=self._target),
+        return ArrayTransformationResult(
+            columns=output,
             source_crs=self._source,
             target_crs=self._target,
             operation=applied,
@@ -576,6 +662,83 @@ class Transformation:
             f"Transformation({_label(self._source)} -> {_label(self._target)}, "
             f"operation={self._applied.authority_code or self._applied.name!r})"
         )
+
+
+def _require_unmasked(values: object) -> None:
+    pending = [values]
+    visited: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if np.ma.isMaskedArray(value):
+            raise TypeError("masked coordinates must be resolved before transformation")
+        children: Iterable[object]
+        if isinstance(value, np.ndarray):
+            if not value.dtype.hasobject:
+                continue
+            children = value.flat
+        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+            children = iter(value)
+        else:
+            continue
+        if id(value) not in visited:
+            visited.add(id(value))
+            pending.extend(children)
+
+
+def _numeric_array(values: ArrayLike) -> NDArray[np.generic]:
+    # Coercion discards masks on nested arrays as well as top-level arrays.
+    _require_unmasked(values)
+    array = np.asarray(values)
+    if np.iscomplexobj(array):
+        raise TypeError("coordinate values must be real numbers")
+    return array
+
+
+def _array_columns(
+    crs: CoordinateReferenceSystem,
+    x: ArrayLike,
+    y: ArrayLike | None,
+    z: ArrayLike | None,
+) -> tuple[FloatArray, ...]:
+    """Normalise a numeric batch into independent owned axis buffers."""
+    if y is None:
+        if z is not None:
+            raise TypeError(
+                "z was given without y; pass x, y and z as separate "
+                "per-axis values, or x alone as the whole set of points"
+            )
+        rows = _numeric_array(x)
+        if rows.ndim == 0:
+            raise TypeError(
+                "a single number is not a point; give every value of the "
+                "point, for example (lon, lat), or pass x, y and z as "
+                "separate per-axis values"
+            )
+        if rows.ndim == 1:
+            rows = rows.reshape(1, -1) if rows.size else rows.reshape(0, crs.dimension)
+        if rows.ndim != 2:
+            raise ValueError("points must be a flat point or a two-dimensional array")
+        _require_width(crs, rows.shape[1])
+        return tuple(
+            np.array(rows[:, axis], dtype=np.float64, order="C", copy=True)
+            for axis in range(rows.shape[1])
+        )
+
+    axes = (x, y) if z is None else (x, y, z)
+    _require_width(crs, len(axes))
+    arrays = tuple(_numeric_array(axis) for axis in axes)
+    if any(axis.ndim > 1 for axis in arrays):
+        raise ValueError("separate axes must be scalars or one-dimensional arrays")
+    lengths = {len(axis) for axis in arrays if axis.ndim == 1}
+    if len(lengths) > 1:
+        raise ValueError(f"axes have differing batch sizes: {sorted(lengths)}")
+    count = lengths.pop() if lengths else 1
+    return tuple(
+        np.full(count, axis.item(), dtype=np.float64)
+        if axis.ndim == 0
+        else np.array(axis, dtype=np.float64, order="C", copy=True)
+        for axis in arrays
+    )
 
 
 def _columns(
@@ -1742,23 +1905,25 @@ def _identifier(definition: dict[str, Any]) -> tuple[str, str] | None:
 
 def _apply(
     transformer: Transformer,
-    values: list[list[float]],
-    epoch: float | None,
+    values: tuple[FloatArray, ...],
+    times: FloatArray | None,
     direction: TransformDirection,
-) -> list[list[float]]:
+) -> tuple[FloatArray, ...]:
     """Run one transformer over every coordinate component at once."""
     count = len(values[0]) if values else 0
     arguments: dict[str, Any] = {
         "xx": values[0],
-        "yy": values[1] if len(values) > 1 else [0.0] * count,
+        "yy": values[1] if len(values) > 1 else np.zeros(count),
     }
     if len(values) > 2:
         arguments["zz"] = values[2]
-    if epoch is not None:
-        arguments["tt"] = [epoch] * count
+    if times is not None:
+        arguments["tt"] = times
 
-    produced = transformer.transform(**arguments, direction=direction, errcheck=True)
-    return [list(component) for component in produced[: len(values)]]
+    produced = transformer.transform(
+        **arguments, direction=direction, errcheck=True, inplace=True
+    )
+    return tuple(produced[: len(values)])
 
 
 def _compose_pipeline(
@@ -1910,8 +2075,8 @@ def _swaps_horizontal(step: str) -> bool:
 def _order_horizontal_for_pipeline(
     source: CoordinateReferenceSystem,
     pipeline: _Pipeline,
-    columns: tuple[tuple[float, ...], ...],
-) -> tuple[tuple[tuple[float, ...], ...], bool]:
+    columns: tuple[FloatArray, ...],
+) -> tuple[tuple[FloatArray, ...], bool]:
     """Hand a vertical CRS's position to PROJ in the order the pipeline reads it.
 
     Coordinate values reach this package in ``xy`` order, and PROJ's
@@ -1925,7 +2090,7 @@ def _order_horizontal_for_pipeline(
     Args:
         source: Source CRS.
         pipeline: The pipeline the values are about to be run through.
-        columns: One tuple of values per axis, in ``xy`` order.
+        columns: One owned array per axis, in ``xy`` order.
 
     Returns:
         The columns with the horizontal pair transposed when the pipeline reads
@@ -2322,8 +2487,8 @@ def _carry_unread_horizontal(
     target: CoordinateReferenceSystem,
     applied: AppliedOperation,
     grids: tuple[GridUsage, ...],
-    columns: tuple[tuple[float, ...], ...],
-) -> tuple[tuple[float, ...], ...]:
+    columns: tuple[FloatArray, ...],
+) -> tuple[FloatArray, ...]:
     """Withhold a horizontal position that the applied shift never reads.
 
     A height travelling between two vertical CRSs is usually accompanied by
@@ -2341,7 +2506,7 @@ def _carry_unread_horizontal(
         target: Target CRS.
         applied: The operation being applied.
         grids: Grids that operation depends on.
-        columns: One tuple of values per axis.
+        columns: One owned array per axis.
 
     Returns:
         The columns, with the horizontal pair blanked when it cannot be read,
@@ -2358,12 +2523,16 @@ def _carry_unread_horizontal(
     ):
         return columns
 
-    blank = (0.0,) * len(columns[0])
-    return (blank, blank, columns[2])
+    columns[0].fill(0.0)
+    columns[1].fill(0.0)
+    return columns
 
 
 def _require_in_range(
-    source: CoordinateReferenceSystem, columns: tuple[tuple[float, ...], ...]
+    source: CoordinateReferenceSystem,
+    columns: Sequence[Sequence[float] | FloatArray],
+    *,
+    point_offset: int = 0,
 ) -> None:
     """Refuse a latitude or longitude a geographic CRS's axis unit cannot represent.
 
@@ -2395,34 +2564,43 @@ def _require_in_range(
     # Latitude first: when both values are metres, the one read as latitude is
     # the diagnostic the caller can act on.
     for value_index, axis, limit in checks:
-        for point, value in enumerate(columns[value_index]):
-            if math.isfinite(value) and abs(value) > limit:
-                raise CoordinateOutOfRangeError(
-                    f"point {point} has {axis.name.lower()} {value} "
-                    f"{axis.unit_name}, outside the valid range "
-                    f"[-{limit:g}, {limit:g}] for {_label(source)}; values are "
-                    f"given in {source.value_axis_abbreviations} order and in "
-                    f"{source.axis_units} -- projected coordinates in metres "
-                    "need a projected CRS"
-                )
+        values = np.asarray(columns[value_index])
+        invalid = np.isfinite(values) & (np.abs(values) > limit)
+        if np.any(invalid):
+            point = int(np.argmax(invalid))
+            value = float(values[point])
+            raise CoordinateOutOfRangeError(
+                f"point {point + point_offset} has {axis.name.lower()} {value} "
+                f"{axis.unit_name}, outside the valid range "
+                f"[-{limit:g}, {limit:g}] for {_label(source)}; values are "
+                f"given in {source.value_axis_abbreviations} order and in "
+                f"{source.axis_units} -- projected coordinates in metres "
+                "need a projected CRS"
+            )
 
 
 def _require_finite(
-    rows: tuple[tuple[float, ...], ...],
+    columns: tuple[FloatArray, ...],
     source: CoordinateReferenceSystem,
     target: CoordinateReferenceSystem,
+    *,
+    point_offset: int = 0,
 ) -> None:
     """Refuse to return an infinite or undefined coordinate.
 
     PROJ signals an unrepresentable result with infinity. Returned as-is it
     would propagate silently into whatever consumes it.
     """
-    for index, row in enumerate(rows):
-        if not all(math.isfinite(value) for value in row):
-            raise TransformationFailedError(
-                f"point {index} has no finite representation transforming "
-                f"{_label(source)} to {_label(target)}; PROJ produced {row}"
-            )
+    finite = np.ones(len(columns[0]), dtype=np.bool_)
+    for column in columns:
+        finite &= np.isfinite(column)
+    if not np.all(finite):
+        index = int(np.argmin(finite))
+        row = tuple(float(column[index]) for column in columns)
+        raise TransformationFailedError(
+            f"point {index + point_offset} has no finite representation transforming "
+            f"{_label(source)} to {_label(target)}; PROJ produced {row}"
+        )
 
 
 def _label(crs: CoordinateReferenceSystem) -> str:

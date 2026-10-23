@@ -96,6 +96,26 @@ def test_transform_accepts_a_numpy_array() -> None:
     assert result.coordinates == expected.coordinates
 
 
+def test_transform_accepts_a_1d_object_array_of_points() -> None:
+    """A 1D object array of point tuples works, one tuple per point.
+
+    ``to_numpy()`` gives such an array for a pandas Series of tuples.
+    """
+    points = np.fromiter([OSLO_XY, BERGEN_XY], dtype=object)
+    expected = transform("EPSG:4326", "EPSG:3395", [OSLO_XY, BERGEN_XY])
+    result = transform("EPSG:4326", "EPSG:3395", points)
+
+    assert result.coordinates == expected.coordinates
+
+
+def test_an_object_array_axis_is_read_like_a_list() -> None:
+    """A None in it is refused, as in a list, rather than coerced to NaN."""
+    lons = np.array([OSLO_XY[0], BERGEN_XY[0]])
+    lats = np.array([OSLO_XY[1], None], dtype=object)
+    with pytest.raises(TypeError):
+        transform("EPSG:4326", "EPSG:3395", lons, lats)
+
+
 def test_points_are_stored_per_axis() -> None:
     """Values are reshaped one list per axis, which is the shape PROJ wants."""
     crs = CoordinateReferenceSystem.from_user_input("EPSG:4326")

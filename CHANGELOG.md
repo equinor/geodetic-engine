@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `Transformation.transform_arrays()` returns owned NumPy axis buffers with
+  provenance, without allocating Python objects per output point.
+  `transform_batches()` lazily processes numeric row batches without prefetch
+  or retained history. Inputs are never modified; array execution uses private
+  contiguous buffers in place through PROJ, vectorised validation and cached
+  pipeline text. The existing tuple-based API and geodetic rules are preserved.
+  `ArrayTransformationResult.metadata_json_dict()` exports provenance separately
+  from coordinates for streaming adapters. An engine benchmark compares the
+  numeric and legacy paths to raw pyproj and measures bounded-stream allocations.
 - `geodetic_engine.geodesy.projection_factors`: grid convergence, point scale
   factor, meridional and areal scale and angular distortion at any point of a
   projected CRS, read through a bound CRS's base and a compound CRS's
