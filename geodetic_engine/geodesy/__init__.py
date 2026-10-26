@@ -62,7 +62,11 @@ from geodetic_engine.geodesy.operation import (
     OperationStep,
     StatedOperation,
 )
-from geodetic_engine.geodesy.result import Coordinates, TransformationResult
+from geodetic_engine.geodesy.result import (
+    ArrayTransformationResult,
+    Coordinates,
+    TransformationResult,
+)
 from geodetic_engine.geodesy.transformation import (
     Transformation,
     available_operations,
@@ -73,6 +77,7 @@ __all__ = [
     "AmbiguousOperationError",
     "AppliedOperation",
     "AreaOfUse",
+    "ArrayTransformationResult",
     "AxisSpec",
     "BallparkTransformationError",
     "CoordinateOutOfRangeError",

@@ -20,6 +20,9 @@ exactly as specified is refused with an error rather than approximated.
   coordinate epoch.
 - **Provenance on every result.** The applied operation, grids, epoch, the exact
   PROJ pipeline, and fingerprints of the `proj.db` that answered.
+- **Numeric batches and lazy streams.** Reuse a `Transformation` with
+  `transform_arrays()` for owned NumPy output buffers, or `transform_batches()`
+  for lazy bounded batches, without constructing Python objects per output point.
 - **OSDU `persistableReference` support.** Read and write the JSON/ESRI WKT
   envelope, and transform with exactly what it states.
 - **Custom PROJ databases.** Add a Georepository register's or an OSDU
