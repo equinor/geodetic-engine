@@ -128,7 +128,7 @@ first: pyproj reads the database from the first entry only. Grid-only
 directories, such as the devcontainer's `local/grids`, go after:
 
 ```bash
-export PROJ_DATA="/path/to/build:/usr/local/share/proj"
+export PROJ_DATA="/path/to/build:$(python -c 'import pyproj; print(pyproj.datadir.get_data_dir())')"
 ```
 
 ```python

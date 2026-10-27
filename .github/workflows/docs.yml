@@ -94,6 +94,14 @@ jobs:
           EOF
           touch site/.nojekyll
 
+      # The package index of the pyproj wheels pyproj-wheels.yml releases.
+      # Pages serves one site, so the index is written with the docs rather
+      # than deployed on its own, which would replace them.
+      - name: Add the pyproj package index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/build_wheel_index.py "${{ github.repository }}" site/simple
+
       - name: Upload the site for review
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4

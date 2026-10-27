@@ -4,6 +4,10 @@ A build needs nothing but the catalogue file, so the common case is::
 
     geodetic-osdudb build CRS_CT.json
 
+An installed package can build its bundled official catalogue offline with::
+
+    geodetic-osdudb build --official
+
 The official OSDU catalogue is committed in ``catalogs/osdu/``. It is updated
 to the newest OSDU publishes, for the change to be reviewed and committed, with::
 
@@ -34,6 +38,7 @@ from geodetic_engine.osdudb.download import (
     LATEST,
     download_official_catalog,
 )
+from geodetic_engine.osdudb.official import official_catalog
 from geodetic_engine.persistablereference import (
     Kind,
     export_persistable_references_from_catalog,
@@ -69,6 +74,11 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         nargs="?",
         help="the OSDU manifest to read, for example CRS_CT.json",
+    )
+    build_cmd.add_argument(
+        "--official",
+        action="store_true",
+        help="build the verified official catalogue included with this release",
     )
     build_cmd.add_argument(
         "--config", type=Path, help="TOML file with an [osdudb] table"
@@ -332,7 +342,20 @@ def _overrides(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _build(args: argparse.Namespace) -> int:
-    config = load_config(config_file=args.config, **_overrides(args))
+    if args.official:
+        if args.catalog is not None:
+            print(
+                "error: --official cannot be combined with a catalogue path",
+                file=sys.stderr,
+            )
+            return 2
+        with official_catalog() as (catalog, version):
+            return _run_build(args, {"catalog": catalog, "catalog_version": version})
+    return _run_build(args, {})
+
+
+def _run_build(args: argparse.Namespace, extra: dict[str, Any]) -> int:
+    config = load_config(config_file=args.config, **(_overrides(args) | extra))
 
     return run_build(
         config,

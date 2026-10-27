@@ -2,9 +2,9 @@ geodetic-engine
 Copyright 2026 Equinor ASA
 Licensed under the Apache License, Version 2.0; see LICENSE.
 
-This product includes the OSDU coordinate reference catalogue, unmodified, in
-catalogs/osdu, from which scripts/install-osdu-projdb.sh builds the OSDU CRSs
-and transformations into proj.db.
+This product includes the OSDU coordinate reference catalogue, unmodified,
+committed in catalogs/osdu and included in the installed Python package under
+geodetic_engine/osdudb/_data. The catalogue can be built into proj.db.
 
 OSDU Data Definitions
 https://community.opengroup.org/osdu/data/data-definitions
@@ -12,6 +12,7 @@ ReferenceValues/Manifests/reference-data/LOCAL/CRS_CT.json, at the commit
 recorded in catalogs/osdu/CRS_CT_osdu_official_crs_catalog.source.json
 Licensed under the Apache License, Version 2.0.
 - catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json
+  (installed under geodetic_engine/osdudb/_data)
 
 This product includes third-party material in its test suite, tests/bingrid,
 where it serves as test references only. The geodetic_engine.bingrid package

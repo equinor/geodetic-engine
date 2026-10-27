@@ -687,90 +687,6 @@ wheels = [
 ]
 
 [[package]]
-name = "geodetic-engine"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "filelock" },
-    { name = "httpx" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pyproj" },
-    { name = "python-dotenv" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "hypothesis" },
-    { name = "ipykernel" },
-    { name = "kaleido" },
-    { name = "matplotlib" },
-    { name = "mypy" },
-    { name = "nbformat" },
-    { name = "pandas-stubs" },
-    { name = "plotly" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-]
-docs = [
-    { name = "furo" },
-    { name = "kaleido" },
-    { name = "myst-nb" },
-    { name = "nbformat" },
-    { name = "plotly" },
-    { name = "sphinx" },
-    { name = "sphinx-argparse" },
-    { name = "sphinx-autobuild" },
-    { name = "sphinx-autodoc-typehints" },
-    { name = "sphinx-copybutton" },
-    { name = "sphinx-design" },
-    { name = "sphinxcontrib-mermaid" },
-]
-plot = [
-    { name = "kaleido" },
-    { name = "nbformat" },
-    { name = "plotly" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "filelock", specifier = ">=3.16" },
-    { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.8" },
-    { name = "geodetic-engine", extras = ["plot"], marker = "extra == 'docs'" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
-    { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.29" },
-    { name = "kaleido", marker = "extra == 'dev'", specifier = ">=1.0" },
-    { name = "kaleido", marker = "extra == 'plot'", specifier = ">=1.0" },
-    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.9" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
-    { name = "myst-nb", marker = "extra == 'docs'", specifier = ">=1.2" },
-    { name = "nbformat", marker = "extra == 'dev'", specifier = ">=5.10" },
-    { name = "nbformat", marker = "extra == 'plot'", specifier = ">=5.10" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "pandas", specifier = ">=2.0" },
-    { name = "pandas-stubs", marker = "extra == 'dev'", specifier = ">=2.0" },
-    { name = "plotly", marker = "extra == 'dev'", specifier = ">=6.1" },
-    { name = "plotly", marker = "extra == 'plot'", specifier = ">=6.1" },
-    { name = "pyproj", specifier = "==3.8.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
-    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.0" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.1" },
-    { name = "sphinx-argparse", marker = "extra == 'docs'", specifier = ">=0.5" },
-    { name = "sphinx-autobuild", marker = "extra == 'docs'", specifier = ">=2024.10" },
-    { name = "sphinx-autodoc-typehints", marker = "extra == 'docs'", specifier = ">=2.5" },
-    { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5" },
-    { name = "sphinx-design", marker = "extra == 'docs'", specifier = ">=0.6" },
-    { name = "sphinxcontrib-mermaid", marker = "extra == 'docs'", specifier = ">=1.0" },
-]
-provides-extras = ["dev", "plot", "docs"]
-
-[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1918,6 +1834,90 @@ sdist = { url = "https://files.pythonhosted.org/packages/1b/7d/92392ff7815c21062
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl", hash = "sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992", size = 48172, upload-time = "2026-01-21T14:26:50.693Z" },
 ]
+
+[[package]]
+name = "pygeodetic-engine"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "filelock" },
+    { name = "httpx" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pyproj" },
+    { name = "python-dotenv" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "hypothesis" },
+    { name = "ipykernel" },
+    { name = "kaleido" },
+    { name = "matplotlib" },
+    { name = "mypy" },
+    { name = "nbformat" },
+    { name = "pandas-stubs" },
+    { name = "plotly" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+]
+docs = [
+    { name = "furo" },
+    { name = "kaleido" },
+    { name = "myst-nb" },
+    { name = "nbformat" },
+    { name = "plotly" },
+    { name = "sphinx" },
+    { name = "sphinx-argparse" },
+    { name = "sphinx-autobuild" },
+    { name = "sphinx-autodoc-typehints" },
+    { name = "sphinx-copybutton" },
+    { name = "sphinx-design" },
+    { name = "sphinxcontrib-mermaid" },
+]
+plot = [
+    { name = "kaleido" },
+    { name = "nbformat" },
+    { name = "plotly" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "filelock", specifier = ">=3.16" },
+    { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.8" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
+    { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.29" },
+    { name = "kaleido", marker = "extra == 'dev'", specifier = ">=1.0" },
+    { name = "kaleido", marker = "extra == 'plot'", specifier = ">=1.0" },
+    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.9" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
+    { name = "myst-nb", marker = "extra == 'docs'", specifier = ">=1.2" },
+    { name = "nbformat", marker = "extra == 'dev'", specifier = ">=5.10" },
+    { name = "nbformat", marker = "extra == 'plot'", specifier = ">=5.10" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pandas", specifier = ">=2.0" },
+    { name = "pandas-stubs", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "plotly", marker = "extra == 'dev'", specifier = ">=6.1" },
+    { name = "plotly", marker = "extra == 'plot'", specifier = ">=6.1" },
+    { name = "pygeodetic-engine", extras = ["plot"], marker = "extra == 'docs'" },
+    { name = "pyproj", specifier = "==3.8.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.1" },
+    { name = "sphinx-argparse", marker = "extra == 'docs'", specifier = ">=0.5" },
+    { name = "sphinx-autobuild", marker = "extra == 'docs'", specifier = ">=2024.10" },
+    { name = "sphinx-autodoc-typehints", marker = "extra == 'docs'", specifier = ">=2.5" },
+    { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5" },
+    { name = "sphinx-design", marker = "extra == 'docs'", specifier = ">=0.6" },
+    { name = "sphinxcontrib-mermaid", marker = "extra == 'docs'", specifier = ">=1.0" },
+]
+provides-extras = ["dev", "plot", "docs"]
 
 [[package]]
 name = "pygments"

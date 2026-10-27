@@ -1,7 +1,36 @@
 # Installation
 
-`geodetic-engine` needs Python 3.13 or newer, **PROJ {{ proj_version }} built
-from source**, and **pyproj {{ pyproj_version }} built against that PROJ**.
+`geodetic-engine` needs Python 3.13 or newer, **PROJ {{ proj_version }}**, and
+**pyproj {{ pyproj_version }} built against that PROJ**.
+
+## Install the released package
+
+```bash
+pip install "pygeodetic-engine" "pyproj==3.8.0+proj9.9.0" \
+    --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+```
+
+The explicit pyproj requirement selects the matching wheel even when another
+pyproj 3.8.0 is already installed. The same arguments work with
+`uv pip install`. The wheel workflow builds CPython 3.13, 3.14 and 3.15
+wheels for manylinux x86-64 and aarch64, macOS arm64 and x86-64, and Windows
+AMD64. If the index has no wheel for your Python or platform, build PROJ from
+source as described below, then install pyproj against it:
+
+```bash
+PROJ_DIR=/usr/local PROJ_WHEEL=false python -m pip install \
+    --force-reinstall --no-binary=pyproj "pyproj==3.8.0"
+python -m pip install "pygeodetic-engine"
+```
+
+Set `PROJ_DIR` to the actual PROJ installation prefix. On Windows, set
+`PROJ_DIR` and `PROJ_WHEEL` in the environment before running pip. The package
+does not restrict newer Python versions merely because a wheel is unavailable.
+The source-built test suite runs on CPython 3.13 and 3.15.
+
+The wheel includes the committed official OSDU catalogue. To build it into a
+database without a repository checkout or network access, use
+`geodetic-osdudb build --official`; see {doc}`/user-guide/osdudb`.
 
 
 ## Why the versions are pinned
@@ -11,12 +40,15 @@ Every answer this library gives depends on the EPSG dataset inside PROJ's
 other accuracies, sometimes other parameters. To get the same coordinates
 everywhere, the PROJ version has to be the same everywhere.
 
-The pyproj wheels on PyPI bundle their own copy of PROJ. Installing one would
-silently replace the pinned PROJ with whatever the wheel ships, so pyproj is
-built from source instead. `pyproject.toml` enforces this for `uv` with
-`no-binary-package = ["pyproj"]`.
+The pyproj wheels on PyPI bundle their own copy of PROJ, which may not be the
+pinned release. This project's index supplies wheels built against the pinned
+PROJ; a source build against that PROJ works too. Importing `geodetic_engine`
+checks the linked PROJ version and fails with installation guidance if it does
+not match. For development, `pyproject.toml` asks `uv` to build pyproj from
+source with `no-binary-package = ["pyproj"]`.
 
-`tests/test_environment.py` checks the environment before anything else runs:
+`tests/test_environment.py` checks the source-built development environment
+before anything else runs:
 
 - pyproj is {{ pyproj_version }} and PROJ is {{ proj_version }};
 - PROJ's data directory is not a copy inside `site-packages`;
@@ -122,13 +154,13 @@ working.
 ## Checking an existing environment
 
 ```bash
-uv run python -c "import pyproj; print(pyproj.proj_version_str, pyproj.datadir.get_data_dir())"
+python -c "import geodetic_engine, pyproj; print(pyproj.proj_version_str, pyproj.datadir.get_data_dir())"
 ```
 
-The first value should be {{ proj_version }}, the second PROJ's data directory,
-such as `/usr/local/share/proj`. If the second value is under `site-packages`,
-pyproj was installed from a wheel and is using its own bundled PROJ. Reinstall
-it from source as in step 3.
+The first value should be {{ proj_version }}, the second PROJ's data directory.
+The project's wheel keeps its data under `site-packages`; a source build may
+use `/usr/local/share/proj`. A different PROJ version raises an error when the
+package is imported.
 
 ## Grids
 
@@ -136,6 +168,12 @@ Grid-based operations (NTv2, NADCON, geoid models) read grid files from PROJ's
 data directory. The devcontainer installs the whole `proj-data` package, about
 800 MB. Elsewhere, fetch individual grids with PROJ's own tool,
 `projsync --file <name>`.
+
+The custom wheel honors `PROJ_DATA`. If it names a custom `proj.db`, put that
+database's directory first and grid-only directories after it. If it names only
+grid directories, the wheel keeps its bundled database and adds those
+directories to the search path. An explicit `pyproj.datadir.set_data_dir`
+continues to take precedence.
 
 If a grid an operation needs is missing, this package raises
 {class}`~geodetic_engine.geodesy.MissingGridError` and names the file. It never

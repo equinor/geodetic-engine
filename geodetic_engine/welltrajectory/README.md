@@ -63,8 +63,14 @@ TrajectoryInput.from_csv(example).compute()
 given separately. `MinimumCurvature` works on its own, without a CRS, for
 offsets, dogleg severity and interpolation.
 
-Plotting needs the `plot` extra: `pip install 'geodetic-engine[plot]'`, which
-brings plotly and kaleido. `plot_trajectory()`, or `WellTrajectory.plot()`,
+Plotting needs the `plot` extra, which brings plotly and kaleido:
+
+```bash
+pip install "pygeodetic-engine[plot]" "pyproj==3.8.0+proj9.9.0" \
+    --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+```
+
+`plot_trajectory()`, or `WellTrajectory.plot()`,
 builds a 3D figure with every axis at one scale, to rotate, pan, zoom and hover
 for MD, angles, TVD and dogleg severity. The survey stations are marked on each
 path, to show it passing through them; `stations=False` leaves the markers

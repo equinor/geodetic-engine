@@ -218,8 +218,8 @@ def unresolved_reason(osdu: OsduId) -> str:
         return (
             "the active proj.db records no OSDU ids; build one from the OSDU "
             "catalogue that publishes the record with geodetic-osdudb and put "
-            "it on PROJ's data path (scripts/install-osdu-projdb.sh does both "
-            "for the official catalogue)"
+            "it on PROJ's data path (geodetic-osdudb build --official builds "
+            "the bundled official catalogue)"
         )
     return (
         f"the active proj.db records no OSDU id {osdu.identifier!r}, so the "

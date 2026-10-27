@@ -47,6 +47,28 @@ of problem it is:
   the bin grid property tests with fresh Hypothesis examples, then the dataset
   sweep, with a coverage floor of 80 % across the unit tests and the sweep.
 
+## pyproj wheel builds
+
+The **pyproj wheels** workflow caches the native PROJ build and its
+dependencies separately for each platform and architecture. Linux caches a
+manylinux image layer; macOS caches PROJ and its dependency prefix; Windows
+caches PROJ separately from vcpkg's installed dependencies. Cache identities
+include the source versions, build configuration, and relevant toolchain and
+runner details. Every run still builds and smoke-tests each Python wheel.
+Linux wheels are also tested in the unmodified manylinux image.
+
+The first build for a set of inputs is cold. To prime caches available to
+other branches, run the workflow manually on the default branch with
+**publish** unchecked. Pull-request caches are scoped to that pull request and
+cannot prime the default branch or other pull requests. GitHub may evict
+unused caches, so a later run can be cold again.
+
+For a clean native rebuild, run the workflow manually with **rebuild_native**
+checked. This bypasses both native and vcpkg cache restores and saves for that
+run; it does not delete existing caches. If a restored cache fails validation,
+delete the affected cache in GitHub Actions or use a clean rebuild to diagnose
+it. Do not select **publish** unless a release is intended.
+
 ## Building the documentation
 
 The documentation is built with [Sphinx](https://www.sphinx-doc.org/). Pages

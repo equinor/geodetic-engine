@@ -1,0 +1,96 @@
+name: pypi_release
+
+# Publishes geodetic-engine to TestPyPI or PyPI as pygeodetic-engine, chosen
+# when the workflow is run (Actions > pypi_release > Run workflow). PyPI
+# refuses geodetic-engine as too close to the existing geodeticengine; the
+# import name is still geodetic_engine. Trusted publishing: each index
+# trusts this workflow file and the environment named after it, so no token is
+# stored.
+#
+# The package is pure Python. pyproj with the pinned PROJ comes from the index
+# pyproj-wheels.yml publishes, not from here.
+
+run-name: Publish ${{ inputs.version || 'the pyproject.toml version' }} to ${{ inputs.target }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to publish
+        type: choice
+        options:
+          - testpypi
+          - pypi
+        default: testpypi
+      version:
+        description: Version to publish, e.g. 0.1.0 or 0.1.0rc1. Leave empty to use the version in pyproject.toml
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      # The input reaches the shell through the environment, never inline, and
+      # is limited to public PEP 440 versions before it is written anywhere.
+      - name: Set the version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ -n "$VERSION" ]]; then
+            if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+)*((a|b|rc)[0-9]+)?(\.post[0-9]+)?(\.dev[0-9]+)?$ ]]; then
+              echo "::error::'$VERSION' is not a version PyPI accepts, such as 0.1.0, 0.1.0rc1 or 0.1.0.dev1"
+              exit 1
+            fi
+            sed -i -E "s/^version = \"[^\"]*\"$/version = \"$VERSION\"/" pyproject.toml
+          fi
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [[ -n "$VERSION" && "$version" != "$VERSION" ]]; then
+            echo "::error::could not set the version in pyproject.toml"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing pygeodetic-engine $version to ${{ inputs.target }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the sdist and the wheel
+        run: uv build
+
+      - name: Check the distributions
+        run: uvx twine check --strict dist/*
+
+      - name: Verify the bundled OSDU catalogue
+        run: python3 scripts/check_package_dist.py dist/*.whl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.target }}
+      url: ${{ inputs.target == 'pypi' && 'https://pypi.org' || 'https://test.pypi.org' }}/project/pygeodetic-engine/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: ${{ inputs.target == 'pypi' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}

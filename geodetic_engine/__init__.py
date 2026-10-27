@@ -1,3 +1,10 @@
 """Geodetic transformation engine built on PROJ."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version as _version
+
+from geodetic_engine._environment import require_pinned_proj as _require_pinned_proj
+
+_require_pinned_proj()
+
+# The PyPI name, which differs from the import name.
+__version__ = _version("pygeodetic-engine")

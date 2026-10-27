@@ -7,6 +7,27 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Packaging. `pyproj-wheels.yml` builds pyproj with pyproj's own release
+  tooling against the pinned PROJ, read from `.devcontainer/install-proj.sh`,
+  and releases the wheels on GitHub as `pyproj 3.8.0+proj9.9.0`. The
+  documentation site serves them as a package index under `simple/`.
+  `pypi_release.yml`, run by hand, publishes the package to TestPyPI or PyPI,
+  as chosen, with trusted publishing. It is published as `pygeodetic-engine`,
+  since PyPI refuses `geodetic-engine` as too close to the existing
+  `geodeticengine`; it is still imported as `geodetic_engine`.
+  `geodetic_engine.__version__` is read from the installed package's metadata,
+  so it reports the version that was published.
+- Installed packages reject a pyproj linked to a different PROJ. The custom
+  wheels honor `PROJ_DATA` ahead of their bundled database, and the documented
+  installation commands select the exact pinned wheel even when another
+  pyproj is already installed. The wheel includes the official OSDU catalogue;
+  `geodetic-osdudb build --official` verifies and builds it offline.
+- The source-built test suite runs on CPython 3.15 as well as 3.13, and the
+  pyproj wheel workflow also builds CPython 3.15 wheels, without changing the
+  minimum supported Python version.
+- The pyproj wheel workflow caches native dependencies and PROJ per platform;
+  wheels are still rebuilt and smoke-tested on every run. A manual clean
+  rebuild can bypass the caches.
 - `Transformation.transform_arrays()` returns owned NumPy axis buffers with
   provenance, without allocating Python objects per output point.
   `transform_batches()` lazily processes numeric row batches without prefetch
@@ -188,6 +209,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The pyproj wheel build installs macOS dependencies in a writable runner
+  directory and builds curl with OpenSSL. Its Windows smoke test closes the
+  temporary SQLite database before cleanup.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order

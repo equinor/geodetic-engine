@@ -56,10 +56,23 @@ several ED50 to WGS 84 transformations exist and they disagree by metres. Use
 
 ## Installation
 
-The library needs **PROJ 9.9.0 built from source** and **pyproj 3.8.0 built
-against it**, because the EPSG dataset inside `proj.db` is part of every answer.
-The simplest way is the devcontainer: open the repository in VS Code and choose
-*Reopen in Container*. By hand:
+The library needs **PROJ 9.9.0** and **pyproj 3.8.0 built against it**,
+because the EPSG dataset inside `proj.db` is part of every answer. Install the
+released package and the matching wheel together:
+
+```bash
+pip install "pygeodetic-engine" "pyproj==3.8.0+proj9.9.0" \
+    --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+```
+
+The explicit wheel requirement also replaces a previously installed PyPI
+pyproj wheel. If a matching wheel is unavailable, build pyproj from source
+against the pinned PROJ instead. Importing the package rejects another PROJ
+version rather than silently using its EPSG dataset. Wheels do not include the
+full grid package; install the grids needed by your operations separately.
+
+For development, open the repository in VS Code and choose *Reopen in
+Container*. By hand:
 
 ```bash
 ./.devcontainer/install-proj.sh                          # build PROJ 9.9.0
