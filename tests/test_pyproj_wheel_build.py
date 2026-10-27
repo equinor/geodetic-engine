@@ -1,9 +1,11 @@
 """Regression checks for the patches applied to upstream pyproj wheels."""
 
 import hashlib
+import shlex
+import string
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -40,6 +42,7 @@ def upstream(tmp_path: Path) -> Path:
         "be24b98251ffaeceda0221848dc09262}\n"
         "    check_sha256sum $ARCHIVE_SDIR/${OPENSSL_ROOT}.tar.gz ${OPENSSL_HASH}\n"
         "        yum_install perl-core\n"
+        '        flags="$flags --with-darwinssl"\n'
         "-DBUILD_TESTING:BOOL=OFF \\\n",
         encoding="utf-8",
     )
@@ -71,6 +74,11 @@ def test_wheel_patches_keep_explicit_data_dir_first_and_honor_proj_data(
     )
     assert 'cmake -E sha256sum "$archive"' in build_script
     assert "command -v perl >/dev/null" in build_script
+    assert (
+        'suppress build_openssl\n        flags="$flags --with-openssl=$BUILD_PREFIX"'
+        in (build_script)
+    )
+    assert "--with-darwinssl" not in build_script
 
     data_dir = (upstream / "pyproj/datadir.py").read_text()
     assert data_dir.index("valid_data_dirs(_USER_PROJ_DATA)") < data_dir.index(
@@ -91,12 +99,77 @@ def test_wheel_patch_rejects_an_unexpected_upstream_layout(upstream: Path) -> No
     assert "datadir.py" in result.stderr
 
 
+def test_wheel_patch_rejects_an_unexpected_macos_tls_configuration(
+    upstream: Path,
+) -> None:
+    script = upstream / "ci/proj-compile-wheels.sh"
+    script.write_text(
+        script.read_text(encoding="utf-8").replace("--with-darwinssl", "--with-other"),
+        encoding="utf-8",
+    )
+    result = _patch(upstream)
+    assert result.returncode != 0
+    assert "expected" in result.stderr
+    assert "--with-darwinssl" in result.stderr
+
+
 def test_wheel_workflow_runs_when_its_pin_or_patch_changes() -> None:
     workflow = SCRIPT.parents[1] / ".github/workflows/pyproj-wheels.yml"
     text = workflow.read_text(encoding="utf-8")
     assert "- pyproject.toml" in text
     assert "- scripts/patch_pyproj_build.py" in text
     assert "cp315-*" in text
+
+
+@pytest.mark.parametrize(
+    ("arch", "deployment_target"), [("arm64", "14.0"), ("x86_64", "15.0")]
+)
+def test_macos_build_uses_a_writable_prefix_and_links_its_libraries(
+    arch: str, deployment_target: str
+) -> None:
+    workflow = SCRIPT.parents[1] / ".github/workflows/pyproj-wheels.yml"
+    text = workflow.read_text(encoding="utf-8")
+    block = text.split("CIBW_ENVIRONMENT_MACOS: >-", 1)[1].split(
+        "CIBW_ENVIRONMENT_WINDOWS:", 1
+    )[0]
+    runner_temp = PurePosixPath("/Users/runner/work/_temp")
+    workspace = PurePosixPath("/Users/runner/work/geodetic-engine/geodetic-engine")
+    for template, value in {
+        "${{ runner.temp }}": str(runner_temp),
+        "${{ github.workspace }}": str(workspace),
+        "${{ env.PROJ_VERSION }}": "9.9.0",
+        "${{ matrix.arch }}": arch,
+        "${{ matrix.macos-target }}": deployment_target,
+    }.items():
+        block = block.replace(template, value)
+
+    environment = {
+        "CPPFLAGS": "-DEXISTING_CPP",
+        "LDFLAGS": "-Wl,-dead_strip",
+        "PKG_CONFIG_PATH": "/existing/pkgconfig",
+    }
+    for assignment in shlex.split(block):
+        name, _, value = assignment.partition("=")
+        environment[name] = string.Template(value).substitute(environment)
+
+    prefix = runner_temp / "pyproj-deps"
+    assert environment["BUILD_PREFIX"] == str(prefix)
+    assert environment["PROJ_DIR"] == str(workspace / "pyproj-src/pyproj/proj_dir")
+    assert environment["CMAKE_OSX_ARCHITECTURES"] == arch
+    assert environment["MACOSX_DEPLOYMENT_TARGET"] == deployment_target
+    assert f"-I{prefix}/include" in environment["CPPFLAGS"].split()
+    assert "-DEXISTING_CPP" in environment["CPPFLAGS"].split()
+    assert f"-L{prefix}/lib" in environment["LDFLAGS"].split()
+    assert f"-Wl,-rpath,{prefix}/lib" in environment["LDFLAGS"].split()
+    assert (
+        f"-Wl,-rpath,{workspace}/pyproj-src/pyproj/proj_dir/lib"
+        in environment["LDFLAGS"].split()
+    )
+    assert "-Wl,-dead_strip" in environment["LDFLAGS"].split()
+    assert environment["PKG_CONFIG_PATH"].split(":") == [
+        str(prefix / "lib/pkgconfig"),
+        "/existing/pkgconfig",
+    ]
 
 
 @pytest.mark.parametrize("valid", [True, False])

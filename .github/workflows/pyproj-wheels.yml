@@ -199,9 +199,12 @@ jobs:
             PROJ_WHEEL=true
             PROJ_VERSION=${{ env.PROJ_VERSION }}
             PROJ_DIR=${{ github.workspace }}/pyproj-src/pyproj/proj_dir
+            BUILD_PREFIX=${{ runner.temp }}/pyproj-deps
             CMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos-target }}
-            LDFLAGS="${LDFLAGS} -Wl,-rpath,${{ github.workspace }}/pyproj-src/pyproj/proj_dir/lib"
+            CPPFLAGS="-I${BUILD_PREFIX}/include ${CPPFLAGS}"
+            PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+            LDFLAGS="-L${BUILD_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib ${LDFLAGS} -Wl,-rpath,${{ github.workspace }}/pyproj-src/pyproj/proj_dir/lib"
           CIBW_ENVIRONMENT_WINDOWS: >-
             PROJ_WHEEL=true
             PROJ_VERSION=${{ env.PROJ_VERSION }}

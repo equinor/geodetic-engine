@@ -81,6 +81,14 @@ def patch_build(source: Path, pyproj_version: str, proj_version: str) -> None:
     _replace(
         source, "ci/proj-compile-wheels.sh", _OPENSSL_CHECK, _OPENSSL_CHECK_PATCHED
     )
+    # curl 8.22 no longer provides the Darwin SSL backend.
+    _replace(
+        source,
+        "ci/proj-compile-wheels.sh",
+        '        flags="$flags --with-darwinssl"',
+        "        suppress build_openssl\n"
+        '        flags="$flags --with-openssl=$BUILD_PREFIX"',
+    )
     # AlmaLinux installs perl-core as a group, not a package named perl-core.
     _replace(
         source,

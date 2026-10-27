@@ -14,6 +14,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 import pyproj
@@ -35,7 +36,7 @@ def _check_data_paths() -> None:
         custom = root / "custom"
         custom.mkdir()
         shutil.copyfile(database, custom / "proj.db")
-        with sqlite3.connect(custom / "proj.db") as connection:
+        with closing(sqlite3.connect(custom / "proj.db")) as connection, connection:
             changed = connection.execute(
                 "UPDATE metadata SET value = ? WHERE key = 'EPSG.VERSION'",
                 (_MARKER,),

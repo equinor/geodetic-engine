@@ -206,6 +206,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The pyproj wheel build installs macOS dependencies in a writable runner
+  directory and builds curl with OpenSSL. Its Windows smoke test closes the
+  temporary SQLite database before cleanup.
 - Engineering CRSs now honour the `xy` value order. PROJ's `always_xy` never
   normalises an engineering CRS, and PROJ reads the origin of a Similarity
   transformation stated in a northing-first projected CRS in declared order
