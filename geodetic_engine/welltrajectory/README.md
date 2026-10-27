@@ -63,7 +63,7 @@ TrajectoryInput.from_csv(example).compute()
 given separately. `MinimumCurvature` works on its own, without a CRS, for
 offsets, dogleg severity and interpolation.
 
-Plotting needs the `plot` extra: `pip install 'geodetic-engine[plot]'`, which
+Plotting needs the `plot` extra: `pip install 'pygeodetic-engine[plot]'`, which
 brings plotly and kaleido. `plot_trajectory()`, or `WellTrajectory.plot()`,
 builds a 3D figure with every axis at one scale, to rotate, pan, zoom and hover
 for MD, angles, TVD and dogleg severity. The survey stations are marked on each

@@ -1,6 +1,6 @@
 """Well trajectories in an interactive 3D view, in a notebook or a browser.
 
-Needs plotly, from the ``plot`` extra: ``pip install geodetic-engine[plot]``.
+Needs plotly, from the ``plot`` extra: ``pip install pygeodetic-engine[plot]``.
 It is imported only when a plot is drawn, so nothing else in the package
 depends on it. Paths are drawn along their arcs, every axis at one scale, with
 the survey stations marked on them and shadows on the floor and walls. Drag to
@@ -549,6 +549,6 @@ def _plotly() -> Any:
         import plotly.graph_objects as go
     except ImportError as error:
         raise ImportError(
-            "interactive plots need plotly: pip install 'geodetic-engine[plot]'"
+            "interactive plots need plotly: pip install 'pygeodetic-engine[plot]'"
         ) from error
     return go

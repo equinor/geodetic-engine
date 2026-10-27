@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Packaging. `pyproj-wheels.yml` builds pyproj with pyproj's own release
+  tooling against the pinned PROJ, read from `.devcontainer/install-proj.sh`,
+  and releases the wheels on GitHub as `pyproj 3.8.0+proj9.9.0`. The
+  documentation site serves them as a package index under `simple/`.
+  `pypi_release.yml`, run by hand, publishes the package to TestPyPI or PyPI,
+  as chosen, with trusted publishing. It is published as `pygeodetic-engine`,
+  since PyPI refuses `geodetic-engine` as too close to the existing
+  `geodeticengine`; it is still imported as `geodetic_engine`.
 - `Transformation.transform_arrays()` returns owned NumPy axis buffers with
   provenance, without allocating Python objects per output point.
   `transform_batches()` lazily processes numeric row batches without prefetch

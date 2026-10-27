@@ -20,7 +20,7 @@ draws one or more trajectories as an interactive 3D plotly figure.
 Plotting needs the `plot` extra, which brings plotly and kaleido:
 
 ```bash
-pip install 'geodetic-engine[plot]'
+pip install 'pygeodetic-engine[plot]'
 ```
 
 plotly is imported only when a figure is drawn, so nothing else in the package
