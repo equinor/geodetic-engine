@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format follows
   as chosen, with trusted publishing. It is published as `pygeodetic-engine`,
   since PyPI refuses `geodetic-engine` as too close to the existing
   `geodeticengine`; it is still imported as `geodetic_engine`.
+  `geodetic_engine.__version__` is read from the installed package's metadata,
+  so it reports the version that was published.
 - `Transformation.transform_arrays()` returns owned NumPy axis buffers with
   provenance, without allocating Python objects per output point.
   `transform_batches()` lazily processes numeric row batches without prefetch
