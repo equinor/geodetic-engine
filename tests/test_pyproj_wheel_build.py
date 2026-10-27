@@ -140,6 +140,7 @@ def test_macos_build_uses_a_writable_prefix_and_links_its_libraries(
         "${{ env.PROJ_VERSION }}": "9.9.0",
         "${{ matrix.arch }}": arch,
         "${{ matrix.macos-target }}": deployment_target,
+        "${{ steps.native-cache.outputs.cache-hit || 'false' }}": "true",
     }.items():
         block = block.replace(template, value)
 

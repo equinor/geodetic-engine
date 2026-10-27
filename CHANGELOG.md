@@ -25,6 +25,9 @@ All notable changes to this project are documented here. The format follows
 - The source-built test suite runs on CPython 3.15 as well as 3.13, and the
   pyproj wheel workflow also builds CPython 3.15 wheels, without changing the
   minimum supported Python version.
+- The pyproj wheel workflow caches native dependencies and PROJ per platform;
+  wheels are still rebuilt and smoke-tested on every run. A manual clean
+  rebuild can bypass the caches.
 - `Transformation.transform_arrays()` returns owned NumPy axis buffers with
   provenance, without allocating Python objects per output point.
   `transform_batches()` lazily processes numeric row batches without prefetch

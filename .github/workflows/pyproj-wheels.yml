@@ -19,6 +19,10 @@ on:
         description: Publish the wheels as a GitHub release and refresh the index
         type: boolean
         default: false
+      rebuild_native:
+        description: Rebuild native dependencies without using or saving caches
+        type: boolean
+        default: false
   pull_request:
     paths:
       - .github/workflows/pyproj-wheels.yml
@@ -26,6 +30,9 @@ on:
       - pyproject.toml
       - scripts/check_pyproj_wheel.py
       - scripts/patch_pyproj_build.py
+      - scripts/pyproj-manylinux.Dockerfile
+      - scripts/pyproj_native_cache.py
+      - tests/test_pyproj_native_cache.py
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -66,8 +73,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04, arch: x86_64 }
-          - { os: ubuntu-22.04-arm, arch: aarch64 }
+          # Keep these manylinux defaults in sync with cibuildwheel below.
+          - os: ubuntu-22.04
+            arch: x86_64
+            manylinux-image: quay.io/pypa/manylinux_2_28_x86_64@sha256:b74a5b6f1705ecff17be8bd792589bef9b3b039766d12205720ecd2a9e919192
+          - os: ubuntu-22.04-arm
+            arch: aarch64
+            manylinux-image: quay.io/pypa/manylinux_2_28_aarch64@sha256:0333f44c4eb759ec8f47b27bc9dc27b1c929932a267cf13ce0cff1a4b758cccb
           - { os: macos-14, arch: arm64, macos-target: "14.0" }
           - { os: macos-15-intel, arch: x86_64, macos-target: "15.0" }
           - { os: windows-2022, arch: AMD64, triplet: x64-windows }
@@ -113,12 +125,68 @@ jobs:
         run: |
           python scripts/patch_pyproj_build.py pyproj-src "$PYPROJ_VERSION" "$PROJ_VERSION"
 
+      - name: Record the pyproj source revision
+        id: pyproj-source
+        shell: bash
+        run: echo "revision=$(git -C pyproj-src rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # cibuildwheel copies the project into a container, so a host-directory
+      # cache cannot retain its Linux build. Cache a manylinux image layer
+      # instead; the Dockerfile builds PROJ at its original /project prefix.
+      - name: Prepare the minimal manylinux build context
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          context="$RUNNER_TEMP/pyproj-native-context"
+          mkdir -p "$context"
+          cp pyproj-src/ci/proj-compile-wheels.sh "$context/"
+          cp scripts/pyproj_native_cache.py "$context/"
+          cp scripts/pyproj-manylinux.Dockerfile "$context/Dockerfile"
+          cp "archives/proj-${PROJ_VERSION}.tar.gz" "$context/proj.tar.gz"
+          echo "CIBW_MANYLINUX_X86_64_IMAGE=geodetic-pyproj-native:ci" >> "$GITHUB_ENV"
+          echo "CIBW_MANYLINUX_AARCH64_IMAGE=geodetic-pyproj-native:ci" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+        if: runner.os == 'Linux'
+
+      - name: Build or restore the manylinux native image
+        if: runner.os == 'Linux'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ runner.temp }}/pyproj-native-context
+          load: true
+          tags: geodetic-pyproj-native:ci
+          platforms: ${{ matrix.arch == 'aarch64' && 'linux/arm64' || 'linux/amd64' }}
+          build-args: |
+            BASE_IMAGE=${{ matrix.manylinux-image }}
+            PROJ_VERSION=${{ env.PROJ_VERSION }}
+            PROJ_SHA256=${{ env.PROJ_SHA256 }}
+            PYPROJ_REVISION=${{ steps.pyproj-source.outputs.revision }}
+          no-cache: ${{ inputs.rebuild_native == true }}
+          cache-from: ${{ inputs.rebuild_native != true && format('type=gha,scope=pyproj-native-{0}', matrix.arch) || '' }}
+
+      - name: Identify the Windows runner image
+        id: windows-image
+        if: runner.os == 'Windows' && inputs.rebuild_native != true
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ImageVersion) -or
+              [string]::IsNullOrWhiteSpace($env:VCPKG_INSTALLATION_ROOT)) {
+            Write-Output "::warning::Windows image version or vcpkg root unavailable; vcpkg caching is disabled."
+            Add-Content $env:GITHUB_OUTPUT "enabled=false"
+          } else {
+            $cachePath = "$env:VCPKG_INSTALLATION_ROOT/installed".Replace('\', '/')
+            Add-Content $env:GITHUB_OUTPUT "enabled=true"
+            Add-Content $env:GITHUB_OUTPUT "version=$env:ImageVersion"
+            Add-Content $env:GITHUB_OUTPUT "path=$cachePath"
+          }
+
       - name: Cache the vcpkg dependencies
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.windows-image.outputs.enabled == 'true' && inputs.rebuild_native != true
         uses: actions/cache@v4
         with:
-          path: C:\vcpkg\installed
-          key: ${{ matrix.os }}-${{ matrix.triplet }}-vcpkg-${{ hashFiles('pyproj-src/ci/vcpkg.json', '.github/workflows/pyproj-wheels.yml') }}
+          path: ${{ steps.windows-image.outputs.path }}
+          key: ${{ matrix.os }}-${{ matrix.triplet }}-vcpkg-${{ steps.windows-image.outputs.version }}-${{ hashFiles('pyproj-src/ci/vcpkg.json', '.github/workflows/pyproj-wheels.yml') }}
 
       # Only PROJ's dependencies come from vcpkg, at the baseline pyproj pins.
       # PROJ itself is built from the checked archive, as on Linux and macOS,
@@ -147,15 +215,62 @@ jobs:
           "$vcpkg_root/vcpkg" install --x-manifest-root=vcpkg-manifest \
             --x-install-root="$vcpkg_root/installed" --triplet ${{ matrix.triplet }}
 
-      - name: Build PROJ
+      - name: Set Windows native paths
         if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vcpkg = $env:VCPKG_INSTALLATION_ROOT.Replace('\', '/')
+          $prefix = "$env:GITHUB_WORKSPACE/pyproj-src/pyproj/proj_dir".Replace('\', '/')
+          Add-Content $env:GITHUB_ENV "PROJ_PREFIX=$prefix"
+          Add-Content $env:GITHUB_ENV "VCPKG_BIN=$vcpkg/installed/${{ matrix.triplet }}/bin"
+
+      - name: Identify the host native build
+        id: native-key
+        if: runner.os != 'Linux' && inputs.rebuild_native != true
+        shell: bash
+        env:
+          NATIVE_ARCH: ${{ matrix.arch }}
+          NATIVE_MACOS_TARGET: ${{ matrix.macos-target }}
+          NATIVE_TRIPLET: ${{ matrix.triplet }}
+          NATIVE_CONFIG_HASH: ${{ hashFiles('.github/workflows/pyproj-wheels.yml', 'scripts/patch_pyproj_build.py', 'scripts/pyproj_native_cache.py', 'pyproj-src/ci/vcpkg.json') }}
+          PYPROJ_REVISION: ${{ steps.pyproj-source.outputs.revision }}
+        run: python scripts/pyproj_native_cache.py key
+
+      # The lookup avoids restoring a partial-prefix match. Only a verified
+      # exact hit may bypass native compilation.
+      - name: Look up a host native cache
+        id: native-lookup
+        if: runner.os != 'Linux' && steps.native-key.outputs.enabled == 'true' && inputs.rebuild_native != true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.native-key.outputs.paths }}
+          key: ${{ steps.native-key.outputs.key }}
+          lookup-only: true
+
+      - name: Restore the host native cache
+        id: native-cache
+        if: steps.native-lookup.outputs.cache-hit == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.native-key.outputs.paths }}
+          key: ${{ steps.native-key.outputs.key }}
+
+      - name: Reject a non-exact native cache
+        if: steps.native-cache.outputs.cache-matched-key != '' && steps.native-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          echo "::error::A non-exact native cache was restored; refusing to build with it."
+          exit 1
+
+      - name: Build PROJ
+        if: runner.os == 'Windows' && steps.native-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           $vcpkg = $env:VCPKG_INSTALLATION_ROOT.Replace('\', '/')
           $installed = "$vcpkg/installed"
           $triplet = '${{ matrix.triplet }}'
-          $prefix = "$env:GITHUB_WORKSPACE/pyproj-src/pyproj/proj_dir".Replace('\', '/')
+          $prefix = $env:PROJ_PREFIX
           $sqlite3 = Get-ChildItem "$installed/$triplet/tools" -Recurse -Filter sqlite3.exe |
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $sqlite3) { throw "no sqlite3.exe under $installed/$triplet/tools" }
@@ -177,8 +292,15 @@ jobs:
           cmake --build proj-build --config Release --parallel
           cmake --install proj-build --config Release
 
-          Add-Content $env:GITHUB_ENV "PROJ_PREFIX=$prefix"
-          Add-Content $env:GITHUB_ENV "VCPKG_BIN=$installed/$triplet/bin"
+      - name: Verify the Windows native PROJ installation
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python scripts/pyproj_native_cache.py verify windows "$env:PROJ_PREFIX" "$env:PROJ_VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path -PathType Container $env:VCPKG_BIN)) {
+            throw "missing vcpkg binaries at $env:VCPKG_BIN"
+          }
 
       - name: Build and test the wheels
         uses: pypa/cibuildwheel@v4.3.4
@@ -189,15 +311,18 @@ jobs:
           CIBW_BUILD: cp313-* cp314-* cp315-*
           CIBW_SKIP: "*-musllinux_*"
           CIBW_ARCHS: ${{ matrix.arch }}
-          CIBW_BEFORE_ALL_LINUX: bash -e pyproj-src/ci/proj-compile-wheels.sh
-          CIBW_BEFORE_ALL_MACOS: bash -e pyproj-src/ci/proj-compile-wheels.sh
+          CIBW_BEFORE_ALL_LINUX: /usr/bin/python3 scripts/pyproj_native_cache.py restore-linux
+          CIBW_BEFORE_ALL_MACOS: python scripts/pyproj_native_cache.py prepare-macos
           CIBW_ENVIRONMENT_LINUX: >-
             PROJ_WHEEL=true
             PROJ_VERSION=${{ env.PROJ_VERSION }}
+            PROJ_SHA256=${{ env.PROJ_SHA256 }}
+            PYPROJ_REVISION=${{ steps.pyproj-source.outputs.revision }}
             PROJ_DIR=/project/pyproj-src/pyproj/proj_dir
           CIBW_ENVIRONMENT_MACOS: >-
             PROJ_WHEEL=true
             PROJ_VERSION=${{ env.PROJ_VERSION }}
+            NATIVE_CACHE_HIT=${{ steps.native-cache.outputs.cache-hit || 'false' }}
             PROJ_DIR=${{ github.workspace }}/pyproj-src/pyproj/proj_dir
             BUILD_PREFIX=${{ runner.temp }}/pyproj-deps
             CMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
@@ -216,6 +341,76 @@ jobs:
             --add-path ${{ env.PROJ_PREFIX }}/bin --add-path ${{ env.VCPKG_BIN }}
             -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: python {project}/scripts/check_pyproj_wheel.py ${{ env.PROJ_VERSION }}
+
+      # Test outside the modified image as well, so its /usr/local libraries
+      # cannot hide a missing library in a repaired wheel.
+      - name: Test Linux wheels in the clean manylinux image
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker run --rm --entrypoint bash \
+            --env PROJ_VERSION \
+            --volume "$GITHUB_WORKSPACE/wheelhouse:/wheelhouse:ro" \
+            --volume "$GITHUB_WORKSPACE/scripts/check_pyproj_wheel.py:/check_pyproj_wheel.py:ro" \
+            '${{ matrix.manylinux-image }}' -euo pipefail -c '
+              shopt -s nullglob
+              wheels=(/wheelhouse/*.whl)
+              if [ "${#wheels[@]}" -ne 3 ]; then
+                echo "expected three Linux wheels, found ${#wheels[@]}" >&2
+                exit 1
+              fi
+              declare -A seen=()
+              for wheel in "${wheels[@]}"; do
+                case "$(basename "$wheel")" in
+                  *-cp313-cp313-*) abi=cp313; python=/opt/python/cp313-cp313/bin/python ;;
+                  *-cp314-cp314-*) abi=cp314; python=/opt/python/cp314-cp314/bin/python ;;
+                  *-cp315-cp315-*) abi=cp315; python=/opt/python/cp315-cp315/bin/python ;;
+                  *) echo "unexpected wheel: $wheel" >&2; exit 1 ;;
+                esac
+                if [[ -v "seen[$abi]" ]]; then
+                  echo "duplicate Linux wheel for $abi" >&2
+                  exit 1
+                fi
+                seen[$abi]=1
+                "$python" -m pip install --no-cache-dir --force-reinstall "$wheel"
+                "$python" /check_pyproj_wheel.py "$PROJ_VERSION"
+              done
+            '
+
+      # Save native outputs only after all wheels and their smoke tests pass.
+      - name: Verify host native outputs before caching
+        if: runner.os != 'Linux' && steps.native-key.outputs.enabled == 'true' && inputs.rebuild_native != true && steps.native-cache.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          PROJ_DIR: ${{ github.workspace }}/pyproj-src/pyproj/proj_dir
+          BUILD_PREFIX: ${{ runner.temp }}/pyproj-deps
+          NATIVE_CACHE_HIT: "true"
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            python scripts/pyproj_native_cache.py prepare-macos
+          else
+            python scripts/pyproj_native_cache.py verify windows "$PROJ_DIR" "$PROJ_VERSION"
+          fi
+
+      - name: Save the manylinux native cache
+        if: runner.os == 'Linux' && inputs.rebuild_native != true
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ runner.temp }}/pyproj-native-context
+          platforms: ${{ matrix.arch == 'aarch64' && 'linux/arm64' || 'linux/amd64' }}
+          build-args: |
+            BASE_IMAGE=${{ matrix.manylinux-image }}
+            PROJ_VERSION=${{ env.PROJ_VERSION }}
+            PROJ_SHA256=${{ env.PROJ_SHA256 }}
+            PYPROJ_REVISION=${{ steps.pyproj-source.outputs.revision }}
+          cache-to: type=gha,scope=pyproj-native-${{ matrix.arch }},mode=min,ignore-error=true
+
+      - name: Save the host native cache
+        if: runner.os != 'Linux' && steps.native-key.outputs.enabled == 'true' && inputs.rebuild_native != true && steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.native-key.outputs.paths }}
+          key: ${{ steps.native-key.outputs.key }}
 
       - uses: actions/upload-artifact@v4
         with:
