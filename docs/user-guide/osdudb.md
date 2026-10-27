@@ -39,8 +39,10 @@ It is committed in this repository, byte for byte, as
 `CRS_CT_osdu_official_crs_catalog.source.json` records the OSDU commit it came
 from and its SHA-256, and a build records that commit as its `source_version`.
 A build therefore needs no network, and is reproducible from the repository
-alone. `scripts/install-osdu-projdb.sh` builds and activates it in one step,
-and is what the devcontainer runs.
+alone. The released wheel includes the same catalogue and provenance;
+`geodetic-osdudb build --official` verifies their SHA-256 and records the
+source commit. `scripts/install-osdu-projdb.sh` builds and activates it in one
+step from a repository checkout, and is what the devcontainer runs.
 
 `geodetic-osdudb download`, or
 {func}`~geodetic_engine.osdudb.download_official_catalog`, replaces the
@@ -58,12 +60,27 @@ published it. Give its path on the command line, as `catalog` in
 
 ## Running it
 
+From an installed package, build the bundled official catalogue and put the
+result first on PROJ's data path:
+
+```bash
+previous_proj_data="$(python -c 'import pyproj; print(pyproj.datadir.get_data_dir())')"
+geodetic-osdudb build --official --output "$PWD/build/proj.db"
+export PROJ_DATA="$PWD/build:$previous_proj_data"
+```
+
+Set `PROJ_DATA` before starting the process that uses the database. On
+Windows, separate the directories with `;` instead of `:`. A Python process can
+also call `pyproj.datadir.set_data_dir` as shown in {doc}`combining`.
+
 ```{important}
 If you already built a database from Georepository, **add `--append`**. Both
 commands default to `build/proj.db`. Without `--append` this build starts from
 a fresh copy of the official `proj.db`, and is refused rather than discard the
 earlier import. See {doc}`combining`.
 ```
+
+From a repository checkout:
 
 ```bash
 # Build the committed official catalogue into build/proj.db and make it the

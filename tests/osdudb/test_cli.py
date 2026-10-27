@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 import pytest
@@ -93,6 +93,44 @@ def test_a_missing_catalogue_is_reported_rather_than_traced(
 ) -> None:
     assert main(["build", str(tmp_path / "absent.json")]) == 1
     assert "does not exist" in capsys.readouterr().err
+
+
+def test_official_catalogue_is_available_with_its_recorded_version() -> None:
+    from geodetic_engine.osdudb.official import official_catalog
+
+    with official_catalog() as (catalog, version):
+        assert catalog.is_file()
+        assert catalog.name == "CRS_CT_osdu_official_crs_catalog.json"
+        assert version.startswith("osdu/data/data-definitions@")
+
+
+def test_official_build_records_the_bundled_catalogue_version(
+    catalog: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @contextmanager
+    def official_catalog():
+        yield catalog, "osdu/data/data-definitions@abc123"
+
+    monkeypatch.setattr(
+        "geodetic_engine.osdudb.__main__.official_catalog",
+        official_catalog,
+        raising=False,
+    )
+    monkeypatch.setenv("GEODETIC_ENGINE_OSDU_CATALOG", str(tmp_path / "other.json"))
+    monkeypatch.setenv("GEODETIC_ENGINE_OSDU_CATALOG_VERSION", "unrelated")
+    output = tmp_path / "official" / "proj.db"
+    assert main(["build", "--official", "--output", str(output)]) == 0
+    report = json.loads(sidecar(output, ".report.json").read_text(encoding="utf-8"))
+    assert report["source_version"] == "osdu/data/data-definitions@abc123"
+
+
+def test_official_and_explicit_catalogue_are_mutually_exclusive(
+    catalog: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["build", str(catalog), "--official"]) == 2
+    assert "cannot" in capsys.readouterr().err
 
 
 def test_validate_reports_on_an_existing_database(

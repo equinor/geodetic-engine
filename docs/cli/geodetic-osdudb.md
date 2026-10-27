@@ -14,7 +14,8 @@ workflow.
 ## Example configuration
 
 `geodetic-osdudb.example.toml`, from the repository root. The file is optional:
-the catalogue path alone is enough to build.
+the catalogue path alone is enough to build, or use `build --official` for the
+catalogue included in the installed package.
 
 ```{literalinclude} ../../geodetic-osdudb.example.toml
 :language: toml

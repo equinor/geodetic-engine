@@ -1,8 +1,9 @@
 """Well trajectories in an interactive 3D view, in a notebook or a browser.
 
-Needs plotly, from the ``plot`` extra: ``pip install pygeodetic-engine[plot]``.
-It is imported only when a plot is drawn, so nothing else in the package
-depends on it. Paths are drawn along their arcs, every axis at one scale, with
+Needs plotly, from the ``plot`` extra; see the installation guide for the
+pinned pyproj wheel. It is imported only when a plot is drawn, so the rest of
+the package does not depend on it. Paths are drawn along their arcs, every axis
+at one scale, with
 the survey stations marked on them and shadows on the floor and walls. Drag to
 rotate, scroll to zoom, right-drag to pan, and hover a point for its MD,
 angles, TVD and dogleg severity.
@@ -37,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from geodetic_engine._environment import PYPROJ_WHEEL_INDEX
 from geodetic_engine.welltrajectory.survey import length_factor
 
 if TYPE_CHECKING:
@@ -549,6 +551,7 @@ def _plotly() -> Any:
         import plotly.graph_objects as go
     except ImportError as error:
         raise ImportError(
-            "interactive plots need plotly: pip install 'pygeodetic-engine[plot]'"
+            'interactive plots need plotly: pip install "pygeodetic-engine[plot]" '
+            f"--extra-index-url {PYPROJ_WHEEL_INDEX}"
         ) from error
     return go

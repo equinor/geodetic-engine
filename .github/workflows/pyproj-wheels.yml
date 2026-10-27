@@ -6,7 +6,7 @@ name: pyproj wheels
 # wheels on GitHub. The documentation workflow lists them in a package index
 # beside the docs, so that
 #
-#   pip install pygeodetic-engine --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+#   pip install pygeodetic-engine "pyproj==3.8.0+proj9.9.0" --extra-index-url https://equinor.github.io/geodetic-engine/simple/
 #
 # installs pyproj with the pinned PROJ. No version is set here: PROJ and its
 # checksum come from .devcontainer/install-proj.sh and pyproj from
@@ -23,7 +23,9 @@ on:
     paths:
       - .github/workflows/pyproj-wheels.yml
       - .devcontainer/install-proj.sh
+      - pyproject.toml
       - scripts/check_pyproj_wheel.py
+      - scripts/patch_pyproj_build.py
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -103,37 +105,13 @@ jobs:
             exit 1
           fi
 
-      # The local version label tells these wheels apart from pyproj's own and
-      # makes pip prefer them when both indexes are given. EMBED_RESOURCE_FILES
-      # is off as in .devcontainer/install-proj.sh: with proj.db embedded, a
-      # custom database on disk can be silently ignored.
+      # The local version label distinguishes the wheels from PyPI's. Disable
+      # embedded resources and make PROJ_DATA take precedence over the bundled
+      # database, while retaining pyproj's explicit set_data_dir precedence.
       - name: Patch pyproj's build
         shell: bash
         run: |
-          python - <<'EOF'
-          import os
-          from pathlib import Path
-
-          pyproj, proj = os.environ["PYPROJ_VERSION"], os.environ["PROJ_VERSION"]
-
-          def patch(path, old, new):
-              file = Path("pyproj-src", path)
-              text = file.read_text(encoding="utf-8")
-              if text.count(old) != 1:
-                  raise SystemExit(f"{file}: expected {old!r} exactly once")
-              file.write_text(text.replace(old, new), encoding="utf-8")
-
-          patch(
-              "pyproj/__init__.py",
-              f'__version__ = "{pyproj}"',
-              f'__version__ = "{pyproj}+proj{proj}"',
-          )
-          patch(
-              "ci/proj-compile-wheels.sh",
-              "-DBUILD_TESTING:BOOL=OFF \\",
-              "-DBUILD_TESTING:BOOL=OFF -DEMBED_RESOURCE_FILES=OFF \\",
-          )
-          EOF
+          python scripts/patch_pyproj_build.py pyproj-src "$PYPROJ_VERSION" "$PROJ_VERSION"
 
       - name: Cache the vcpkg dependencies
         if: runner.os == 'Windows'
@@ -203,16 +181,16 @@ jobs:
           Add-Content $env:GITHUB_ENV "VCPKG_BIN=$installed/$triplet/bin"
 
       - name: Build and test the wheels
-        uses: pypa/cibuildwheel@v4.2.0
+        uses: pypa/cibuildwheel@v4.3.4
         with:
           package-dir: pyproj-src
           output-dir: wheelhouse
         env:
-          CIBW_BUILD: cp313-* cp314-*
+          CIBW_BUILD: cp313-* cp314-* cp315-*
           CIBW_SKIP: "*-musllinux_*"
           CIBW_ARCHS: ${{ matrix.arch }}
-          CIBW_BEFORE_ALL_LINUX: bash pyproj-src/ci/proj-compile-wheels.sh
-          CIBW_BEFORE_ALL_MACOS: bash pyproj-src/ci/proj-compile-wheels.sh
+          CIBW_BEFORE_ALL_LINUX: bash -e pyproj-src/ci/proj-compile-wheels.sh
+          CIBW_BEFORE_ALL_MACOS: bash -e pyproj-src/ci/proj-compile-wheels.sh
           CIBW_ENVIRONMENT_LINUX: >-
             PROJ_WHEEL=true
             PROJ_VERSION=${{ env.PROJ_VERSION }}
@@ -254,6 +232,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      PYPROJ_VERSION: ${{ needs.pins.outputs.pyproj }}
+      PROJ_VERSION: ${{ needs.pins.outputs.proj }}
       TAG: pyproj-${{ needs.pins.outputs.pyproj }}-proj${{ needs.pins.outputs.proj }}
       INDEX: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/simple/
     steps:
@@ -273,8 +253,8 @@ jobs:
         run: |
           gh release create "$TAG" dist/*.whl dist/SHA256SUMS \
             --target "$GITHUB_SHA" --latest=false \
-            --title "pyproj ${{ needs.pins.outputs.pyproj }} with PROJ ${{ needs.pins.outputs.proj }}" \
-            --notes "pyproj ${{ needs.pins.outputs.pyproj }} built against PROJ ${{ needs.pins.outputs.proj }} for geodetic-engine. Install with \`pip install pygeodetic-engine --extra-index-url $INDEX\`."
+            --title "pyproj $PYPROJ_VERSION with PROJ $PROJ_VERSION" \
+            --notes "pyproj $PYPROJ_VERSION built against PROJ $PROJ_VERSION for geodetic-engine. Install with \`pip install pygeodetic-engine \"pyproj==$PYPROJ_VERSION+proj$PROJ_VERSION\" --extra-index-url $INDEX\`."
 
       - name: Refresh the package index
         run: gh workflow run docs.yml --ref "${{ github.event.repository.default_branch }}"

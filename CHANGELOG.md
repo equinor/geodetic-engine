@@ -17,6 +17,14 @@ All notable changes to this project are documented here. The format follows
   `geodeticengine`; it is still imported as `geodetic_engine`.
   `geodetic_engine.__version__` is read from the installed package's metadata,
   so it reports the version that was published.
+- Installed packages reject a pyproj linked to a different PROJ. The custom
+  wheels honor `PROJ_DATA` ahead of their bundled database, and the documented
+  installation commands select the exact pinned wheel even when another
+  pyproj is already installed. The wheel includes the official OSDU catalogue;
+  `geodetic-osdudb build --official` verifies and builds it offline.
+- The source-built test suite runs on CPython 3.15 as well as 3.13, and the
+  pyproj wheel workflow also builds CPython 3.15 wheels, without changing the
+  minimum supported Python version.
 - `Transformation.transform_arrays()` returns owned NumPy axis buffers with
   provenance, without allocating Python objects per output point.
   `transform_batches()` lazily processes numeric row batches without prefetch

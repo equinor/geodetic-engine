@@ -94,3 +94,30 @@ jobs:
       - name: Coverage
         run: |
           $DOCKER_RUN uv run --no-sync coverage report --fail-under=80
+
+  tests-python315:
+    name: Python 3.15 tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the devcontainer image
+        uses: docker/build-push-action@v6
+        with:
+          context: .devcontainer
+          load: true
+          tags: geodetic-engine-devcontainer:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install dependencies and run the test suite
+        run: |
+          $DOCKER_RUN bash -euo pipefail -c '
+            uv sync --locked --extra dev --python "3.15"
+            uv run --no-sync python -c "import sys; assert sys.version_info[:2] == (3, 15)"
+            uv run --no-sync pytest tests/test_environment.py -q
+            PYTHONWARNINGS=default::DeprecationWarning uv run --no-sync pytest -n logical -q
+          '
