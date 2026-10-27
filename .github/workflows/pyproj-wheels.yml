@@ -145,13 +145,11 @@ jobs:
       # Only PROJ's dependencies come from vcpkg, at the baseline pyproj pins.
       # PROJ itself is built from the checked archive, as on Linux and macOS,
       # so no platform waits for vcpkg to package a PROJ release.
-      - name: Build PROJ and its dependencies
+      - name: Install PROJ's dependencies with vcpkg
         if: runner.os == 'Windows'
         shell: bash
         run: |
           vcpkg_root=$(cygpath -m "$VCPKG_INSTALLATION_ROOT")
-          installed="$vcpkg_root/installed"
-          prefix=$(cygpath -m "$GITHUB_WORKSPACE/pyproj-src/pyproj/proj_dir")
           baseline=$(python -c "import json; print(json.load(open('pyproj-src/ci/vcpkg.json'))['builtin-baseline'])")
 
           mkdir -p vcpkg-manifest
@@ -162,33 +160,47 @@ jobs:
           }
           EOF
 
-          # Workaround for https://github.com/microsoft/vcpkg/issues/41199, as in pyproj's workflow.
+          # Workaround for https://github.com/microsoft/vcpkg/issues/41199, as in
+          # pyproj's workflow. Kept to this step: MSBuild, which CMake runs below,
+          # fails on variables that differ only in case.
           export SystemDrive="$SYSTEMDRIVE" SystemRoot="$SYSTEMROOT" windir="$WINDIR"
           git -C "$vcpkg_root" pull --quiet
           "$vcpkg_root/bootstrap-vcpkg.bat" -disableMetrics
           "$vcpkg_root/vcpkg" install --x-manifest-root=vcpkg-manifest \
-            --x-install-root="$installed" --triplet ${{ matrix.triplet }}
+            --x-install-root="$vcpkg_root/installed" --triplet ${{ matrix.triplet }}
 
-          sqlite3=$(find "$installed/${{ matrix.triplet }}/tools" -name sqlite3.exe | head -n 1)
-          tar xzf "archives/proj-${PROJ_VERSION}.tar.gz"
-          cmake -S "proj-${PROJ_VERSION}" -B proj-build -A x64 \
-            -DCMAKE_TOOLCHAIN_FILE="$vcpkg_root/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
-            -DVCPKG_INSTALLED_DIR="$installed" \
-            -DCMAKE_INSTALL_PREFIX="$prefix" \
-            -DEXE_SQLITE3="$sqlite3" \
-            -DBUILD_SHARED_LIBS=ON \
-            -DBUILD_TESTING=OFF \
-            -DBUILD_APPS=OFF \
-            -DENABLE_TIFF=ON \
-            -DENABLE_CURL=ON \
-            -DEMBED_RESOURCE_FILES=OFF \
+      - name: Build PROJ
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $vcpkg = $env:VCPKG_INSTALLATION_ROOT.Replace('\', '/')
+          $installed = "$vcpkg/installed"
+          $triplet = '${{ matrix.triplet }}'
+          $prefix = "$env:GITHUB_WORKSPACE/pyproj-src/pyproj/proj_dir".Replace('\', '/')
+          $sqlite3 = Get-ChildItem "$installed/$triplet/tools" -Recurse -Filter sqlite3.exe |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $sqlite3) { throw "no sqlite3.exe under $installed/$triplet/tools" }
+
+          cmake -E tar xzf "archives/proj-$env:PROJ_VERSION.tar.gz"
+          cmake -S "proj-$env:PROJ_VERSION" -B proj-build -A x64 `
+            "-DCMAKE_TOOLCHAIN_FILE=$vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=$triplet" `
+            "-DVCPKG_INSTALLED_DIR=$installed" `
+            "-DCMAKE_INSTALL_PREFIX=$prefix" `
+            "-DEXE_SQLITE3=$sqlite3" `
+            -DBUILD_SHARED_LIBS=ON `
+            -DBUILD_TESTING=OFF `
+            -DBUILD_APPS=OFF `
+            -DENABLE_TIFF=ON `
+            -DENABLE_CURL=ON `
+            -DEMBED_RESOURCE_FILES=OFF `
             -DUSE_ONLY_EMBEDDED_RESOURCE_FILES=OFF
           cmake --build proj-build --config Release --parallel
           cmake --install proj-build --config Release
 
-          echo "PROJ_PREFIX=$prefix" >> "$GITHUB_ENV"
-          echo "VCPKG_BIN=$installed/${{ matrix.triplet }}/bin" >> "$GITHUB_ENV"
+          Add-Content $env:GITHUB_ENV "PROJ_PREFIX=$prefix"
+          Add-Content $env:GITHUB_ENV "VCPKG_BIN=$installed/$triplet/bin"
 
       - name: Build and test the wheels
         uses: pypa/cibuildwheel@v4.2.0
