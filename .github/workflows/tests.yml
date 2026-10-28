@@ -4,7 +4,7 @@ name: Tests
 # run here always means a test failed. PROJ is built from source at a pinned
 # version, so the tests run inside the devcontainer image rather than against
 # whatever PROJ the runner happens to have: every expected coordinate depends on
-# the pinned PROJ and its EPSG dataset. See .devcontainer/install-proj.sh. The
+# the pinned PROJ and its EPSG dataset. See .devcontainer/pins.env. The
 # Windows job instead tests the installed package against the pyproj wheel
 # built for the same PROJ.
 
@@ -142,9 +142,11 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install the package and the pinned pyproj wheel
-        run: >-
-          python -m pip install ".[dev]" "pyproj==3.8.0+proj9.9.0"
-          --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $requirement = python scripts/sync_pins.py --get PYPROJ_REQUIREMENT
+          $index = python scripts/sync_pins.py --get PYPROJ_WHEEL_INDEX
+          python -m pip install ".[dev]" $requirement --extra-index-url $index
 
       # The other guards check the devcontainer's source build and its grids.
       - name: Check the environment

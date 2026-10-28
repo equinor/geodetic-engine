@@ -10,8 +10,8 @@ pip install "pygeodetic-engine" "pyproj==3.8.0+proj9.9.0" \
     --extra-index-url https://equinor.github.io/geodetic-engine/simple/
 ```
 
-The explicit pyproj requirement selects the matching wheel even when another
-pyproj 3.8.0 is already installed. The same arguments work with
+The explicit pyproj requirement selects the matching wheel even when PyPI's
+build of the same pyproj release is already installed. The same arguments work with
 `uv pip install`. The wheel workflow builds CPython 3.13, 3.14 and 3.15
 wheels for manylinux x86-64 and aarch64, macOS arm64 and x86-64, and Windows
 AMD64. If the index has no wheel for your Python or platform, build PROJ from
@@ -218,8 +218,8 @@ the build summary. See {ref}`osdu-custom-catalogue`.
 sudo apt-get install -y build-essential cmake ninja-build pkg-config \
     libsqlite3-dev sqlite3 libtiff-dev libcurl4-openssl-dev zlib1g-dev
 
-# 2. Build and install PROJ. The script pins the version and verifies the
-#    tarball checksum before building.
+# 2. Build and install PROJ. The script reads the version and the tarball
+#    checksum from .devcontainer/pins.env and verifies it before building.
 ./.devcontainer/install-proj.sh
 
 # 3. Install the Python dependencies, building pyproj from source against it.

@@ -18,7 +18,7 @@ from scripts.check_package_dist import (
     _CATALOG,
     _DATABASE,
     _DATABASE_DIRECTORY,
-    _ENVIRONMENT,
+    _PINS,
     _PROVENANCE,
     _REQUIRED,
     check_sdist,
@@ -38,6 +38,18 @@ METADATA = {
     "DATABASE.LAYOUT.VERSION.MINOR": "7",
     "EPSG.VERSION": "v13.102",
 }
+
+
+def _pins(proj_version: str) -> bytes:
+    """The geodetic_engine/_pins.env a wheel pinning a PROJ release ships."""
+    return (
+        f"PROJ_VERSION={proj_version}\n"
+        f"PROJ_SHA256={'0' * 64}\n"
+        "PROJ_DATA_VERSION=1.25\n"
+        f"PROJ_DATA_SHA256={'0' * 64}\n"
+        "PYPROJ_VERSION=3.8.0\n"
+        "PYPROJ_WHEEL_INDEX=https://example.org/simple/\n"
+    ).encode()
 
 
 def _metadata_table(connection: sqlite3.Connection, metadata: dict[str, str]) -> None:
@@ -109,11 +121,12 @@ def _wheel(
     extra: tuple[str, ...] = (),
     legacy_license_paths: bool = False,
     pinned: str = "9.9.0",
+    pins: bytes | None = None,
 ) -> Path:
     contents = {
         _CATALOG: catalog,
         _PROVENANCE: json.dumps(PROVENANCE if metadata is None else metadata).encode(),
-        _ENVIRONMENT: f'PINNED_PROJ_VERSION: Final = "{pinned}"\n'.encode(),
+        _PINS: _pins(pinned) if pins is None else pins,
         _DATABASE: database,
     }
     with zipfile.ZipFile(path, "w") as archive:
@@ -179,6 +192,16 @@ def test_the_reference_must_be_the_pinned_releases_database(
     with pytest.raises(
         ValueError, match=re.escape("is for PROJ 9.8.1, not the pinned 9.9.0")
     ):
+        check_wheel(wheel, reference)
+
+
+def test_release_wheel_rejects_malformed_pins(
+    tmp_path: Path, database: bytes, reference: Path
+) -> None:
+    wheel = _wheel(
+        tmp_path / "package.whl", database=database, pins=b"PROJ_VERSION=9.9\n"
+    )
+    with pytest.raises(ValueError, match=re.escape("PROJ_VERSION='9.9' is malformed")):
         check_wheel(wheel, reference)
 
 

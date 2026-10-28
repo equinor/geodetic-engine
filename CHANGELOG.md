@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The PROJ, proj-data and pyproj releases, their checksums and the pyproj
+  wheel index are stated in one file, `.devcontainer/pins.env`, parsed
+  strictly and never sourced. `install-proj.sh`, the Dockerfile, the
+  workflows, the release scripts and the tests read it, and the wheel ships a
+  copy that `geodetic_engine` reads on import. `scripts/sync_pins.py` rewrites
+  the copies that must stay literal text (the `pyproj` dependency, then
+  `uv lock`, and the install commands in the README, the docs and the example
+  notebook), and `--check`, run by the lint workflow and the tests, fails on a
+  stale one. The environment checks also fail when pyproj was compiled against
+  another PROJ than it links, or when the installed proj-data is not the
+  release the pinned PROJ's `proj.db` names. `runbooks/upgrading-proj-and-pyproj.md`
+  is the maintainers' procedure for moving the pins.
 - The wheel ships the official OSDU catalogue already built into PROJ's
   database, so OSDU CRSs, record ids and persistable references resolve right
   after `pip install`, with no build step, on Linux, macOS and Windows. The
@@ -24,7 +36,7 @@ All notable changes to this project are documented here. The format follows
   objects, ids and persistable references, and records the commit and SHA-256
   of the bundled catalogue; the sdist must carry the same file. Nothing in
   these scripts or workflows states a version: the pins are read from
-  `geodetic_engine/_environment.py`, in the checkout or in the built wheel.
+  `.devcontainer/pins.env`, in the checkout or as the copy in the built wheel.
   CI installs
   the built wheel into a clean environment on Linux and Windows and resolves
   `OSDU:2003001` and an OSDU record id from it, also in a spawned child

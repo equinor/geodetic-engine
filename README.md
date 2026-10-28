@@ -94,7 +94,7 @@ For development, open the repository in VS Code and choose *Reopen in
 Container*. By hand:
 
 ```bash
-./.devcontainer/install-proj.sh                          # build PROJ 9.9.0
+./.devcontainer/install-proj.sh                          # build the pinned PROJ
 PROJ_DIR=/usr/local PROJ_WHEEL=false uv sync --extra dev # pyproj from source
 uv run pytest tests/test_environment.py                  # verify
 ```
@@ -128,6 +128,9 @@ uv run ruff check geodetic_engine tests && uv run mypy geodetic_engine
 ```
 
 See [Development](https://equinor.github.io/geodetic-engine/dev/development/index.html).
+The PROJ, proj-data and pyproj releases are pinned in one file,
+`.devcontainer/pins.env`; to move them, follow
+[runbooks/upgrading-proj-and-pyproj.md](https://github.com/equinor/geodetic-engine/blob/main/runbooks/upgrading-proj-and-pyproj.md).
 
 ## License
 

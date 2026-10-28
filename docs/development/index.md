@@ -24,6 +24,7 @@ scripts/run_all_tests.sh
 uv run ruff check geodetic_engine tests
 uv run ruff format --check geodetic_engine tests
 uv run mypy geodetic_engine
+uv run python scripts/sync_pins.py --check
 ```
 
 `pyproject.toml` deselects the `dataset` marker by default. The sweep is worth
@@ -42,7 +43,9 @@ uv run pytest tests/bingrid/test_properties.py --hypothesis-profile=geodetic-eng
 CI runs these as two separate GitHub workflows, so a red check says which kind
 of problem it is:
 
-- **Lint and type check** (`.github/workflows/lint.yml`): `ruff` and `mypy`.
+- **Lint and type check** (`.github/workflows/lint.yml`): `ruff`, `mypy`, and
+  `scripts/sync_pins.py --check`, which fails when a copy of the PROJ and
+  pyproj pins in `.devcontainer/pins.env` is stale.
 - **Tests** (`.github/workflows/tests.yml`): the unit and integration tests,
   the bin grid property tests with fresh Hypothesis examples, then the dataset
   sweep, with a coverage floor of 80 % across the unit tests and the sweep.
@@ -85,7 +88,7 @@ python scripts/check_installed_wheel.py dist/*.whl dist/*.tar.gz
 ```
 
 Both scripts make a new environment with the pyproj wheel
-`geodetic_engine/_environment.py` pins: the first with this checkout, the
+`.devcontainer/pins.env` pins: the first with this checkout, the
 second with the built wheel, reading the pins from the wheel itself. They need
 network access to PyPI and the project's pyproj index. The second runs
 `scripts/check_package_dist.py` there, which compares the shipped database's

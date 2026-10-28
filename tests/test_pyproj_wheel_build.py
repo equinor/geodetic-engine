@@ -116,6 +116,7 @@ def test_wheel_patch_rejects_an_unexpected_macos_tls_configuration(
 def test_wheel_workflow_runs_when_its_pin_or_patch_changes() -> None:
     workflow = SCRIPT.parents[1] / ".github/workflows/pyproj-wheels.yml"
     text = workflow.read_text(encoding="utf-8")
+    assert "- .devcontainer/pins.env" in text
     assert "- pyproject.toml" in text
     assert "- scripts/patch_pyproj_build.py" in text
     assert "cp315-*" in text

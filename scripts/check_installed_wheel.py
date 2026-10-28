@@ -3,7 +3,7 @@
     python scripts/check_installed_wheel.py dist/*.whl [dist/*.tar.gz]
 
 Installs the wheel into a new environment with the pyproj wheel it pins, read
-from the wheel's own geodetic_engine/_environment.py, and nothing else. There,
+from the geodetic_engine/_pins.env the wheel ships, and nothing else. There,
 scripts/check_package_dist.py checks the distributions against that pyproj's
 own proj.db. Then, with no PROJ_DATA or PROJ_LIB set and no build step, OSDU
 lookups must answer from the database the wheel ships, in that process and in
@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 from build_bundled_osdudb import clean_environment, pinned_environment, run
-from check_package_dist import wheel_environment
+from check_package_dist import wheel_pins
 
 CHECK_PACKAGE_DIST = Path(__file__).with_name("check_package_dist.py")
 OSDU_CRS = ("OSDU", "2003001")
@@ -101,7 +101,7 @@ def main() -> None:
     distributions = [str(path.resolve()) for path in (args.wheel, args.sdist) if path]
     with tempfile.TemporaryDirectory(prefix="geodetic-installed-wheel-") as work:
         python = pinned_environment(
-            Path(work) / "venv", wheel_environment(args.wheel), distributions[0]
+            Path(work) / "venv", wheel_pins(args.wheel), distributions[0]
         )
         environment = clean_environment()
         run([str(python), str(CHECK_PACKAGE_DIST), *distributions], env=environment)

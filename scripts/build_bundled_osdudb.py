@@ -3,8 +3,8 @@
     python scripts/build_bundled_osdudb.py
 
 Runs ``geodetic-osdudb build --official`` in a new virtual environment holding
-this checkout and the pyproj wheel geodetic_engine/_environment.py pins, from
-the project's index, so the base database is that wheel's own proj.db: exactly
+this checkout and the pyproj wheel .devcontainer/pins.env pins, from the
+project's index, so the base database is that wheel's own proj.db: exactly
 the EPSG content users install. Nothing of the calling environment's PROJ setup
 reaches the build. The result is checked as scripts/check_package_dist.py
 checks a release, against that same proj.db, then written to
@@ -26,14 +26,15 @@ import subprocess
 import tempfile
 import venv
 from pathlib import Path
+from typing import Any
 
-from check_package_dist import check_database, pin, stock_proj_db
+from check_package_dist import check_database, stock_proj_db
+from sync_pins import read_pins
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DESTINATION = REPO_ROOT / "geodetic_engine/osdudb/_data/proj_data/proj.db"
 CATALOG = REPO_ROOT / "catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json"
 PROVENANCE = CATALOG.with_suffix(".source.json")
-ENVIRONMENT = REPO_ROOT / "geodetic_engine/_environment.py"
 # Left behind only when a run is interrupted while publishing.
 _PARTIAL = ".proj.db.partial"
 
@@ -71,13 +72,12 @@ def run(
     )
 
 
-def pinned_environment(directory: Path, environment: str, *packages: str) -> Path:
+def pinned_environment(directory: Path, pins: Any, *packages: str) -> Path:
     """Create a virtual environment with packages and the pyproj wheel pinned.
 
     Args:
         directory: Where to create it.
-        environment: The text of the geodetic_engine/_environment.py whose pins
-            apply.
+        pins: The pins that apply, as geodetic_engine/_pins.py reads them.
         packages: What else to install.
 
     Returns:
@@ -85,10 +85,6 @@ def pinned_environment(directory: Path, environment: str, *packages: str) -> Pat
     """
     venv.create(directory, with_pip=True)
     python = directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    requirement = "pyproj=={}+proj{}".format(
-        pin(environment, "PINNED_PYPROJ_VERSION"),
-        pin(environment, "PINNED_PROJ_VERSION"),
-    )
     run(
         [
             str(python),
@@ -99,9 +95,9 @@ def pinned_environment(directory: Path, environment: str, *packages: str) -> Pat
             "--only-binary",
             "pyproj",
             "--extra-index-url",
-            pin(environment, "PYPROJ_WHEEL_INDEX"),
+            pins.pyproj_wheel_index,
             *packages,
-            requirement,
+            pins.pyproj_requirement,
         ],
         env=clean_environment(),
     )
@@ -118,15 +114,13 @@ def own_proj_db(python: Path) -> Path:
     return stock_proj_db(search_path.strip())
 
 
-def build(work: Path) -> tuple[Path, Path]:
+def build(work: Path, pins: Any) -> tuple[Path, Path]:
     """Build the official catalogue in a new environment.
 
     Returns:
         The database, and the proj.db it was built on.
     """
-    python = pinned_environment(
-        work / "venv", ENVIRONMENT.read_text(encoding="utf-8"), str(REPO_ROOT)
-    )
+    python = pinned_environment(work / "venv", pins, str(REPO_ROOT))
     output = work / "output"
     output.mkdir()
     # Run elsewhere than the checkout: no geodetic-osdudb.toml or .env of the
@@ -170,15 +164,14 @@ def publish(database: Path) -> None:
 
 def main() -> None:
     argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
+    pins = read_pins()
     provenance = json.loads(PROVENANCE.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory(prefix="geodetic-bundled-osdudb-") as work:
-        database, reference = build(Path(work))
+        database, reference = build(Path(work), pins)
         summary = check_database(
             database,
             provenance=provenance,
-            proj_version=pin(
-                ENVIRONMENT.read_text(encoding="utf-8"), "PINNED_PROJ_VERSION"
-            ),
+            proj_version=pins.proj_version,
             reference=reference,
         )
         publish(database)

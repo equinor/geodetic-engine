@@ -3,7 +3,7 @@ name: Lint and type check
 # PROJ is built from source at a pinned version, so the checks run inside the
 # devcontainer image rather than against whatever PROJ the runner happens to
 # have. The image comes from the same Dockerfile a contributor develops in; see
-# .devcontainer/install-proj.sh. The tests are a separate workflow (tests.yml),
+# .devcontainer/pins.env and install-proj.sh. The tests are a separate workflow (tests.yml),
 # so a failure here is a style or typing problem and never a failing test.
 
 on:
@@ -59,7 +59,8 @@ jobs:
 
       # One container, and the exit status held to the end, so that a style
       # error cannot hide a typing error: a reviewer sees every problem at once.
-      - name: Run ruff and mypy
+      # The pins check fails when a copy of .devcontainer/pins.env is stale.
+      - name: Run ruff, mypy and the pins check
         run: |
           $DOCKER_RUN bash -euo pipefail -c '
             status=0
@@ -67,5 +68,6 @@ jobs:
             check "ruff check"  uv run --no-sync ruff check geodetic_engine tests
             check "ruff format" uv run --no-sync ruff format --check geodetic_engine tests
             check "mypy"        uv run --no-sync mypy geodetic_engine
+            check "pins"        uv run --no-sync python scripts/sync_pins.py --check
             exit $status
           '

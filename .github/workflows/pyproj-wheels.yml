@@ -6,11 +6,11 @@ name: pyproj wheels
 # wheels on GitHub. The documentation workflow lists them in a package index
 # beside the docs, so that
 #
-#   pip install pygeodetic-engine "pyproj==3.8.0+proj9.9.0" --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+#   pip install pygeodetic-engine "pyproj==<pyproj>+proj<PROJ>" --extra-index-url <index>
 #
-# installs pyproj with the pinned PROJ. No version is set here: PROJ and its
-# checksum come from .devcontainer/install-proj.sh and pyproj from
-# pyproject.toml, so the wheels bundle exactly the PROJ the tests ran against.
+# installs pyproj with the pinned PROJ. No version is set here: PROJ, its
+# checksum, pyproj and the index all come from .devcontainer/pins.env, so the
+# wheels bundle exactly the PROJ the tests ran against.
 
 on:
   workflow_dispatch:
@@ -26,8 +26,11 @@ on:
   pull_request:
     paths:
       - .github/workflows/pyproj-wheels.yml
+      - .devcontainer/pins.env
       - .devcontainer/install-proj.sh
       - pyproject.toml
+      - geodetic_engine/_pins.py
+      - scripts/sync_pins.py
       - scripts/check_pyproj_wheel.py
       - scripts/patch_pyproj_build.py
       - scripts/pyproj-manylinux.Dockerfile
@@ -54,9 +57,9 @@ jobs:
       - name: Read the pinned versions
         id: read
         run: |
-          pyproj=$(grep -oP '"pyproj==\K[^"]+' pyproject.toml)
-          proj=$(grep -oP '^PROJ_VERSION="\$\{PROJ_VERSION:-\K[^}]+' .devcontainer/install-proj.sh)
-          sha=$(grep -oP '^PROJ_SHA256="\$\{PROJ_SHA256:-\K[^}]+' .devcontainer/install-proj.sh)
+          pyproj=$(python3 scripts/sync_pins.py --get PYPROJ_VERSION)
+          proj=$(python3 scripts/sync_pins.py --get PROJ_VERSION)
+          sha=$(python3 scripts/sync_pins.py --get PROJ_SHA256)
           echo "pyproj $pyproj with PROJ $proj ($sha)"
           {
             echo "pyproj=$pyproj"

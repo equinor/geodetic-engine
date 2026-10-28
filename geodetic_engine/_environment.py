@@ -4,12 +4,13 @@ from typing import Final
 
 import pyproj
 
-PINNED_PROJ_VERSION: Final = "9.9.0"
-PINNED_PYPROJ_VERSION: Final = "3.8.0"
-PYPROJ_WHEEL_INDEX: Final = "https://equinor.github.io/geodetic-engine/simple/"
-PYPROJ_WHEEL_REQUIREMENT: Final = (
-    f"pyproj=={PINNED_PYPROJ_VERSION}+proj{PINNED_PROJ_VERSION}"
-)
+from geodetic_engine._pins import read
+
+_PINS: Final = read()
+PINNED_PROJ_VERSION: Final = _PINS.proj_version
+PINNED_PYPROJ_VERSION: Final = _PINS.pyproj_version
+PYPROJ_WHEEL_INDEX: Final = _PINS.pyproj_wheel_index
+PYPROJ_WHEEL_REQUIREMENT: Final = _PINS.pyproj_requirement
 
 
 def require_pinned_proj() -> None:

@@ -15,11 +15,13 @@ from typing import Any
 import httpx
 import pytest
 
+from geodetic_engine._environment import PINNED_PROJ_VERSION
 from geodetic_engine.georepository.cache import CacheMode, ResponseCache
 from geodetic_engine.georepository.client import GeorepositoryClient
 from geodetic_engine.projdb import common
 from geodetic_engine.projdb.build import build
 from geodetic_engine.projdb.config import ProjDbBuildConfig
+from geodetic_engine.projdb.schema import database_layout_version
 from geodetic_engine.projdb.validate import validate
 from tests.projdb.conftest import (
     API,
@@ -480,9 +482,12 @@ def test_authority_preferences_make_custom_operations_selectable(
 
 def test_report_records_provenance(report, config: ProjDbBuildConfig) -> None:
     """A result must be traceable back to the versions that produced it."""
-    assert report.proj_version == "9.9.0"
+    assert report.proj_version == PINNED_PROJ_VERSION
     assert report.epsg_version.startswith("v")
-    assert report.database_layout_version == "1.7"
+    with closing(
+        sqlite3.connect(f"file:{config.base_proj_db}?mode=ro", uri=True)
+    ) as connection:
+        assert report.database_layout_version == database_layout_version(connection)
     assert report.authorities == [AUTHORITY]
     assert {
         "table": "geodetic_crs",

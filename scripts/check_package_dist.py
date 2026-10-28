@@ -6,8 +6,9 @@ The wheel must hold the catalogue with matching provenance, and the proj.db
 built from it, alone in its directory, built from the pinned pyproj wheel's
 own database. Its metadata (PROJ release, database layout, EPSG version) must
 be that database's, read from the pyproj installed here, which must link the
-PROJ release the wheel pins; or from --reference-proj-db. Nothing is pinned
-here. An sdist given as well must carry the same database.
+PROJ release the wheel's own geodetic_engine/_pins.env pins; or from
+--reference-proj-db. Nothing is pinned here. An sdist given as well must carry
+the same database.
 """
 
 from __future__ import annotations
@@ -25,14 +26,21 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+try:
+    from sync_pins import pins_module
+except ImportError:  # imported as scripts.check_package_dist, by the tests
+    from scripts.sync_pins import pins_module
+
 _DATA = "geodetic_engine/osdudb/_data/"
 _CATALOG = _DATA + "CRS_CT_osdu_official_crs_catalog.json"
 _PROVENANCE = _DATA + "CRS_CT_osdu_official_crs_catalog.source.json"
 _DATABASE_DIRECTORY = _DATA + "proj_data/"
 _DATABASE = _DATABASE_DIRECTORY + "proj.db"
-_ENVIRONMENT = "geodetic_engine/_environment.py"
+_PINS = "geodetic_engine/_pins.env"
 _REQUIRED = (
-    _ENVIRONMENT,
+    "geodetic_engine/_environment.py",
+    "geodetic_engine/_pins.py",
+    _PINS,
     "geodetic_engine/_bundled_database.py",
     "geodetic_engine/osdudb/__main__.py",
     "geodetic_engine/osdudb/official.py",
@@ -49,18 +57,11 @@ _REFERENCE_TABLE = "geodetic_engine_osdu_persistable_reference"
 _WHEEL_BASE = re.compile(r"pyproj[\\/]proj_dir[\\/]share[\\/]proj[\\/]proj\.db$")
 
 
-def pin(environment: str, name: str) -> str:
-    """A value ``geodetic_engine/_environment.py`` pins, from its text."""
-    match = re.search(rf'^{name}: Final = "([^"]+)"$', environment, re.MULTILINE)
-    if match is None:
-        raise ValueError(f"{_ENVIRONMENT} pins no {name}")
-    return match.group(1)
-
-
-def wheel_environment(path: Path) -> str:
-    """The ``geodetic_engine/_environment.py`` a wheel ships, with its pins."""
+def wheel_pins(path: Path) -> Any:
+    """The pins a wheel ships, as the package reads them on import."""
     with zipfile.ZipFile(path) as wheel:
-        return wheel.read(_ENVIRONMENT).decode("utf-8")
+        text = wheel.read(_PINS).decode("utf-8")
+    return pins_module().parse(text, f"{path}!{_PINS}")
 
 
 def stock_proj_db(search_path: str) -> Path:
@@ -277,10 +278,8 @@ def check_wheel(path: Path, reference: Path | None = None) -> dict[str, Any]:
                 raise ValueError(f"the wheel must include exactly one {name}")
         catalog = wheel.read(_CATALOG)
         metadata = json.loads(wheel.read(_PROVENANCE))
-        proj_version = pin(
-            wheel.read(_ENVIRONMENT).decode("utf-8"), "PINNED_PROJ_VERSION"
-        )
         database = wheel.read(_DATABASE)
+    proj_version = wheel_pins(path).proj_version
     digest = hashlib.sha256(catalog).hexdigest()
     if not isinstance(metadata, dict) or metadata.get("sha256") != digest:
         raise ValueError("the bundled OSDU catalogue does not match its provenance")

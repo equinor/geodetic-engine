@@ -109,10 +109,15 @@ def _clean_environment(**variables: str) -> dict[str, str]:
 
 
 def _copy_package(destination: Path) -> Path:
+    """The package as a wheel installs it, without the shipped database."""
     shutil.copytree(
         REPO_ROOT / "geodetic_engine",
         destination / "geodetic_engine",
         ignore=shutil.ignore_patterns("__pycache__", "proj_data"),
+    )
+    shutil.copyfile(
+        REPO_ROOT / ".devcontainer" / "pins.env",
+        destination / "geodetic_engine" / "_pins.env",
     )
     return destination
 

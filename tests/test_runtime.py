@@ -1,14 +1,19 @@
 """Guards that apply to both source and published pyproj installations."""
 
-import re
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
-import pytest
+from geodetic_engine._environment import (
+    PINNED_PROJ_VERSION,
+    PINNED_PYPROJ_VERSION,
+    PYPROJ_WHEEL_INDEX,
+    PYPROJ_WHEEL_REQUIREMENT,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# A PROJ release other than the pinned one, whatever that is.
+OTHER_PROJ = "0.0.1" if PINNED_PROJ_VERSION != "0.0.1" else "0.0.2"
 
 
 def _import_with_pyproj(version: str, proj: str) -> subprocess.CompletedProcess[str]:
@@ -28,58 +33,25 @@ def _import_with_pyproj(version: str, proj: str) -> subprocess.CompletedProcess[
 
 
 def test_source_built_pyproj_with_the_pinned_proj_is_accepted() -> None:
-    result = _import_with_pyproj("3.8.0", "9.9.0")
+    result = _import_with_pyproj(PINNED_PYPROJ_VERSION, PINNED_PROJ_VERSION)
     assert result.returncode == 0, result.stderr
 
 
 def test_public_pyproj_with_another_proj_fails_clearly() -> None:
-    result = _import_with_pyproj("3.8.0", "9.8.1")
+    result = _import_with_pyproj(PINNED_PYPROJ_VERSION, OTHER_PROJ)
     assert result.returncode != 0
-    assert "PROJ 9.9.0" in result.stderr
-    assert "9.8.1" in result.stderr
-    assert "pyproj==3.8.0+proj9.9.0" in result.stderr
-    assert "https://equinor.github.io/geodetic-engine/simple/" in result.stderr
+    assert f"PROJ {PINNED_PROJ_VERSION}" in result.stderr
+    assert OTHER_PROJ in result.stderr
+    assert PYPROJ_WHEEL_REQUIREMENT in result.stderr
+    assert PYPROJ_WHEEL_INDEX in result.stderr
 
 
 def test_a_different_custom_proj_wheel_is_rejected() -> None:
-    result = _import_with_pyproj("3.8.0+proj9.10.0", "9.10.0")
-    assert result.returncode != 0
-    assert "9.10.0" in result.stderr
-
-
-def test_runtime_pins_match_the_build_inputs() -> None:
-    from geodetic_engine._environment import PINNED_PROJ_VERSION, PINNED_PYPROJ_VERSION
-
-    script = (REPO_ROOT / ".devcontainer/install-proj.sh").read_text(encoding="utf-8")
-    match = re.search(r'^PROJ_VERSION="\$\{PROJ_VERSION:-([^}]+)}"', script, re.M)
-    assert match is not None
-    assert match.group(1) == PINNED_PROJ_VERSION
-
-    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert f"pyproj=={PINNED_PYPROJ_VERSION}" in project["project"]["dependencies"]
-
-
-@pytest.mark.parametrize(
-    "relative",
-    [
-        "README.md",
-        "docs/getting-started/installation.md",
-        "docs/user-guide/welltrajectory/plotting.md",
-        "geodetic_engine/welltrajectory/README.md",
-        "examples/welltrajectory_examples.ipynb",
-        ".github/workflows/pyproj-wheels.yml",
-        ".github/workflows/tests.yml",
-    ],
-)
-def test_install_examples_select_the_expected_wheel(relative: str) -> None:
-    from geodetic_engine._environment import (
-        PYPROJ_WHEEL_INDEX,
-        PYPROJ_WHEEL_REQUIREMENT,
+    result = _import_with_pyproj(
+        f"{PINNED_PYPROJ_VERSION}+proj{OTHER_PROJ}", OTHER_PROJ
     )
-
-    text = (REPO_ROOT / relative).read_text(encoding="utf-8")
-    assert PYPROJ_WHEEL_REQUIREMENT in text
-    assert PYPROJ_WHEEL_INDEX in text
+    assert result.returncode != 0
+    assert OTHER_PROJ in result.stderr
 
 
 def test_missing_plotly_error_preserves_the_verified_pyproj_installation() -> None:
