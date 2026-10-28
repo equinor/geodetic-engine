@@ -1,5 +1,5 @@
 <h1>
-  <img src="docs/_static/logo.svg" alt="geodetic-engine" width="360">
+  <img src="https://raw.githubusercontent.com/equinor/geodetic-engine/main/docs/_static/logo.svg" alt="geodetic-engine" width="360">
 </h1>
 
 `geodetic-engine` is a Python library for transforming coordinates between
@@ -31,7 +31,7 @@ exactly as specified is refused with an error rather than approximated.
   CRS, with `geodetic_engine.geodesy.projection_factors`.
 - **Well trajectories.** Minimum-curvature trajectories from directional
   surveys, placed in a CRS; see the
-  [`welltrajectory` README](geodetic_engine/welltrajectory/README.md).
+  [`welltrajectory` README](https://github.com/equinor/geodetic-engine/blob/main/geodetic_engine/welltrajectory/README.md).
 - **Seismic bin grids.** Convert between bin grid and map grid with P6
   parameters, check and square up a four-corner grid, convert it to another
   CRS, and match a legacy dataset to a stored grid.
@@ -112,4 +112,4 @@ See [Development](https://equinor.github.io/geodetic-engine/dev/development/inde
 
 ## License
 
-See [LICENSE](LICENSE).
+See [LICENSE](https://github.com/equinor/geodetic-engine/blob/main/LICENSE).
