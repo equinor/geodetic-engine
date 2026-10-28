@@ -52,11 +52,11 @@ operation needs a coordinate epoch.
 |---|---|
 | {mod}`geodetic_engine.geodesy` | Transformations, CRS inspection, operation lookup, results and provenance, projection factors |
 | {mod}`geodetic_engine.welltrajectory` | Well trajectories from directional surveys: minimum curvature, georeferencing in a CRS, 3D plots |
+| {mod}`geodetic_engine.bingrid` | Seismic bin grids: P6 conversion, four-corner squaring and QC, outlines |
 | {mod}`geodetic_engine.persistablereference` | Parse and emit OSDU `persistableReference` payloads |
 | {mod}`geodetic_engine.georepository` | Authenticated client for a Georepository API |
 | {mod}`geodetic_engine.projdb` | Build a `proj.db` from a Georepository register (`geodetic-projdb`) |
 | {mod}`geodetic_engine.osdudb` | Build a `proj.db` from an OSDU catalogue (`geodetic-osdudb`) |
-| {mod}`geodetic_engine.bingrid` | Seismic bin grids: P6 conversion, four-corner squaring and QC, outlines |
 
 For coordinate transformations, PROJ does all the numerical work, and the
 package is a layer over pyproj that decides which operation runs, checks the
@@ -99,8 +99,8 @@ ideas the rest of the documentation assumes you know.
 :link-type: doc
 
 Task-oriented guides for every module: transformations, projection factors,
-well trajectories, the Georepository client, custom `proj.db` builds, and
-seismic bin grids.
+well trajectories, seismic bin grids, the Georepository client, and custom
+`proj.db` builds.
 :::
 
 :::{grid-item-card} {octicon}`beaker` Examples
@@ -144,10 +144,10 @@ each workaround can be removed.
 | Understand why my transformation was refused | {doc}`user-guide/geodesy/errors` |
 | Turn an azimuth between true and grid north, or scale a distance onto the grid | {doc}`user-guide/geodesy/projection-factors` |
 | Position a well from its directional survey | {doc}`user-guide/welltrajectory/input` |
+| Square up a seismic bin grid, or convert it to another CRS | {doc}`user-guide/bingrid` |
 | Read or write an OSDU `persistableReference` | {doc}`persistable-reference/usage` |
 | Understand what a `persistableReference` is, or look up the one a catalogue publishes | {doc}`persistable-reference/index`, {doc}`persistable-reference/catalog` |
 | Add my organisation's CRSs and transformations to PROJ | {doc}`user-guide/custom-database` |
-| Square up a seismic bin grid, or convert it to another CRS | {doc}`user-guide/bingrid` |
 | Know what the package does differently from plain pyproj | {doc}`background/guarantees` |
 | Look up a term such as *bound CRS* or *ballpark* | {doc}`glossary` |
 
@@ -165,9 +165,9 @@ getting-started/index
 
 user-guide/geodesy/index
 user-guide/welltrajectory/index
+user-guide/bingrid
 user-guide/georepository
 user-guide/custom-database
-user-guide/bingrid
 ```
 
 ```{toctree}
