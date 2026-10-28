@@ -244,6 +244,32 @@ def test_a_database_in_use_on_windows_is_reported_and_kept(
     assert not list(config.output_db.parent.glob("*.staging"))
 
 
+def test_a_read_only_staging_file_is_removed_on_windows(
+    config: ProjDbBuildConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Staging takes a read-only output's mode, and Windows will not delete it."""
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+    config.output_db.chmod(stat.S_IREAD)
+    unlink = Path.unlink
+
+    def windows_unlink(path: Path, missing_ok: bool = False) -> None:
+        if path.exists() and not path.stat().st_mode & stat.S_IWRITE:
+            raise PermissionError(13, "Access is denied", str(path))
+        unlink(path, missing_ok=missing_ok)
+
+    def refused(source: Any, destination: Any) -> None:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(writer_module, "_WINDOWS", True)
+    monkeypatch.setattr(Path, "unlink", windows_unlink)
+    monkeypatch.setattr(os, "replace", refused)
+    with pytest.raises(ProjDbBuildError), ProjDbWriter(config) as writer:
+        writer.insert("scope", [_SCOPE_ROW])
+        writer.commit()
+    assert not list(config.output_db.parent.glob("*.staging"))
+
+
 def test_existing_keys_reads_the_base_database(config: ProjDbBuildConfig) -> None:
     with ProjDbWriter(config) as writer:
         keys = writer.existing_keys("geodetic_datum")

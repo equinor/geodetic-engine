@@ -1003,6 +1003,13 @@ def _same(stored: Any, stated: Any) -> bool:
 
 def _unlink(path: Path) -> None:
     try:
-        path.unlink(missing_ok=True)
+        try:
+            path.unlink(missing_ok=True)
+        except PermissionError:
+            if not _WINDOWS:
+                raise
+            # Windows will not delete a read-only file; staging takes the output's mode.
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
+            path.unlink(missing_ok=True)
     except OSError:
         logger.warning("could not remove partial output at %s", path)
