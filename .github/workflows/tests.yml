@@ -4,7 +4,9 @@ name: Tests
 # run here always means a test failed. PROJ is built from source at a pinned
 # version, so the tests run inside the devcontainer image rather than against
 # whatever PROJ the runner happens to have: every expected coordinate depends on
-# the pinned PROJ and its EPSG dataset. See .devcontainer/install-proj.sh.
+# the pinned PROJ and its EPSG dataset. See .devcontainer/install-proj.sh. The
+# Windows job instead tests the installed package against the pyproj wheel
+# built for the same PROJ.
 
 on:
   push:
@@ -121,3 +123,53 @@ jobs:
             uv run --no-sync pytest tests/test_environment.py -q
             PYTHONWARNINGS=default::DeprecationWarning uv run --no-sync pytest -n logical -q
           '
+
+  # The package as a Windows user installs it: no devcontainer, the pinned
+  # pyproj wheel, no grids. Linux deletes and replaces files that are still
+  # open and syncs read-only handles and directories, so only Windows shows
+  # whether building and publishing a database works there.
+  tests-windows:
+    name: Windows tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install the package and the pinned pyproj wheel
+        run: >-
+          python -m pip install ".[dev]" "pyproj==3.8.0+proj9.9.0"
+          --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+
+      # The other guards check the devcontainer's source build and its grids.
+      - name: Check the environment
+        run: >-
+          python -m pytest tests/test_environment.py -q
+          -k "test_proj_version or not_patched or no_links or epsg_4326"
+
+      # The ignored modules test the devcontainer's shell scripts.
+      - name: Database build tests
+        run: >-
+          python -m pytest tests/projdb tests/osdudb -n logical -q
+          --ignore=tests/projdb/test_grid_alternatives.py
+          --ignore=tests/osdudb/test_script.py
+          --ignore=tests/osdudb/test_install_script.py
+
+      - name: Build the official OSDU database
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $temp = python -c "import tempfile; print(tempfile.gettempdir())"
+          $work = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP osdudb)
+          Push-Location $work
+          geodetic-osdudb build --official
+          if (-not (Test-Path build/proj.db)) { throw "build/proj.db was not written" }
+          python -c "import os, pyproj; pyproj.datadir.set_data_dir(os.pathsep.join([os.path.abspath('build'), pyproj.datadir.get_data_dir()])); print(pyproj.CRS.from_authority('OSDU', '2003001').name)"
+          Pop-Location
+          $left = @(Get-ChildItem $temp -Directory -Filter 'geodetic-projdb-*')
+          if ($left) { throw "staging directories left in ${temp}: $($left.Name -join ', ')" }

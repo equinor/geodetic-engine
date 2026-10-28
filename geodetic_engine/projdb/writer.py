@@ -25,6 +25,7 @@ from filelock import FileLock
 from geodetic_engine.projdb.errors import (
     ForeignAuthorityCollision,
     MissingReferencedObjectError,
+    ProjDbBuildError,
     SchemaDriftError,
 )
 from geodetic_engine.projdb.schema import (
@@ -47,6 +48,8 @@ from geodetic_engine.projdb.settings import (
 )
 
 logger = logging.getLogger(__name__)
+
+_WINDOWS = os.name == "nt"
 
 Row = Mapping[str, Any]
 
@@ -911,6 +914,10 @@ class ProjDbWriter:
             validate: Callback run against the committed staging database.
                 Any exception leaves the published database unchanged.
             publish: False validates staging without replacing the output.
+
+        Raises:
+            ProjDbBuildError: On Windows, if another process has the published
+                database open, so it cannot be replaced.
         """
         self.connection.execute("COMMIT")
         assert self._staging is not None
@@ -920,7 +927,8 @@ class ProjDbWriter:
             return
         self.connection.close()
         self._connection = None
-        with self._staging.open("rb") as stream:
+        # Windows flushes only a handle opened for writing.
+        with self._staging.open("r+b") as stream:
             try:
                 mode = stat.S_IMODE(self._config.output_db.stat().st_mode)
             except FileNotFoundError:
@@ -928,12 +936,23 @@ class ProjDbWriter:
             else:
                 self._staging.chmod(mode)
             os.fsync(stream.fileno())
-        os.replace(self._staging, self._config.output_db)
-        directory = os.open(self._config.output_db.parent, os.O_RDONLY)
         try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+            os.replace(self._staging, self._config.output_db)
+        except PermissionError as error:
+            if not _WINDOWS:
+                raise
+            raise ProjDbBuildError(
+                f"{self._config.output_db} is in use and cannot be replaced. "
+                "Close any Python session or notebook reading it through PROJ "
+                "and build again; the database there is unchanged."
+            ) from error
+        # Windows cannot open a directory to sync it; NTFS journals the rename.
+        if not _WINDOWS:
+            directory = os.open(self._config.output_db.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         self._staging = None
         self._committed = True
         logger.info(

@@ -120,25 +120,28 @@ def validate(
     """
     from pyproj import datadir
 
-    request = {
-        "database": str(database.resolve()),
-        "authorities": list(authorities),
-        "imported": None if imported is None else list(imported),
-        "data_dir": datadir.get_data_dir(),
-    }
-    try:
-        process = subprocess.run(
-            [sys.executable, "-m", "geodetic_engine.projdb._validate_worker"],
-            input=json.dumps(request),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        response = json.loads(process.stdout)
-    except (OSError, ValueError) as error:
-        raise ProjDbBuildError(
-            f"database validation process failed: {error}"
-        ) from error
+    # Staged here, not in the worker: PROJ keeps the file open until the worker
+    # exits, and Windows cannot remove a file that is still open.
+    with _as_proj_db(database) as directory:
+        request = {
+            "database": str(directory / "proj.db"),
+            "authorities": list(authorities),
+            "imported": None if imported is None else list(imported),
+            "data_dir": datadir.get_data_dir(),
+        }
+        try:
+            process = subprocess.run(
+                [sys.executable, "-m", "geodetic_engine.projdb._validate_worker"],
+                input=json.dumps(request),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            response = json.loads(process.stdout)
+        except (OSError, ValueError) as error:
+            raise ProjDbBuildError(
+                f"database validation process failed: {error}"
+            ) from error
     if process.returncode or "error" in response:
         raise ProjDbBuildError(str(response.get("error") or process.stderr))
     if process.stderr.strip():
@@ -374,8 +377,8 @@ def _as_proj_db(database: Path) -> Generator[Path]:
     """Yield a directory in which the database is called ``proj.db``.
 
     The database itself is used where it is already named that way; otherwise
-    it is linked, or copied when linking is not possible, into a temporary
-    directory that is removed afterwards.
+    it is linked, or copied when linking is not possible or on Windows, into a
+    temporary directory that is removed afterwards.
     """
     resolved = database.resolve()
     if resolved.name == "proj.db":
@@ -383,10 +386,14 @@ def _as_proj_db(database: Path) -> Generator[Path]:
         return
     with tempfile.TemporaryDirectory(prefix="geodetic-projdb-") as staging:
         staged = Path(staging) / "proj.db"
-        try:
-            os.link(resolved, staged)
-        except OSError:
+        # Windows refuses to remove a link to a file the writer still has open.
+        if os.name == "nt":
             shutil.copyfile(resolved, staged)
+        else:
+            try:
+                os.link(resolved, staged)
+            except OSError:
+                shutil.copyfile(resolved, staged)
         logger.debug("staged %s as %s for PROJ to read", resolved, staged)
         yield Path(staging)
 
