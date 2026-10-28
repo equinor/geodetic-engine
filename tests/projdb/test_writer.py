@@ -235,7 +235,7 @@ def test_a_database_in_use_on_windows_is_reported_and_kept(
     monkeypatch.setattr(writer_module, "_WINDOWS", True)
     monkeypatch.setattr(os, "replace", in_use)
     with (
-        pytest.raises(ProjDbBuildError, match="is in use"),
+        pytest.raises(ProjDbBuildError, match="used by another process"),
         ProjDbWriter(config) as writer,
     ):
         writer.insert("scope", [_SCOPE_ROW])

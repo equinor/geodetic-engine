@@ -217,8 +217,9 @@ All notable changes to this project are documented here. The format follows
   temporary copy is removed only after the validation process, in which PROJ
   holds it open, has exited. Publication syncs the staged database through a
   writable handle and skips the directory sync Windows does not have. A
-  database another process has open, such as a notebook reading it through
-  PROJ, now raises `ProjDbBuildError` saying so and is left unchanged. The
+  database that cannot be replaced, most often because another process such
+  as a notebook has it open through PROJ, now raises `ProjDbBuildError` with
+  the cause and is left unchanged. The
   tests now also run on Windows, against the pinned pyproj wheel, with a
   build of the official OSDU catalogue.
 - The pyproj wheel build installs macOS dependencies in a writable runner

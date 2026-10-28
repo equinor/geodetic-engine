@@ -916,8 +916,8 @@ class ProjDbWriter:
             publish: False validates staging without replacing the output.
 
         Raises:
-            ProjDbBuildError: On Windows, if another process has the published
-                database open, so it cannot be replaced.
+            ProjDbBuildError: On Windows, if the published database cannot be
+                replaced, most often because another process has it open.
         """
         self.connection.execute("COMMIT")
         assert self._staging is not None
@@ -942,9 +942,10 @@ class ProjDbWriter:
             if not _WINDOWS:
                 raise
             raise ProjDbBuildError(
-                f"{self._config.output_db} is in use and cannot be replaced. "
-                "Close any Python session or notebook reading it through PROJ "
-                "and build again; the database there is unchanged."
+                f"cannot replace {self._config.output_db}: {error}. The database "
+                "there is unchanged. Another process may have it open, such as a "
+                "Python session or notebook reading it through PROJ, or the file "
+                "or its directory may be read-only."
             ) from error
         # Windows cannot open a directory to sync it; NTFS journals the rename.
         if not _WINDOWS:
