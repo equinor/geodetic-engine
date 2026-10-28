@@ -28,6 +28,9 @@ from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 from urllib.parse import unquote
 
+from pyproj import CRS
+from pyproj.exceptions import CRSError
+
 from geodetic_engine.geodesy import CoordinateReferenceSystem, UnresolvableCRSError
 from geodetic_engine.geodesy.osdu_id import parse_osdu_id
 from geodetic_engine.geojson._model import (
@@ -489,19 +492,73 @@ def _symbol(text: str) -> str:
 def _same_crs(
     first: CoordinateReferenceSystem, second: CoordinateReferenceSystem
 ) -> bool:
-    """Whether two CRSs are the same, as stated and as given.
+    """Whether a CRS repeats another: the same positions at the same values.
 
-    Equivalent by PROJ, or both certainly the same authority's same code. The
-    second covers a persistableReference for EPSG:4326, whose ESRI WKT states
-    the WGS 84 datum rather than EPSG:4326's datum ensemble, which PROJ does
-    not take as equivalent.
+    Equivalent by PROJ once both declare their axes in the order this package
+    gives values in: longitude or easting first, then latitude or northing,
+    then any height. So EPSG:4326 repeats OGC:CRS84, and EPSG:2193, declared
+    northing first, repeats an OSDU persistableReference for it, declared
+    easting first. PROJ's own ``ignore_axis_order`` reaches geographic CRSs
+    only.
+
+    Everything else counts: axis directions, units, the number of axes, and a
+    transformation a CRS is bound with. A CRS counting longitude west does not
+    repeat CRS84, and neither does a CRS that only states the same authority
+    code: a persistableReference is defined by its parameters, not its code.
     """
-    if first == second:
-        return True
-    identified = first.crs.to_authority(min_confidence=100)
-    return identified is not None and identified == second.crs.to_authority(
-        min_confidence=100
+    return _in_value_order(first.crs).equals(
+        _in_value_order(second.crs), ignore_axis_order=True
     )
+
+
+def _in_value_order(crs: CRS) -> CRS:
+    """``crs`` with every coordinate system in it declared in value order."""
+    definition = crs.to_json_dict()
+    if not _declare_in_value_order(definition):
+        return crs
+    try:
+        return CRS.from_json_dict(definition)
+    except CRSError:
+        return crs
+
+
+def _declare_in_value_order(node: object) -> bool:
+    """Reorder each CRS's axes in a PROJJSON node into value order, in place.
+
+    Every node is visited, whatever an earlier one did.
+
+    Returns:
+        Whether any axis moved.
+    """
+    moved = False
+    if isinstance(node, list):
+        for item in node:
+            moved = _declare_in_value_order(item) or moved
+        return moved
+    if not isinstance(node, dict):
+        return False
+    system = node.get("coordinate_system")
+    if isinstance(system, dict) and isinstance(system.get("axis"), list):
+        order = _value_order(node)
+        if order is not None and order != tuple(range(len(order))):
+            axes = system["axis"]
+            system["axis"] = [axes[index] for index in order]
+            # An identifier would claim the authority's own axis order.
+            node.pop("id", None)
+            node.pop("ids", None)
+            moved = True
+    for key, child in node.items():
+        if key != "coordinate_system":
+            moved = _declare_in_value_order(child) or moved
+    return moved
+
+
+def _value_order(node: dict[str, Any]) -> tuple[int, ...] | None:
+    try:
+        crs = CRS.from_json_dict(node)
+    except CRSError:
+        return None
+    return CoordinateReferenceSystem(crs, crs.name).value_axis_order
 
 
 def _label(crs: CoordinateReferenceSystem) -> str:

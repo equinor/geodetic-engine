@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from pyproj import CRS
+from pyproj.crs import BoundCRS, CoordinateOperation
 
 from geodetic_engine.geodesy import CoordinateReferenceSystem, UnresolvableCRSError
 from geodetic_engine.geojson import (
@@ -18,6 +19,7 @@ from geodetic_engine.geojson._model import Document, Flavour, read_document
 from geodetic_engine.geojson._scope import (
     METRE,
     LengthUnit,
+    _same_crs,
     is_wgs84_lonlat,
     length_unit,
     read_source,
@@ -31,6 +33,8 @@ from geodetic_engine.persistablereference import (
 
 ED50_UTM31 = to_persistable_reference(CRS.from_epsg(23031))
 WGS84 = to_persistable_reference(CRS.from_epsg(4326))
+# SWEREF99 TM declares northing first; its ESRI WKT, easting first.
+SWEREF99_TM = to_persistable_reference(CRS.from_epsg(3006))
 # The service's own payload for metres, CRSConverter.METER.
 SERVICE_METRE = (
     '{"scaleOffset":{"scale":1.0,"offset":0.0},"symbol":"m",'
@@ -40,7 +44,7 @@ FEET_ID = "osdu:reference-data--UnitOfMeasure:ft:"
 MISSING_ID = "osdu:reference-data--CoordinateReferenceSystem:Projected:EPSG::99999:"
 
 
-def _crs(value: str) -> CoordinateReferenceSystem:
+def _crs(value: Any) -> CoordinateReferenceSystem:
     return CoordinateReferenceSystem.from_user_input(value)
 
 
@@ -63,6 +67,23 @@ def _wgs84_axes(*axes: tuple[str, str, str]) -> str:
 
 LONGITUDE_WEST = _wgs84_axes(("Lat", "north", "degree"), ("Lon", "west", "degree"))
 LATITUDE_SOUTH = _wgs84_axes(("Lon", "east", "degree"), ("Lat", "south", "degree"))
+
+
+def _declared_easting_first(code: int) -> CRS:
+    """An EPSG CRS declared northing first, declared easting first instead."""
+    definition = CRS.from_epsg(code).to_json_dict()
+    axes = definition["coordinate_system"]["axis"]
+    definition["coordinate_system"]["axis"] = axes[::-1]
+    definition.pop("id")
+    return CRS.from_json_dict(definition)
+
+
+def _bound(code: int, operation: int) -> BoundCRS:
+    return BoundCRS(
+        CRS.from_epsg(code),
+        CRS.from_epsg(4326),
+        CoordinateOperation.from_authority("EPSG", operation),
+    )
 
 
 def _unit(
@@ -121,9 +142,13 @@ def test_a_legacy_crs_member_naming_crs84_is_read(name: str) -> None:
     assert source.crs_for(2) == _crs("OGC:CRS84")
     assert source.stated_by == "$.crs"
     assert read_source(document, "OGC:CRS84").crs == _crs("OGC:CRS84")
+    # Declared latitude first, but its values are CRS84's: longitude first.
+    assert read_source(document, "EPSG:4326").crs == _crs("EPSG:4326")
     with pytest.raises(GeoJsonCrsError, match="names CRS84") as raised:
         read_source(document, "EPSG:25832")
     assert raised.value.path == "$.crs"
+    with pytest.raises(GeoJsonCrsError, match="names CRS84"):
+        read_source(document, LONGITUDE_WEST)
 
 
 @pytest.mark.parametrize(
@@ -172,7 +197,12 @@ def test_the_record_id_takes_precedence_over_the_payload() -> None:
 
 @pytest.mark.parametrize(
     ("stated", "given"),
-    [(ED50_UTM31, "EPSG:23031"), (WGS84, "EPSG:4326")],
+    [
+        (ED50_UTM31, "EPSG:23031"),
+        (WGS84, "EPSG:4326"),
+        (WGS84, "OGC:CRS84"),
+        (SWEREF99_TM, "EPSG:3006"),
+    ],
 )
 def test_source_crs_may_repeat_the_stated_crs(stated: str, given: str) -> None:
     document = _document([3.0, 60.0], anycrs=True, persistableReferenceCrs=stated)
@@ -186,6 +216,44 @@ def test_source_crs_cannot_contradict_the_stated_crs() -> None:
     with pytest.raises(GeoJsonCrsError, match="EPSG:32631") as raised:
         read_source(document, "EPSG:32631")
     assert raised.value.path == "$.persistableReferenceCrs"
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("OGC:CRS84", "EPSG:4326"),
+        ("OGC:CRS84h", "EPSG:4979"),
+        (WGS84, "OGC:CRS84"),
+        ("EPSG:2193", _declared_easting_first(2193)),
+        ("EPSG:3006", SWEREF99_TM),
+        ("EPSG:23031", ED50_UTM31),
+        (_bound(2193, 1565), to_persistable_reference(_bound(2193, 1565))),
+        ("EPSG:25832+5941", "EPSG:25832+5941"),
+        ("EPSG:32661", "EPSG:32661"),
+    ],
+)
+def test_a_crs_repeats_another_whatever_axis_order_it_declares(
+    first: Any, second: Any
+) -> None:
+    assert _same_crs(_crs(first), _crs(second))
+    assert _same_crs(_crs(second), _crs(first))
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("OGC:CRS84", "EPSG:4979"),
+        ("OGC:CRS84", LONGITUDE_WEST),
+        ("OGC:CRS84", LATITUDE_SOUTH),
+        ("EPSG:23031", "EPSG:32631"),
+        ("EPSG:2065", "EPSG:5514"),
+        (_bound(23031, 1133), "EPSG:23031"),
+        ("EPSG:25832+5941", "EPSG:25832"),
+    ],
+)
+def test_a_crs_does_not_repeat_one_with_other_values(first: Any, second: Any) -> None:
+    assert not _same_crs(_crs(first), _crs(second))
+    assert not _same_crs(_crs(second), _crs(first))
 
 
 def test_anycrs_geojson_without_a_crs_needs_source_crs() -> None:
