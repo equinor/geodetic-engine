@@ -44,6 +44,27 @@ def _crs(value: str) -> CoordinateReferenceSystem:
     return CoordinateReferenceSystem.from_user_input(value)
 
 
+def _wgs84_axes(*axes: tuple[str, str, str]) -> str:
+    """A WGS 84 geographic CRS declaring ``(name, direction, unit)`` axes."""
+    units = {
+        "degree": 'ANGLEUNIT["degree",0.0174532925199433]',
+        "metre": 'LENGTHUNIT["metre",1]',
+        "foot": 'LENGTHUNIT["foot",0.3048]',
+    }
+    declared = ",".join(
+        f'AXIS["{name}",{direction},{units[unit]}]' for name, direction, unit in axes
+    )
+    return (
+        'GEOGCRS["WGS 84, custom axes",DATUM["World Geodetic System 1984",'
+        'ELLIPSOID["WGS 84",6378137,298.257223563]],'
+        f"CS[ellipsoidal,{len(axes)}],{declared}]"
+    )
+
+
+LONGITUDE_WEST = _wgs84_axes(("Lat", "north", "degree"), ("Lon", "west", "degree"))
+LATITUDE_SOUTH = _wgs84_axes(("Lon", "east", "degree"), ("Lat", "south", "degree"))
+
+
 def _unit(
     symbol: str, scale: float, offset: float = 0.0, ancestry: str = "Length"
 ) -> str:
@@ -278,6 +299,18 @@ def test_outputs_are_checked() -> None:
         read_target("EPSG:4326", source=Flavour.GEOJSON, output="jsonfg")  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("target", [LONGITUDE_WEST, LATITUDE_SOUTH])
+def test_plain_geojson_is_never_written_with_west_or_south_values(
+    target: str,
+) -> None:
+    with pytest.raises(ValueError, match="RFC 7946"):
+        read_target(target, source=Flavour.ANYCRS, output="geojson")
+    with pytest.raises(ValueError, match="JSON-FG"):
+        read_target(target, source=Flavour.GEOJSON)
+    anycrs = read_target(target, source=Flavour.GEOJSON, output="anycrs")
+    assert anycrs.flavour is Flavour.ANYCRS
+
+
 def test_target_heights_are_in_the_unit_asked_for() -> None:
     feet = read_target("EPSG:23031", source=Flavour.ANYCRS, target_unit_z="ft")
     assert feet.z_unit == LengthUnit("ft", 0.3048)
@@ -339,6 +372,17 @@ def test_a_target_named_otherwise_has_no_record_id(target: str) -> None:
             'ELLIPSOID["WGS 84",6378137,298.257223563]],CS[ellipsoidal,2],'
             'AXIS["lat",north,ANGLEUNIT["grad",0.015707963267949]],'
             'AXIS["lon",east,ANGLEUNIT["grad",0.015707963267949]]]',
+            False,
+        ),
+        (_wgs84_axes(("Lon", "east", "degree"), ("Lat", "north", "degree")), True),
+        (LONGITUDE_WEST, False),
+        (LATITUDE_SOUTH, False),
+        (
+            _wgs84_axes(
+                ("Lat", "north", "degree"),
+                ("Lon", "east", "degree"),
+                ("h", "up", "foot"),
+            ),
             False,
         ),
     ],

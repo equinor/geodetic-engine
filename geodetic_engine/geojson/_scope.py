@@ -76,6 +76,8 @@ _UNIT_OF_MEASURE: Final = "UnitOfMeasure:"
 # WGS 84's ellipsoid: semi-major axis in metres and inverse flattening.
 _WGS84_ELLIPSOID: Final = (6378137.0, 298.257223563)
 _DEGREE: Final = math.pi / 180
+# The axis directions of RFC 7946 positions, in value order.
+_LONGITUDE_LATITUDE: Final = (("east", "north"), ("east", "north", "up"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -373,9 +375,13 @@ def is_wgs84_lonlat(crs: CoordinateReferenceSystem) -> bool:
     """Whether positions in ``crs`` are what RFC 7946 calls WGS 84.
 
     A geographic CRS on WGS 84 or one of its realizations, with the Greenwich
-    meridian, angles in degrees and any height in metres, neither bound to a
-    transformation nor compound. Values are always longitude first in this
-    package, so EPSG:4326 qualifies although it declares latitude first.
+    meridian, neither bound to a transformation nor compound, whose values
+    are longitude east and latitude north in degrees and any height up in
+    metres. Values are always longitude first in this package, so EPSG:4326
+    qualifies although it declares latitude first. A CRS counting longitude
+    west or latitude south does not: its values would have the wrong signs,
+    and, as this package orders only east and north axes, possibly the wrong
+    order too.
     """
     definition = crs.crs
     if not crs.is_geographic or definition.is_bound or definition.is_compound:
@@ -396,11 +402,18 @@ def is_wgs84_lonlat(crs: CoordinateReferenceSystem) -> bool:
     meridian = definition.prime_meridian
     if meridian is None or meridian.longitude != 0.0:
         return False
-    for axis in crs.axes:
-        expected = 1.0 if axis.direction.lower() == "up" else _DEGREE
-        if not math.isclose(axis.unit_conversion_factor, expected, rel_tol=1e-12):
-            return False
-    return True
+    axes = [crs.axes[index] for index in crs.value_axis_order]
+    directions = tuple(axis.direction.lower() for axis in axes)
+    if directions not in _LONGITUDE_LATITUDE:
+        return False
+    return all(
+        math.isclose(
+            axis.unit_conversion_factor,
+            1.0 if direction == "up" else _DEGREE,
+            rel_tol=1e-12,
+        )
+        for axis, direction in zip(axes, directions, strict=True)
+    )
 
 
 def _plain_source(
