@@ -82,7 +82,7 @@ stated accuracy is in metres.
 
 A chain that is not equivalent to one Helmert is **not approximated**. That is
 the case if a step reads a grid, or is a Molodensky-Badekas, time-dependent or
-full-matrix variant. The bound CRS is skipped, logged as an error, and listed in
+full-matrix variant. The bound CRS is skipped, logged as a warning, and listed in
 the build report's `skipped` section with the reason.
 {doc}`/user-guide/geodesy/helmert` shows the functions involved.
 

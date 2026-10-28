@@ -190,6 +190,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `geodetic-osdudb build` logs a bound CRS it cannot import, such as the NTF
+  (Paris) ones in the official catalogue, as a warning rather than an error.
+  It is still skipped and listed in the build report.
 - The default base database of a build skips a database this package built,
   so a build still starts from the official `proj.db` when an enriched one is
   ahead of it on PROJ's search path.
