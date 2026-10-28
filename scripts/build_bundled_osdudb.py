@@ -3,12 +3,14 @@
     python scripts/build_bundled_osdudb.py
 
 Runs ``geodetic-osdudb build --official`` in a new virtual environment holding
-this checkout and the pinned pyproj wheel from the project's index, so the base
-database is that wheel's own proj.db: exactly the EPSG content users install.
-Nothing of the calling environment's PROJ setup reaches the build. The result
-is checked as scripts/check_package_dist.py checks a release, then written to
+this checkout and the pyproj wheel geodetic_engine/_environment.py pins, from
+the project's index, so the base database is that wheel's own proj.db: exactly
+the EPSG content users install. Nothing of the calling environment's PROJ setup
+reaches the build. The result is checked as scripts/check_package_dist.py
+checks a release, against that same proj.db, then written to
 geodetic_engine/osdudb/_data/proj_data/proj.db, alone in its directory, where
 the build backend includes it in the sdist and the wheel. It is gitignored.
+No version is stated here: moving a pin needs no change to this script.
 
 The release workflow runs this before ``uv build``. Needs network access to
 PyPI and to the project's pyproj index, and the Python the package requires.
@@ -19,14 +21,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
 import venv
 from pathlib import Path
 
-from check_package_dist import check_database
+from check_package_dist import check_database, pin, stock_proj_db
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DESTINATION = REPO_ROOT / "geodetic_engine/osdudb/_data/proj_data/proj.db"
@@ -37,45 +38,58 @@ ENVIRONMENT = REPO_ROOT / "geodetic_engine/_environment.py"
 _PARTIAL = ".proj.db.partial"
 
 
-def _pin(name: str) -> str:
-    match = re.search(
-        rf'^{name}: Final = "([^"]+)"$',
-        ENVIRONMENT.read_text(encoding="utf-8"),
-        re.MULTILINE,
-    )
-    if match is None:
-        raise SystemExit(f"{ENVIRONMENT} sets no {name}")
-    return match.group(1)
-
-
-def _environment() -> dict[str, str]:
-    """The calling environment without anything that would steer the build."""
+def clean_environment() -> dict[str, str]:
+    """The calling environment without anything that steers PROJ or the package."""
     removed = {"PROJ_DATA", "PROJ_LIB", "PYTHONPATH", "VIRTUAL_ENV"}
     environment = {
         key: value
         for key, value in os.environ.items()
         if key not in removed and not key.startswith("GEODETIC_ENGINE_")
     }
-    # The build must start from the wheel's stock database, not a bundled one.
-    environment["GEODETIC_ENGINE_OSDU_DB"] = "0"
     environment["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     return environment
 
 
-def _run(command: list[str], *, env: dict[str, str], cwd: Path | None = None) -> None:
+def run(
+    command: list[str],
+    *,
+    env: dict[str, str],
+    cwd: Path | None = None,
+    capture: bool = False,
+) -> str:
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, env=env, cwd=cwd, check=True)
-
-
-def build(work: Path) -> Path:
-    """Build the official catalogue in a new environment; return the database."""
-    environment = _environment()
-    venv.create(work / "venv", with_pip=True)
-    python = work / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    pyproj = "pyproj=={}+proj{}".format(
-        _pin("PINNED_PYPROJ_VERSION"), _pin("PINNED_PROJ_VERSION")
+    return (
+        subprocess.run(
+            command,
+            env=env,
+            cwd=cwd,
+            check=True,
+            stdout=subprocess.PIPE if capture else None,
+            text=True,
+        ).stdout
+        or ""
     )
-    _run(
+
+
+def pinned_environment(directory: Path, environment: str, *packages: str) -> Path:
+    """Create a virtual environment with packages and the pyproj wheel pinned.
+
+    Args:
+        directory: Where to create it.
+        environment: The text of the geodetic_engine/_environment.py whose pins
+            apply.
+        packages: What else to install.
+
+    Returns:
+        Its Python.
+    """
+    venv.create(directory, with_pip=True)
+    python = directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    requirement = "pyproj=={}+proj{}".format(
+        pin(environment, "PINNED_PYPROJ_VERSION"),
+        pin(environment, "PINNED_PROJ_VERSION"),
+    )
+    run(
         [
             str(python),
             "-m",
@@ -85,18 +99,40 @@ def build(work: Path) -> Path:
             "--only-binary",
             "pyproj",
             "--extra-index-url",
-            _pin("PYPROJ_WHEEL_INDEX"),
-            str(REPO_ROOT),
-            pyproj,
+            pin(environment, "PYPROJ_WHEEL_INDEX"),
+            *packages,
+            requirement,
         ],
-        env=environment,
+        env=clean_environment(),
+    )
+    return python
+
+
+def own_proj_db(python: Path) -> Path:
+    """The proj.db of the pyproj installed for a Python, as PROJ ships it."""
+    search_path = run(
+        [str(python), "-c", "import pyproj; print(pyproj.datadir.get_data_dir())"],
+        env=clean_environment(),
+        capture=True,
+    )
+    return stock_proj_db(search_path.strip())
+
+
+def build(work: Path) -> tuple[Path, Path]:
+    """Build the official catalogue in a new environment.
+
+    Returns:
+        The database, and the proj.db it was built on.
+    """
+    python = pinned_environment(
+        work / "venv", ENVIRONMENT.read_text(encoding="utf-8"), str(REPO_ROOT)
     )
     output = work / "output"
     output.mkdir()
     # Run elsewhere than the checkout: no geodetic-osdudb.toml or .env of the
     # developer's is found, and the installed package, not the source tree,
-    # is imported.
-    _run(
+    # is imported. The build must start from the wheel's stock database.
+    run(
         [
             str(python),
             "-m",
@@ -106,10 +142,10 @@ def build(work: Path) -> Path:
             "--output",
             str(output / "proj.db"),
         ],
-        env=environment,
+        env=clean_environment() | {"GEODETIC_ENGINE_OSDU_DB": "0"},
         cwd=output,
     )
-    return output / "proj.db"
+    return output / "proj.db", own_proj_db(python)
 
 
 def publish(database: Path) -> None:
@@ -136,9 +172,14 @@ def main() -> None:
     argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
     provenance = json.loads(PROVENANCE.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory(prefix="geodetic-bundled-osdudb-") as work:
-        database = build(Path(work))
+        database, reference = build(Path(work))
         summary = check_database(
-            database, provenance=provenance, proj_version=_pin("PINNED_PROJ_VERSION")
+            database,
+            provenance=provenance,
+            proj_version=pin(
+                ENVIRONMENT.read_text(encoding="utf-8"), "PINNED_PROJ_VERSION"
+            ),
+            reference=reference,
         )
         publish(database)
     counts = summary["osdu_counts"]

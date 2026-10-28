@@ -68,6 +68,7 @@ def test_runtime_pins_match_the_build_inputs() -> None:
         "geodetic_engine/welltrajectory/README.md",
         "examples/welltrajectory_examples.ipynb",
         ".github/workflows/pyproj-wheels.yml",
+        ".github/workflows/tests.yml",
     ],
 )
 def test_install_examples_select_the_expected_wheel(relative: str) -> None:

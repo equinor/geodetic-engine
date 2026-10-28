@@ -81,20 +81,13 @@ jobs:
       - name: Check the distributions
         run: uvx twine check --strict dist/*
 
-      - name: Verify the bundled OSDU catalogue and database
-        run: python scripts/check_package_dist.py dist/*.whl dist/*.tar.gz
-
-      # As a user installs it: a new environment, nothing on PROJ_DATA, no
-      # build step. OSDU lookups must answer from the database the wheel ships.
-      - name: Check the wheel in a clean environment
-        run: |
-          python -m venv "$RUNNER_TEMP/clean"
-          "$RUNNER_TEMP/clean/bin/python" -m pip install dist/*.whl \
-            "pyproj==3.8.0+proj9.9.0" \
-            --extra-index-url https://equinor.github.io/geodetic-engine/simple/
-          cd "$RUNNER_TEMP"
-          env -u PROJ_DATA -u PROJ_LIB -u GEODETIC_ENGINE_OSDU_DB \
-            "$RUNNER_TEMP/clean/bin/python" "$GITHUB_WORKSPACE/scripts/check_installed_wheel.py"
+      # In a new environment holding the wheel and the pyproj wheel it pins:
+      # the bundled catalogue and database are checked against that pyproj's
+      # own proj.db, then, as a user installs it, with nothing on PROJ_DATA and
+      # no build step, OSDU lookups must answer from the database the wheel
+      # ships. The pins are read from the wheel, so none is stated here.
+      - name: Verify the bundled OSDU database as installed
+        run: python scripts/check_installed_wheel.py dist/*.whl dist/*.tar.gz
 
       - uses: actions/upload-artifact@v4
         with:

@@ -19,9 +19,13 @@ All notable changes to this project are documented here. The format follows
   backend includes it in both the sdist and the wheel, as
   `geodetic_engine/osdudb/_data/proj_data/proj.db`, alone in its directory.
   `scripts/check_package_dist.py` requires it, and checks that it opens
-  read-only, is for the pinned PROJ release and database layout, holds OSDU
+  read-only, carries the metadata of the pinned pyproj wheel's own `proj.db`
+  (PROJ release, database layout, EPSG version), holds OSDU
   objects, ids and persistable references, and records the commit and SHA-256
-  of the bundled catalogue; the sdist must carry the same file. CI installs
+  of the bundled catalogue; the sdist must carry the same file. Nothing in
+  these scripts or workflows states a version: the pins are read from
+  `geodetic_engine/_environment.py`, in the checkout or in the built wheel.
+  CI installs
   the built wheel into a clean environment on Linux and Windows and resolves
   `OSDU:2003001` and an OSDU record id from it, also in a spawned child
   process, with no build step and no `PROJ_DATA`.

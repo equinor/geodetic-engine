@@ -4,8 +4,10 @@
 
 The wheel must hold the catalogue with matching provenance, and the proj.db
 built from it, alone in its directory, built from the pinned pyproj wheel's
-own database for the pinned PROJ release. An sdist given as well must carry
-the same database.
+own database. Its metadata (PROJ release, database layout, EPSG version) must
+be that database's, read from the pyproj installed here, which must link the
+PROJ release the wheel pins; or from --reference-proj-db. Nothing is pinned
+here. An sdist given as well must carry the same database.
 """
 
 from __future__ import annotations
@@ -38,26 +40,56 @@ _REQUIRED = (
     _PROVENANCE,
     _DATABASE,
 )
-# The proj.db layout of each PROJ release this project has pinned. PROJ cannot
-# open a database of another layout, so add the new release's when the pin
-# moves.
-_DATABASE_LAYOUT = {"9.9.0": "1.7"}
 # What a build of the official catalogue records its source_version against.
 _OFFICIAL_SOURCE = "osdu/data/data-definitions"
 _HISTORY_TABLE = "geodetic_engine_build_history"
 _IDENTIFIER_TABLE = "geodetic_engine_osdu_object_identifier"
 _REFERENCE_TABLE = "geodetic_engine_osdu_persistable_reference"
-_PINNED_PROJ = re.compile(r'^PINNED_PROJ_VERSION: Final = "([^"]+)"$', re.MULTILINE)
 # Where the pinned pyproj wheel keeps its own database.
 _WHEEL_BASE = re.compile(r"pyproj[\\/]proj_dir[\\/]share[\\/]proj[\\/]proj\.db$")
 
 
-def pinned_proj_version(environment: str) -> str:
-    """The PROJ release ``geodetic_engine/_environment.py`` pins."""
-    match = _PINNED_PROJ.search(environment)
+def pin(environment: str, name: str) -> str:
+    """A value ``geodetic_engine/_environment.py`` pins, from its text."""
+    match = re.search(rf'^{name}: Final = "([^"]+)"$', environment, re.MULTILINE)
     if match is None:
-        raise ValueError(f"{_ENVIRONMENT} pins no PROJ version")
+        raise ValueError(f"{_ENVIRONMENT} pins no {name}")
     return match.group(1)
+
+
+def wheel_environment(path: Path) -> str:
+    """The ``geodetic_engine/_environment.py`` a wheel ships, with its pins."""
+    with zipfile.ZipFile(path) as wheel:
+        return wheel.read(_ENVIRONMENT).decode("utf-8")
+
+
+def stock_proj_db(search_path: str) -> Path:
+    """The first proj.db on a PROJ search path that this package did not build."""
+    for directory in search_path.split(os.pathsep):
+        candidate = Path(directory) / "proj.db"
+        if candidate.is_file():
+            with closing(_read_only(candidate)) as connection:
+                if not _has_table(connection, _HISTORY_TABLE):
+                    return candidate.resolve()
+    raise ValueError(f"no proj.db this package did not build on {search_path}")
+
+
+def installed_proj_db(proj_version: str) -> Path:
+    """The pinned PROJ release's own proj.db, from the pyproj installed here."""
+    try:
+        import pyproj
+    except ImportError as error:
+        raise ValueError(
+            "no pyproj is installed here: run this with the Python of an "
+            "environment holding the pinned pyproj wheel, or pass "
+            "--reference-proj-db"
+        ) from error
+    if pyproj.proj_version_str != proj_version:
+        raise ValueError(
+            f"the pyproj installed here links PROJ {pyproj.proj_version_str}, "
+            f"not the pinned {proj_version}"
+        )
+    return stock_proj_db(pyproj.datadir.get_data_dir())
 
 
 def official_source_version(provenance: dict[str, Any]) -> str:
@@ -67,9 +99,15 @@ def official_source_version(provenance: dict[str, Any]) -> str:
 
 
 def check_database(
-    database: Path, *, provenance: dict[str, Any], proj_version: str
+    database: Path, *, provenance: dict[str, Any], proj_version: str, reference: Path
 ) -> dict[str, Any]:
     """Check a bundled OSDU proj.db, opened read-only as PROJ opens it.
+
+    Args:
+        database: The bundled database.
+        provenance: The bundled catalogue's ``.source.json``.
+        proj_version: The PROJ release the package pins.
+        reference: That release's own proj.db, the one the build started from.
 
     Returns:
         A summary of what it holds.
@@ -79,18 +117,41 @@ def check_database(
             PROJ release's own database, or cannot be read where installed.
     """
     try:
-        with closing(
-            sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
-        ) as connection:
+        with closing(_read_only(reference)) as connection:
+            expected = dict(connection.execute("SELECT key, value FROM metadata"))
+    except sqlite3.Error as error:
+        raise ValueError(f"{reference} cannot be read: {error}") from error
+    if expected.get("PROJ.VERSION") != proj_version:
+        raise ValueError(
+            f"{reference} is for PROJ {expected.get('PROJ.VERSION')}, not the "
+            f"pinned {proj_version}"
+        )
+    try:
+        with closing(_read_only(database)) as connection:
             return _check_contents(
-                connection, provenance=provenance, proj_version=proj_version
-            )
+                connection, provenance=provenance, expected=expected
+            ) | {"reference": str(reference)}
     except sqlite3.Error as error:
         raise ValueError(f"the bundled proj.db cannot be read: {error}") from error
 
 
+def _read_only(database: Path) -> sqlite3.Connection:
+    return sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
+
+
+def _has_table(connection: sqlite3.Connection, table: str) -> bool:
+    return bool(
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+        ).fetchone()
+    )
+
+
 def _check_contents(
-    connection: sqlite3.Connection, *, provenance: dict[str, Any], proj_version: str
+    connection: sqlite3.Connection,
+    *,
+    provenance: dict[str, Any],
+    expected: dict[str, str],
 ) -> dict[str, Any]:
     # A WAL database needs a writable directory even to be read, and
     # site-packages often is not one.
@@ -100,23 +161,24 @@ def _check_contents(
     if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
         raise ValueError("the bundled proj.db fails SQLite's integrity check")
 
+    # A build keeps its base's metadata, so this holds only for a database
+    # built on the pinned PROJ's own: same release, layout and EPSG dataset.
     metadata = dict(connection.execute("SELECT key, value FROM metadata"))
-    if metadata.get("PROJ.VERSION") != proj_version:
+    differing = [
+        f"{key}={metadata.get(key)!r}, not {value!r}"
+        for key, value in sorted(expected.items())
+        if metadata.get(key) != value
+    ]
+    if differing:
         raise ValueError(
-            f"the bundled proj.db is for PROJ {metadata.get('PROJ.VERSION')}, "
-            f"not the pinned {proj_version}"
+            "the bundled proj.db's metadata differs from the pinned PROJ's own "
+            f"proj.db: {'; '.join(differing)}"
         )
+    proj_version = metadata["PROJ.VERSION"]
     layout = (
         f"{metadata.get('DATABASE.LAYOUT.VERSION.MAJOR')}."
         f"{metadata.get('DATABASE.LAYOUT.VERSION.MINOR')}"
     )
-    if proj_version not in _DATABASE_LAYOUT:
-        raise ValueError(f"no database layout is known for PROJ {proj_version}")
-    if layout != _DATABASE_LAYOUT[proj_version]:
-        raise ValueError(
-            f"the bundled proj.db has layout {layout}, not PROJ {proj_version}'s "
-            f"{_DATABASE_LAYOUT[proj_version]}"
-        )
 
     tables = {
         name
@@ -152,11 +214,11 @@ def _check_contents(
             f"the bundled proj.db records {len(reports)} builds, not one fresh build"
         )
     report = reports[0]
-    expected = official_source_version(provenance)
-    if report.get("source_version") != expected:
+    source_version = official_source_version(provenance)
+    if report.get("source_version") != source_version:
         raise ValueError(
             f"the bundled proj.db was built from {report.get('source_version')}, "
-            f"not the bundled catalogue {expected}"
+            f"not the bundled catalogue {source_version}"
         )
     if report.get("authorities") != ["OSDU"]:
         raise ValueError(
@@ -175,13 +237,18 @@ def _check_contents(
     return {
         "proj_version": proj_version,
         "layout": layout,
-        "source_version": expected,
+        "source_version": source_version,
         "osdu_counts": counts,
     }
 
 
-def check_wheel(path: Path) -> dict[str, Any]:
+def check_wheel(path: Path, reference: Path | None = None) -> dict[str, Any]:
     """Reject missing, duplicated, or mismatched release resources.
+
+    Args:
+        path: The wheel.
+        reference: The pinned PROJ release's own proj.db; found from the
+            pyproj installed here when omitted.
 
     Returns:
         A summary of the bundled database, with its SHA-256 and size.
@@ -210,11 +277,15 @@ def check_wheel(path: Path) -> dict[str, Any]:
                 raise ValueError(f"the wheel must include exactly one {name}")
         catalog = wheel.read(_CATALOG)
         metadata = json.loads(wheel.read(_PROVENANCE))
-        proj_version = pinned_proj_version(wheel.read(_ENVIRONMENT).decode("utf-8"))
+        proj_version = pin(
+            wheel.read(_ENVIRONMENT).decode("utf-8"), "PINNED_PROJ_VERSION"
+        )
         database = wheel.read(_DATABASE)
     digest = hashlib.sha256(catalog).hexdigest()
     if not isinstance(metadata, dict) or metadata.get("sha256") != digest:
         raise ValueError("the bundled OSDU catalogue does not match its provenance")
+    if reference is None:
+        reference = installed_proj_db(proj_version)
     with tempfile.TemporaryDirectory() as directory:
         extracted = Path(directory) / "proj.db"
         extracted.write_bytes(database)
@@ -222,7 +293,10 @@ def check_wheel(path: Path) -> dict[str, Any]:
         extracted.chmod(0o444)
         try:
             summary = check_database(
-                extracted, provenance=metadata, proj_version=proj_version
+                extracted,
+                provenance=metadata,
+                proj_version=proj_version,
+                reference=reference,
             )
         finally:
             extracted.chmod(0o644)
@@ -257,9 +331,17 @@ def main() -> None:
     )
     parser.add_argument("wheel", type=Path, help="the built project wheel")
     parser.add_argument("sdist", type=Path, nargs="?", help="the built sdist")
+    parser.add_argument(
+        "--reference-proj-db",
+        type=Path,
+        help=(
+            "the pinned PROJ release's own proj.db; by default the one of the "
+            "pyproj installed here"
+        ),
+    )
     args = parser.parse_args()
     try:
-        summary = check_wheel(args.wheel)
+        summary = check_wheel(args.wheel, args.reference_proj_db)
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
         raise SystemExit(f"{args.wheel}: {error}") from error
     counts = summary["osdu_counts"]
@@ -267,7 +349,8 @@ def main() -> None:
         f"{args.wheel}: bundled OSDU catalogue and database verified: "
         f"{os.path.getsize(args.wheel) / 1e6:.1f} MB wheel, "
         f"proj.db {summary['size'] / 1e6:.1f} MB for PROJ "
-        f"{summary['proj_version']} (layout {summary['layout']}), "
+        f"{summary['proj_version']} (layout {summary['layout']}, as "
+        f"{summary['reference']}), "
         f"{summary['source_version']}, {counts['geodetic_crs']} geodetic and "
         f"{counts['projected_crs']} projected OSDU CRSs, "
         f"{counts[_IDENTIFIER_TABLE]} OSDU ids, "

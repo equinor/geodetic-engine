@@ -81,15 +81,22 @@ and a release like it, locally:
 ```bash
 python scripts/build_bundled_osdudb.py
 uv build
-python scripts/check_package_dist.py dist/*.whl dist/*.tar.gz
+python scripts/check_installed_wheel.py dist/*.whl dist/*.tar.gz
 ```
 
-The script installs this checkout and the pinned pyproj wheel into a new
-environment, so it needs network access to PyPI and the project's pyproj index.
+Both scripts make a new environment with the pyproj wheel
+`geodetic_engine/_environment.py` pins: the first with this checkout, the
+second with the built wheel, reading the pins from the wheel itself. They need
+network access to PyPI and the project's pyproj index. The second runs
+`scripts/check_package_dist.py` there, which compares the shipped database's
+metadata (PROJ release, database layout, EPSG version) with that pyproj's own
+`proj.db`, then checks that OSDU lookups answer with no `PROJ_DATA` and no
+build step, as CI does on Linux and Windows. No PROJ or pyproj version is
+stated in these scripts or the workflows that run them, so moving the pins
+needs no change to them.
+
 The devcontainer reads `build/proj.db` through `PROJ_DATA` whether the file is
 there or not, and the test suite runs with `GEODETIC_ENGINE_OSDU_DB=0`.
-`scripts/check_installed_wheel.py` checks a wheel installed in a clean
-environment, as CI does on Linux and Windows.
 
 ## Building the documentation
 
