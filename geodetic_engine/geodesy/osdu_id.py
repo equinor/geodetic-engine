@@ -216,10 +216,11 @@ def unresolved_reason(osdu: OsduId) -> str:
             return reason
     if not identifier_scheme_present(SCHEME):
         return (
-            "the active proj.db records no OSDU ids; build one from the OSDU "
-            "catalogue that publishes the record with geodetic-osdudb and put "
-            "it on PROJ's data path (geodetic-osdudb build --official builds "
-            "the bundled official catalogue)"
+            "the active proj.db records no OSDU ids; "
+            "geodetic_engine.osdudb.active_database() says why the OSDU "
+            "database this package ships is not in use, and "
+            "use_bundled_database() switches it on. For another catalogue, "
+            "build a database with geodetic-osdudb and put it on PROJ's data path"
         )
     return (
         f"the active proj.db records no OSDU id {osdu.identifier!r}, so the "

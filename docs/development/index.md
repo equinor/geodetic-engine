@@ -69,6 +69,28 @@ run; it does not delete existing caches. If a restored cache fails validation,
 delete the affected cache in GitHub Actions or use a clean rebuild to diagnose
 it. Do not select **publish** unless a release is intended.
 
+## The OSDU database in the release wheel
+
+The release wheel ships `geodetic_engine/osdudb/_data/proj_data/proj.db`, the
+official OSDU catalogue built into the pinned pyproj wheel's own database
+({doc}`/getting-started/installation`). It is generated, gitignored and never
+committed; the build backend includes it in the sdist and the wheel when it is
+there. **pypi_release** builds it before `uv build`. To build the same file,
+and a release like it, locally:
+
+```bash
+python scripts/build_bundled_osdudb.py
+uv build
+python scripts/check_package_dist.py dist/*.whl dist/*.tar.gz
+```
+
+The script installs this checkout and the pinned pyproj wheel into a new
+environment, so it needs network access to PyPI and the project's pyproj index.
+The devcontainer reads `build/proj.db` through `PROJ_DATA` whether the file is
+there or not, and the test suite runs with `GEODETIC_ENGINE_OSDU_DB=0`.
+`scripts/check_installed_wheel.py` checks a wheel installed in a clean
+environment, as CI does on Linux and Windows.
+
 ## Building the documentation
 
 The documentation is built with [Sphinx](https://www.sphinx-doc.org/). Pages

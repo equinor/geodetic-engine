@@ -83,6 +83,11 @@ ALIASES = {
     "pyproj.Transformer.from_pipeline": "pyproj.transformer.Transformer.from_pipeline",
 }
 
+# Private modules whose names a subpackage exports, and is documented as owning.
+# geodetic_engine/__init__.py imports _bundled_database, so it cannot live in
+# osdudb without importing all of osdudb with the package.
+PRIVATE_HOMES = {"geodetic_engine._bundled_database": "geodetic_engine.osdudb"}
+
 _GROUPS = (
     ("function", "Functions"),
     ("class", "Classes"),
@@ -110,7 +115,7 @@ def _owned(package: str, obj: Any) -> bool:
     )
     if not named:
         return True
-    module: str = obj.__module__
+    module: str = PRIVATE_HOMES.get(obj.__module__, obj.__module__)
     return module == package or module.startswith(package + ".")
 
 
@@ -264,6 +269,9 @@ def _public_candidates(target: str) -> list[str]:
     ``geodetic_engine.geodesy.result.TransformationResult.pipeline`` is
     documented as ``geodetic_engine.geodesy.TransformationResult.pipeline``.
     """
+    for private, home in PRIVATE_HOMES.items():
+        if target.startswith(private + "."):
+            return [home + target.removeprefix(private)]
     owners = [p for p, _ in SUBPACKAGES if target.startswith(p + ".")]
     if not owners:
         return []

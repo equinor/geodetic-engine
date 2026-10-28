@@ -71,6 +71,25 @@ against the pinned PROJ instead. Importing the package rejects another PROJ
 version rather than silently using its EPSG dataset. Wheels do not include the
 full grid package; install the grids needed by your operations separately.
 
+The wheel ships PROJ's database with the official OSDU catalogue already built
+into it, and PROJ reads it once `geodetic_engine` is imported. OSDU CRSs,
+record ids and persistable references resolve with no build step:
+
+```python
+import geodetic_engine
+from pyproj import CRS
+
+CRS.from_authority("OSDU", "2003001").name
+# 'Grenada 1953 * DOS-Grd / British West Indies Grid [2003,1443]'
+```
+
+A database you chose yourself always wins: a `pyproj.datadir.set_data_dir()`
+call before the import, or a `PROJ_DATA` (or `PROJ_LIB`) directory holding a
+`proj.db`. `GEODETIC_ENGINE_OSDU_DB=0` turns the shipped database off, and
+`geodetic_engine.osdudb.active_database()` reports which database PROJ reads
+and why. `geodetic-osdudb build` still builds a newer or custom catalogue. See
+[Installation](https://equinor.github.io/geodetic-engine/dev/getting-started/installation.html#the-osdu-database-the-wheel-ships).
+
 For development, open the repository in VS Code and choose *Reopen in
 Container*. By hand:
 

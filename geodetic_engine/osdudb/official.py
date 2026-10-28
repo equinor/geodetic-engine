@@ -41,7 +41,8 @@ def _source_version(catalog: Path) -> str:
 def official_catalog() -> Generator[tuple[Path, str]]:
     """Yield the verified bundled catalogue and its recorded source version."""
     bundled = files("geodetic_engine.osdudb").joinpath("_data")
-    if bundled.is_dir():
+    # A checkout's _data holds only the generated database, not the catalogue.
+    if bundled.joinpath(DEFAULT_CATALOG_DESTINATION.name).is_file():
         with as_file(bundled) as directory:
             catalog = directory / DEFAULT_CATALOG_DESTINATION.name
             yield catalog, _source_version(catalog)

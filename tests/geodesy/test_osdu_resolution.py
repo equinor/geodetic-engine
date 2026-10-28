@@ -271,7 +271,11 @@ def test_an_id_the_build_left_out_says_why(osdu_database: Path) -> None:
 
 
 def test_a_database_without_ids_says_how_to_get_them(stock_database: Path) -> None:
-    with pytest.raises(UnresolvableCRSError, match=r"build one .* geodetic-osdudb"):
+    with pytest.raises(
+        UnresolvableCRSError,
+        match=r"active_database\(\) says why .* use_bundled_database\(\) switches "
+        r"it on\. .* geodetic-osdudb",
+    ):
         CoordinateReferenceSystem.from_user_input(f"{NAMESPACE}:{PROJECTED}")
 
 

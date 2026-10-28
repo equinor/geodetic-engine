@@ -7,6 +7,46 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The wheel ships the official OSDU catalogue already built into PROJ's
+  database, so OSDU CRSs, record ids and persistable references resolve right
+  after `pip install`, with no build step, on Linux, macOS and Windows. The
+  wheel stays `py3-none-any`; the database adds 2.8 MB to it (23.2 MB on
+  disk). `pypi_release.yml` builds it at release time with
+  `geodetic-osdudb build --official`, in a new environment with the pinned
+  pyproj wheel, whose own `proj.db` is the base, so its EPSG content is
+  exactly what users install. `scripts/build_bundled_osdudb.py` builds the
+  same file for developers. It is generated and gitignored, and the build
+  backend includes it in both the sdist and the wheel, as
+  `geodetic_engine/osdudb/_data/proj_data/proj.db`, alone in its directory.
+  `scripts/check_package_dist.py` requires it, and checks that it opens
+  read-only, is for the pinned PROJ release and database layout, holds OSDU
+  objects, ids and persistable references, and records the commit and SHA-256
+  of the bundled catalogue; the sdist must carry the same file. CI installs
+  the built wheel into a clean environment on Linux and Windows and resolves
+  `OSDU:2003001` and an OSDU record id from it, also in a spawned child
+  process, with no build step and no `PROJ_DATA`.
+- `import geodetic_engine` makes the shipped database the one PROJ reads
+  unless another was chosen, in the precedence of the project's pyproj
+  wheels. The first rule that matches decides: `GEODETIC_ENGINE_OSDU_DB=0`
+  changes nothing; nor does a `pyproj.datadir.set_data_dir()` or
+  `append_data_dir()` call made before the import; nor a `PROJ_DATA`, or
+  `PROJ_LIB` when `PROJ_DATA` is unset, that names a directory holding a
+  `proj.db`. Otherwise PROJ searches the shipped database's directory first,
+  then the `PROJ_DATA`/`PROJ_LIB` directories, then pyproj's own, so grids and
+  `proj.ini` are still found. The outcome is logged at `INFO`, with the
+  reason when the shipped database is not used, such as
+  `PROJ_LIB=C:\OSGeo4W\share\proj holds a proj.db`. A later
+  `set_data_dir()` still overrides it. The new
+  `geodetic_engine.osdudb.active_database()` reports which `proj.db` PROJ
+  reads and why, and `use_bundled_database()` switches the shipped one on or
+  off. pyproj's installed `proj.db` is never modified, provenance names the
+  shipped file when it answered, and a spawned child process applies the same
+  rules when it imports the package. `geodetic-osdudb build` and
+  `geodetic-projdb build` still start from the stock database, and
+  `geodetic-osdudb build` is still how to get a newer or a custom catalogue.
+  The test suite runs with `GEODETIC_ENGINE_OSDU_DB=0`, against the stock
+  database, and tests each rule in a fresh interpreter.
+
 - Packaging. `pyproj-wheels.yml` builds pyproj with pyproj's own release
   tooling against the pinned PROJ, read from `.devcontainer/install-proj.sh`,
   and releases the wheels on GitHub as `pyproj 3.8.0+proj9.9.0`. The
@@ -195,7 +235,11 @@ All notable changes to this project are documented here. The format follows
   It is still skipped and listed in the build report.
 - The default base database of a build skips a database this package built,
   so a build still starts from the official `proj.db` when an enriched one is
-  ahead of it on PROJ's search path.
+  ahead of it on PROJ's search path. That includes the OSDU database the wheel
+  ships.
+- An OSDU id the active `proj.db` cannot answer, because it records no OSDU
+  ids, is refused with a message that names `active_database()` and
+  `use_bundled_database()`.
 - PROJ 9.9.0 with EPSG v13.102 and proj-data 1.25, up from PROJ 9.8.1 with
   EPSG v12.029 and proj-data 1.24; pyproj stays at 3.8.0. PROJ 9.9.0 refuses
   a `proj.db` with database layout 1.6, so a database built on PROJ 9.8.1 must

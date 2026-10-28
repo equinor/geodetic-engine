@@ -153,9 +153,10 @@ jobs:
           -k "test_proj_version or not_patched or no_links or epsg_4326"
 
       # The ignored modules test the devcontainer's shell scripts.
-      - name: Database build tests
+      - name: Database build and activation tests
         run: >-
-          python -m pytest tests/projdb tests/osdudb -n logical -q
+          python -m pytest tests/projdb tests/osdudb
+          tests/test_bundled_database.py tests/test_package_dist.py -n logical -q
           --ignore=tests/projdb/test_grid_alternatives.py
           --ignore=tests/osdudb/test_script.py
           --ignore=tests/osdudb/test_install_script.py
@@ -173,3 +174,60 @@ jobs:
           Pop-Location
           $left = @(Get-ChildItem $temp -Directory -Filter 'geodetic-projdb-*')
           if ($left) { throw "staging directories left in ${temp}: $($left.Name -join ', ')" }
+
+      # As pypi_release.yml builds the release, with the OSDU database built in.
+      - name: Build the wheel with the bundled OSDU database
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          python scripts/build_bundled_osdudb.py
+          python -m pip wheel --no-deps --wheel-dir dist .
+          python scripts/check_package_dist.py (Get-Item dist/*.whl).FullName
+
+      # As a user installs it: a new environment, nothing on PROJ_DATA, no
+      # build step. OSDU lookups must answer from the database the wheel ships,
+      # in a spawned child process too.
+      - name: Check the wheel in a clean environment
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $clean = Join-Path $env:RUNNER_TEMP clean
+          python -m venv $clean
+          & "$clean/Scripts/python.exe" -m pip install (Get-Item dist/*.whl).FullName `
+            "pyproj==3.8.0+proj9.9.0" `
+            --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+          Remove-Item Env:PROJ_DATA, Env:PROJ_LIB, Env:GEODETIC_ENGINE_OSDU_DB -ErrorAction SilentlyContinue
+          Push-Location $env:RUNNER_TEMP
+          & "$clean/Scripts/python.exe" (Join-Path $env:GITHUB_WORKSPACE scripts/check_installed_wheel.py)
+          Pop-Location
+
+  # The same on Linux, without the devcontainer, built as pypi_release.yml
+  # builds the release.
+  installed-wheel:
+    name: Installed wheel (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build and verify the distributions
+        run: |
+          python scripts/build_bundled_osdudb.py
+          uv build
+          python scripts/check_package_dist.py dist/*.whl dist/*.tar.gz
+
+      - name: Check the wheel in a clean environment
+        run: |
+          python -m venv "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/python" -m pip install dist/*.whl \
+            "pyproj==3.8.0+proj9.9.0" \
+            --extra-index-url https://equinor.github.io/geodetic-engine/simple/
+          cd "$RUNNER_TEMP"
+          env -u PROJ_DATA -u PROJ_LIB -u GEODETIC_ENGINE_OSDU_DB \
+            "$RUNNER_TEMP/clean/bin/python" "$GITHUB_WORKSPACE/scripts/check_installed_wheel.py"
