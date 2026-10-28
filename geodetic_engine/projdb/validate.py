@@ -122,14 +122,14 @@ def validate(
 
     # Staged here, not in the worker: PROJ keeps the file open until the worker
     # exits, and Windows cannot remove a file that is still open.
-    with _as_proj_db(database) as directory:
-        request = {
-            "database": str(directory / "proj.db"),
-            "authorities": list(authorities),
-            "imported": None if imported is None else list(imported),
-            "data_dir": datadir.get_data_dir(),
-        }
-        try:
+    try:
+        with _as_proj_db(database) as directory:
+            request = {
+                "database": str(directory / "proj.db"),
+                "authorities": list(authorities),
+                "imported": None if imported is None else list(imported),
+                "data_dir": datadir.get_data_dir(),
+            }
             process = subprocess.run(
                 [sys.executable, "-m", "geodetic_engine.projdb._validate_worker"],
                 input=json.dumps(request),
@@ -137,11 +137,9 @@ def validate(
                 text=True,
                 check=False,
             )
-            response = json.loads(process.stdout)
-        except (OSError, ValueError) as error:
-            raise ProjDbBuildError(
-                f"database validation process failed: {error}"
-            ) from error
+        response = json.loads(process.stdout)
+    except (OSError, ValueError) as error:
+        raise ProjDbBuildError(f"cannot validate {database}: {error}") from error
     if process.returncode or "error" in response:
         raise ProjDbBuildError(str(response.get("error") or process.stderr))
     if process.stderr.strip():

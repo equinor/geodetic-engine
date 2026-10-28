@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from pyproj import CRS, datadir
 
+from geodetic_engine.projdb.errors import ProjDbBuildError
 from geodetic_engine.projdb.validate import validate
 from tests.support import installed_proj_db
 
@@ -58,6 +59,12 @@ def test_a_database_named_proj_db_is_read_in_place(
     validate(database, authorities=["Example"])
 
     assert seen == [database.resolve()]
+
+
+def test_a_missing_database_is_a_build_error(tmp_path: Path) -> None:
+    """The CLIs report only GeodeticEngineError, not a raw FileNotFoundError."""
+    with pytest.raises(ProjDbBuildError, match=r"missing\.db"):
+        validate(tmp_path / "missing.db", authorities=["Example"])
 
 
 def test_parallel_validation_does_not_change_caller_context(tmp_path: Path) -> None:
