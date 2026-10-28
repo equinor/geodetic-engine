@@ -25,6 +25,7 @@ from filelock import FileLock
 from geodetic_engine.projdb.errors import (
     ForeignAuthorityCollision,
     MissingReferencedObjectError,
+    ProjDbBuildError,
     SchemaDriftError,
 )
 from geodetic_engine.projdb.schema import (
@@ -47,6 +48,8 @@ from geodetic_engine.projdb.settings import (
 )
 
 logger = logging.getLogger(__name__)
+
+_WINDOWS = os.name == "nt"
 
 Row = Mapping[str, Any]
 
@@ -911,6 +914,10 @@ class ProjDbWriter:
             validate: Callback run against the committed staging database.
                 Any exception leaves the published database unchanged.
             publish: False validates staging without replacing the output.
+
+        Raises:
+            ProjDbBuildError: On Windows, if the published database cannot be
+                replaced, most often because another process has it open.
         """
         self.connection.execute("COMMIT")
         assert self._staging is not None
@@ -920,7 +927,8 @@ class ProjDbWriter:
             return
         self.connection.close()
         self._connection = None
-        with self._staging.open("rb") as stream:
+        # Windows flushes only a handle opened for writing.
+        with self._staging.open("r+b") as stream:
             try:
                 mode = stat.S_IMODE(self._config.output_db.stat().st_mode)
             except FileNotFoundError:
@@ -928,12 +936,24 @@ class ProjDbWriter:
             else:
                 self._staging.chmod(mode)
             os.fsync(stream.fileno())
-        os.replace(self._staging, self._config.output_db)
-        directory = os.open(self._config.output_db.parent, os.O_RDONLY)
         try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+            os.replace(self._staging, self._config.output_db)
+        except PermissionError as error:
+            if not _WINDOWS:
+                raise
+            raise ProjDbBuildError(
+                f"cannot replace {self._config.output_db}: {error}. The database "
+                "there is unchanged. Another process may have it open, such as a "
+                "Python session or notebook reading it through PROJ, or the file "
+                "or its directory may be read-only."
+            ) from error
+        # Windows cannot open a directory to sync it; NTFS journals the rename.
+        if not _WINDOWS:
+            directory = os.open(self._config.output_db.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         self._staging = None
         self._committed = True
         logger.info(
@@ -983,6 +1003,13 @@ def _same(stored: Any, stated: Any) -> bool:
 
 def _unlink(path: Path) -> None:
     try:
-        path.unlink(missing_ok=True)
+        try:
+            path.unlink(missing_ok=True)
+        except PermissionError:
+            if not _WINDOWS:
+                raise
+            # Windows will not delete a read-only file; staging takes the output's mode.
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
+            path.unlink(missing_ok=True)
     except OSError:
         logger.warning("could not remove partial output at %s", path)

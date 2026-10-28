@@ -14,11 +14,13 @@ from typing import Any
 import pytest
 
 from geodetic_engine.persistablereference import Kind
+from geodetic_engine.projdb import writer as writer_module
 from geodetic_engine.projdb.config import ProjDbBuildConfig
 from geodetic_engine.projdb.errors import (
     ForeignAuthorityCollision,
     MissingReferencedObjectError,
     OutputWouldBeDiscarded,
+    ProjDbBuildError,
     SchemaDriftError,
 )
 from geodetic_engine.projdb.schema import (
@@ -175,6 +177,96 @@ def test_permission_failure_does_not_publish(
 
     assert config.output_db.read_bytes() == before
     assert stat.S_IMODE(config.output_db.stat().st_mode) == before_mode
+    assert not list(config.output_db.parent.glob("*.staging"))
+
+
+def test_staging_is_synced_through_a_writable_handle(
+    config: ProjDbBuildConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows flushes only a handle opened for writing; read-only fails there."""
+    events: list[str] = []
+    real_open, real_fsync = Path.open, os.fsync
+
+    def recording_open(path: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if path.suffix == ".staging":
+            events.append(f"open {mode}")
+        return real_open(path, mode, *args, **kwargs)
+
+    def recording_fsync(descriptor: int) -> None:
+        events.append("fsync")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(Path, "open", recording_open)
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+    assert events[:2] == ["open r+b", "fsync"]
+
+
+def test_publication_on_windows_does_not_sync_the_directory(
+    config: ProjDbBuildConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows cannot open a directory, so there is nothing to sync it through."""
+    real_open = os.open
+
+    def no_directories(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        assert not Path(path).is_dir(), "a directory was opened"
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(writer_module, "_WINDOWS", True)
+    monkeypatch.setattr(os, "open", no_directories)
+    with ProjDbWriter(config) as writer:
+        writer.insert("scope", [_SCOPE_ROW])
+        writer.commit()
+    assert _scopes(config.output_db) == {("Example", "1")}
+
+
+def test_a_database_in_use_on_windows_is_reported_and_kept(
+    config: ProjDbBuildConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows refuses to replace a file another process has open, such as PROJ."""
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+    before = config.output_db.read_bytes()
+
+    def in_use(source: Any, destination: Any) -> None:
+        raise PermissionError(13, "used by another process")
+
+    monkeypatch.setattr(writer_module, "_WINDOWS", True)
+    monkeypatch.setattr(os, "replace", in_use)
+    with (
+        pytest.raises(ProjDbBuildError, match="used by another process"),
+        ProjDbWriter(config) as writer,
+    ):
+        writer.insert("scope", [_SCOPE_ROW])
+        writer.commit()
+    assert config.output_db.read_bytes() == before
+    assert not list(config.output_db.parent.glob("*.staging"))
+
+
+def test_a_read_only_staging_file_is_removed_on_windows(
+    config: ProjDbBuildConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Staging takes a read-only output's mode, and Windows will not delete it."""
+    with ProjDbWriter(config) as writer:
+        writer.commit()
+    config.output_db.chmod(stat.S_IREAD)
+    unlink = Path.unlink
+
+    def windows_unlink(path: Path, missing_ok: bool = False) -> None:
+        if path.exists() and not path.stat().st_mode & stat.S_IWRITE:
+            raise PermissionError(13, "Access is denied", str(path))
+        unlink(path, missing_ok=missing_ok)
+
+    def refused(source: Any, destination: Any) -> None:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(writer_module, "_WINDOWS", True)
+    monkeypatch.setattr(Path, "unlink", windows_unlink)
+    monkeypatch.setattr(os, "replace", refused)
+    with pytest.raises(ProjDbBuildError), ProjDbWriter(config) as writer:
+        writer.insert("scope", [_SCOPE_ROW])
+        writer.commit()
     assert not list(config.output_db.parent.glob("*.staging"))
 
 

@@ -190,6 +190,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `geodetic-osdudb build` logs a bound CRS it cannot import, such as the NTF
+  (Paris) ones in the official catalogue, as a warning rather than an error.
+  It is still skipped and listed in the build report.
 - The default base database of a build skips a database this package built,
   so a build still starts from the official `proj.db` when an enriched one is
   ahead of it on PROJ's search path.
@@ -209,6 +212,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `geodetic-osdudb build` and `geodetic-projdb build` work on Windows.
+  Validation stages the database as `proj.db` in the calling process, so the
+  temporary copy is removed only after the validation process, in which PROJ
+  holds it open, has exited. Publication syncs the staged database through a
+  writable handle and skips the directory sync Windows does not have. A
+  database that cannot be replaced, most often because another process such
+  as a notebook has it open through PROJ, now raises `ProjDbBuildError` with
+  the cause and is left unchanged. The
+  tests now also run on Windows, against the pinned pyproj wheel, with a
+  build of the official OSDU catalogue.
 - The pyproj wheel build installs macOS dependencies in a writable runner
   directory and builds curl with OpenSSL. Its Windows smoke test closes the
   temporary SQLite database before cleanup.

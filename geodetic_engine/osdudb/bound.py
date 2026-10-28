@@ -140,10 +140,8 @@ def _definition(context: OsduBuildContext, record: Record) -> tuple[str, CRS]:
     try:
         operation = _single_step(operation)
     except UnembeddableOperationError as exc:
-        # Logged as an error, not merely skipped: the catalogue defines a bound
-        # CRS that PROJ cannot represent, which is a defect in the definition
-        # rather than an object this workflow chose not to model.
-        logger.error("%s cannot be imported: %s", record.described, exc)
+        # An expected skip, reported in the build report; the build continues.
+        logger.warning("%s cannot be imported: %s", record.described, exc)
         raise UnreadableDefinitionError(str(exc)) from exc
 
     try:
