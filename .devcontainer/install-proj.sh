@@ -18,8 +18,9 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PINS="${PINS_FILE:-${script_dir}/pins.env}"
 
 # One value from pins.env, which is read as KEY=VALUE lines, never sourced.
+# A key set twice is refused, as geodetic_engine/_pins.py refuses it.
 pin() {
-    local key="$1" line value=""
+    local key="$1" line value="" found=0
     if [[ ! -f "${PINS}" ]]; then
         echo "error: ${PINS} does not exist" >&2
         exit 1
@@ -27,9 +28,14 @@ pin() {
     while IFS= read -r line || [[ -n "${line}" ]]; do
         line="${line%$'\r'}"
         if [[ "${line}" == "${key}="* ]]; then
+            found=$((found + 1))
             value="${line#*=}"
         fi
     done <"${PINS}"
+    if ((found > 1)); then
+        echo "error: ${PINS}: ${key} is set twice" >&2
+        exit 1
+    fi
     if [[ -z "${value}" ]]; then
         echo "error: ${PINS} does not set ${key}" >&2
         exit 1

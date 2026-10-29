@@ -59,30 +59,40 @@ def test_the_wheel_ships_the_pins() -> None:
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 def test_install_proj_reads_the_pins() -> None:
-    script = REPO_ROOT / ".devcontainer" / "install-proj.sh"
-    environment = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith(("PROJ_", "PINS_FILE"))
-    }
-
-    def printed(**overrides: str) -> dict[str, str]:
-        result = subprocess.run(
-            ["bash", str(script), "--print-pins"],
-            env=environment | overrides,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return dict(line.split("=", 1) for line in result.stdout.splitlines())
-
-    assert printed() == {
+    assert _print_pins() == {
         "PROJ_VERSION": PINS.proj_version,
         "PROJ_SHA256": PINS.proj_sha256,
         "PROJ_DATA_VERSION": PINS.proj_data_version,
         "PROJ_DATA_SHA256": PINS.proj_data_sha256,
     }
-    assert printed(PROJ_VERSION="9.9.1")["PROJ_VERSION"] == "9.9.1"
+    assert _print_pins(PROJ_VERSION="9.9.1")["PROJ_VERSION"] == "9.9.1"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_install_proj_refuses_a_repeated_pin(tmp_path: Path) -> None:
+    """The image build must not accept a file the package refuses on import."""
+    pins = tmp_path / "pins.env"
+    pins.write_text(VALID + f"PROJ_VERSION={PINS.proj_version}\n", encoding="utf-8")
+    with pytest.raises(subprocess.CalledProcessError) as raised:
+        _print_pins(PINS_FILE=str(pins))
+    assert "PROJ_VERSION is set twice" in raised.value.stderr
+
+
+def _print_pins(**overrides: str) -> dict[str, str]:
+    """What install-proj.sh would build, with nothing set but the overrides."""
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("PROJ_", "PINS_FILE"))
+    }
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / ".devcontainer" / "install-proj.sh"), "--print-pins"],
+        env=environment | overrides,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return dict(line.split("=", 1) for line in result.stdout.splitlines())
 
 
 @pytest.mark.parametrize(

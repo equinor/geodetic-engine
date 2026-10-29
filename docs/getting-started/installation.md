@@ -105,6 +105,12 @@ import and `use_bundled_database()` alike, and `active_database()` then says
 so. A result's provenance, its `database_fingerprints`, names the shipped file
 when that is the database that answered.
 
+pyproj keeps one PROJ context per thread, and a switch updates the calling
+thread's at once. Another thread that has already used pyproj follows the next
+time it calls `active_database()` or resolves a CRS, operation or identifier
+through this package; one that only calls pyproj directly keeps the database it
+had. Switch before starting threads to avoid the question.
+
 Child processes need nothing extra. A process started by `multiprocessing`
 with the spawn method, the default on Windows and macOS, imports
 `geodetic_engine` again and applies the same rules. A `set_data_dir()` call

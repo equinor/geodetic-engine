@@ -351,6 +351,29 @@ def test_switching_off_returns_to_pyprojs_own_search_path(
     assert state["search_path"] == [str(installation.stock.parent)]
 
 
+def test_a_reused_worker_thread_reads_the_database_it_reports(
+    installation: Installation,
+) -> None:
+    """pyproj keeps a PROJ context per thread, and a switch updates only its own."""
+    [state], _ = _probe(
+        installation,
+        after=(
+            "from concurrent.futures import ThreadPoolExecutor\n"
+            "def worker():\n"
+            "    path = str(active_database().path)\n"
+            "    return path, pyproj.database.get_database_metadata('EPSG.VERSION')\n"
+            "with ThreadPoolExecutor(1) as pool:\n"
+            "    extra['before'] = pool.submit(worker).result()\n"
+            "    use_bundled_database(False)\n"
+            "    extra['after'] = pool.submit(worker).result()\n"
+        ),
+    )
+    assert state["extra"]["before"] == [str(installation.bundled), "bundled"]
+    path, opened = state["extra"]["after"]
+    assert path == str(installation.stock)
+    assert opened not in _MARKED
+
+
 def test_a_later_set_data_dir_still_overrides(installation: Installation) -> None:
     states, _ = _probe(
         installation,

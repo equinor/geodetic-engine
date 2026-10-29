@@ -55,7 +55,10 @@ All notable changes to this project are documented here. The format follows
   `set_data_dir()` still overrides it. The new
   `geodetic_engine.osdudb.active_database()` reports which `proj.db` PROJ
   reads and why, and `use_bundled_database()` switches the shipped one on or
-  off. pyproj's installed `proj.db` is never modified, provenance names the
+  off. Another thread follows a switch the next time it calls
+  `active_database()` or resolves anything through the package, so what is
+  reported is what that thread reads. pyproj's installed `proj.db` is never
+  modified, provenance names the
   shipped file when it answered, and a spawned child process applies the same
   rules when it imports the package. `geodetic-osdudb build` and
   `geodetic-projdb build` still start from the stock database, and

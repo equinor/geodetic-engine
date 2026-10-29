@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -118,6 +119,7 @@ def active_database() -> ActiveDatabase:
         True
     """
     with _lock:
+        _synchronise_thread()
         return _active()
 
 
@@ -131,8 +133,10 @@ def use_bundled_database(enabled: bool = True) -> ActiveDatabase:
     first, or else loses the bundled directory.
 
     A later ``pyproj.datadir.set_data_dir()`` overrides this in turn. pyproj
-    applies a new search path to the calling thread at once and to each
-    other thread the next time it creates a PROJ context.
+    keeps one PROJ context per thread: the calling thread switches at once,
+    and another thread the next time it calls :func:`active_database` or
+    resolves a CRS, operation or identifier through this package. A thread
+    that only calls pyproj directly keeps the database it had.
 
     Args:
         enabled: True to read the bundled database, False to stop.
@@ -184,6 +188,7 @@ def use_bundled_database(enabled: bool = True) -> ActiveDatabase:
                 datadir.set_data_dir(os.pathsep.join(search))
             reason = "use_bundled_database(False) switched it off"
         _choice = _Choice(reason, _data_dir(), restore=restore)
+        _synchronise_thread()
         active = _active()
     _log(active)
     return active
@@ -245,6 +250,20 @@ def _active() -> ActiveDatabase:
     else:
         reason = _choice.reason
     return ActiveDatabase(path, bundled, reason, directories)
+
+
+def _synchronise_thread() -> None:
+    """Give the calling thread's PROJ context the current search path.
+
+    pyproj keeps one context per thread and set_data_dir() updates only the
+    caller's, so a thread that used pyproj before another switched would
+    otherwise report one database and read another.
+    """
+    # Imported here, since importing geodesy imports most of the package.
+    from geodetic_engine.geodesy.database import database_identity
+
+    with suppress(DataDirError):
+        database_identity()
 
 
 def _log(active: ActiveDatabase) -> None:
