@@ -5,9 +5,10 @@
 Installs the wheel into a new environment with the pyproj wheel it pins, read
 from the geodetic_engine/_pins.env the wheel ships, and nothing else. There,
 scripts/check_package_dist.py checks the distributions against that pyproj's
-own proj.db. Then, with no PROJ_DATA or PROJ_LIB set and no build step, OSDU
-lookups must answer from the database the wheel ships, in that process and in
-a spawned child process, as on Windows. No version is stated here.
+own proj.db. Then, with no PROJ_ or GEODETIC_ENGINE_ variable set and no build
+step, OSDU lookups must answer from the database the wheel ships, in that
+process and in a spawned child process, as on Windows. No version is stated
+here.
 """
 
 from __future__ import annotations
@@ -18,8 +19,22 @@ import os
 import tempfile
 from pathlib import Path
 
-from build_bundled_osdudb import clean_environment, pinned_environment, run
-from check_package_dist import wheel_pins
+try:
+    from build_bundled_osdudb import (
+        clean_environment,
+        is_setting,
+        pinned_environment,
+        run,
+    )
+    from check_package_dist import wheel_pins
+except ImportError:  # imported as scripts.check_installed_wheel, by the tests
+    from scripts.build_bundled_osdudb import (
+        clean_environment,
+        is_setting,
+        pinned_environment,
+        run,
+    )
+    from scripts.check_package_dist import wheel_pins
 
 CHECK_PACKAGE_DIST = Path(__file__).with_name("check_package_dist.py")
 OSDU_CRS = ("OSDU", "2003001")
@@ -45,6 +60,12 @@ def lookups() -> tuple[str, str, tuple[str, str, str] | None]:
 
 def probe() -> None:
     """The lookups, run inside the new environment."""
+    # Before any import: pyproj reads PROJ's variables as it is imported, and
+    # the package chooses its database as it is.
+    for name in sorted(os.environ):
+        if is_setting(name):
+            raise SystemExit(f"{name} is set; run this in a clean environment")
+
     import geodetic_engine
     from geodetic_engine.geodesy.database import (
         database_fingerprints,
@@ -52,9 +73,6 @@ def probe() -> None:
     )
     from geodetic_engine.osdudb import active_database
 
-    for name in ("PROJ_DATA", "PROJ_LIB", "GEODETIC_ENGINE_OSDU_DB"):
-        if name in os.environ:
-            raise SystemExit(f"{name} is set; run this in a clean environment")
     package = Path(geodetic_engine.__file__).resolve().parent
     if "site-packages" not in package.parts:
         raise SystemExit(f"imported {package}, not an installed wheel")

@@ -28,8 +28,12 @@ import venv
 from pathlib import Path
 from typing import Any
 
-from check_package_dist import check_database, stock_proj_db
-from sync_pins import read_pins
+try:
+    from check_package_dist import check_database, stock_proj_db
+    from sync_pins import read_pins
+except ImportError:  # imported as scripts.build_bundled_osdudb, by the tests
+    from scripts.check_package_dist import check_database, stock_proj_db
+    from scripts.sync_pins import read_pins
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DESTINATION = REPO_ROOT / "geodetic_engine/osdudb/_data/proj_data/proj.db"
@@ -37,15 +41,26 @@ CATALOG = REPO_ROOT / "catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json"
 PROVENANCE = CATALOG.with_suffix(".source.json")
 # Left behind only when a run is interrupted while publishing.
 _PARTIAL = ".proj.db.partial"
+# PROJ reads some twenty PROJ_ variables, more with each release, and not only
+# to find its data: PROJ_AUX_DB attaches a database to every proj.db it opens,
+# PROJ_NETWORK fetches grids. The build needs none of them. pyproj is installed
+# as a wheel, so PROJ_DIR and PROJ_WHEEL, which say how to compile it, have
+# nothing to do either.
+_SETTING_PREFIXES = ("PROJ_", "GEODETIC_ENGINE_")
+
+
+def is_setting(name: str) -> bool:
+    """Whether an environment variable configures PROJ or this package."""
+    return name.startswith(_SETTING_PREFIXES)
 
 
 def clean_environment() -> dict[str, str]:
     """The calling environment without anything that steers PROJ or the package."""
-    removed = {"PROJ_DATA", "PROJ_LIB", "PYTHONPATH", "VIRTUAL_ENV"}
+    removed = {"PYTHONPATH", "VIRTUAL_ENV"}
     environment = {
         key: value
         for key, value in os.environ.items()
-        if key not in removed and not key.startswith("GEODETIC_ENGINE_")
+        if key not in removed and not is_setting(key)
     }
     environment["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     return environment

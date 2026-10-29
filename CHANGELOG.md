@@ -40,7 +40,10 @@ All notable changes to this project are documented here. The format follows
   CI installs
   the built wheel into a clean environment on Linux and Windows and resolves
   `OSDU:2003001` and an OSDU record id from it, also in a spawned child
-  process, with no build step and no `PROJ_DATA`.
+  process, with no build step and no `PROJ_` variable set. The build and the
+  check leave out every `PROJ_` variable of the caller's, not only
+  `PROJ_DATA`: a `PROJ_AUX_DB` would be attached to the base database, and
+  could answer the check in the shipped one's place.
 - `import geodetic_engine` makes the shipped database the one PROJ reads
   unless another was chosen, in the precedence of the project's pyproj
   wheels. The first rule that matches decides: `GEODETIC_ENGINE_OSDU_DB=0`

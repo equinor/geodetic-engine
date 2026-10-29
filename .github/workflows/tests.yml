@@ -159,7 +159,7 @@ jobs:
         run: >-
           python -m pytest tests/projdb tests/osdudb
           tests/test_bundled_database.py tests/test_package_dist.py
-          tests/test_sqlite.py -n logical -q
+          tests/test_sqlite.py tests/test_build_bundled_osdudb.py -n logical -q
           --ignore=tests/projdb/test_grid_alternatives.py
           --ignore=tests/osdudb/test_script.py
           --ignore=tests/osdudb/test_install_script.py
