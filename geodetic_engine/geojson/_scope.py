@@ -13,10 +13,12 @@ rules RFC 7946 dropped it over.
 
 An OSDU AnyCrs document states its CRS on its collection, by record id in
 ``CoordinateReferenceSystemID`` or in full in ``persistableReferenceCrs``. The
-record id takes precedence, as in the OSDU CRS conversion service. Heights are
-in ``VerticalUnitID``'s unit, or else ``persistableReferenceUnitZ``'s. A
-vertical CRS stated for them is refused for now: the service ignores it and
-only scales the heights, which is not a conversion between vertical CRSs.
+record id takes precedence, as in the OSDU CRS conversion service, but gives
+way to the persistableReference when the proj.db in use does not record it.
+Heights are in ``VerticalUnitID``'s unit, or else
+``persistableReferenceUnitZ``'s. A vertical CRS stated for them is refused
+for now: the service ignores it and only scales the heights, which is not a
+conversion between vertical CRSs.
 """
 
 from __future__ import annotations
@@ -75,6 +77,8 @@ _VERTICAL_CRS: Final = (
     "VerticalCoordinateReferenceSystemID",
     "persistableReferenceVerticalCrs",
 )
+_RECORD_ID: Final = "CoordinateReferenceSystemID"
+_PAYLOAD: Final = "persistableReferenceCrs"
 _UNIT_OF_MEASURE: Final = "UnitOfMeasure:"
 # WGS 84's ellipsoid: semi-major axis in metres and inverse flattening.
 _WGS84_ELLIPSOID: Final = (6378137.0, 298.257223563)
@@ -85,29 +89,26 @@ _LONGITUDE_LATITUDE: Final = (("east", "north"), ("east", "north", "up"))
 
 @dataclass(frozen=True, slots=True)
 class LengthUnit:
-    """A length unit, as metres = ``offset + scale * value``.
+    """A length unit, as metres = ``scale * value``.
 
     Attributes:
         symbol: Its symbol, for messages and for a payload written for it.
         scale: Metres per unit.
-        offset: Metres at a value of zero, which is zero for every ordinary
-            length unit.
         payload: The persistableReference it was read from, to be written
             back unchanged.
     """
 
     symbol: str
     scale: float
-    offset: float = 0.0
     payload: str | None = field(default=None, compare=False)
 
     def to_metres(self, value: float) -> float:
         """A value in this unit, in metres."""
-        return self.offset + self.scale * value
+        return self.scale * value
 
     def from_metres(self, value: float) -> float:
         """A value in metres, in this unit."""
-        return (value - self.offset) / self.scale
+        return value / self.scale
 
     def reference(self) -> str:
         """The unit as a persistableReference.
@@ -119,7 +120,7 @@ class LengthUnit:
         if self.payload is not None:
             return self.payload
         stated = {
-            "scaleOffset": {"scale": self.scale, "offset": self.offset},
+            "scaleOffset": {"scale": self.scale, "offset": 0.0},
             "symbol": self.symbol,
             "baseMeasurement": {"ancestry": "Length", "type": "UM"},
             "type": "USO",
@@ -137,11 +138,11 @@ def length_unit(value: object) -> LengthUnit:
         value: A symbol or name such as ``"ft"``, an OSDU ``UnitOfMeasure``
             record id, or an OSDU unit persistableReference. Symbols and ids are
             read as :func:`~geodetic_engine.welltrajectory.length_factor` reads
-            them. A payload's offset is kept, not refused.
+            them.
 
     Raises:
-        ValueError: If ``value`` is none of these, or not a length unit
-            converted by a scale and an offset.
+        ValueError: If ``value`` is none of these, not a length unit, or a
+            payload converting with an offset, which no length unit has.
     """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"a unit is a non-empty string, not {value!r}")
@@ -163,9 +164,14 @@ def length_unit(value: object) -> LengthUnit:
             f"{reference.symbol!r} ({reference.measurement or 'no measurement'}) "
             "is not a length unit"
         )
-    if not (math.isfinite(scale) and scale > 0 and math.isfinite(offset)):
+    if not (math.isfinite(scale) and scale > 0):
         raise ValueError(f"{reference.symbol!r} converts by a scale of {scale!r}")
-    return LengthUnit(reference.symbol or text, scale, offset, payload=text)
+    if offset != 0.0:
+        raise ValueError(
+            f"{reference.symbol!r} converts with an offset of {offset!r}, which no "
+            "length unit has"
+        )
+    return LengthUnit(reference.symbol or text, scale, payload=text)
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,7 +181,8 @@ class Source:
     Attributes:
         crs: The CRS the document states or the caller gave. None for an RFC
             7946 document, whose CRS depends on whether a position has a
-            height: see :meth:`crs_for`.
+            height: see :meth:`crs_for`. A ``source_crs`` repeating CRS84 or
+            CRS84h leaves it None.
         z_unit: The unit of a third value that a transformation carries
             through rather than converts, or None when the document does not
             say.
@@ -202,7 +209,9 @@ def read_source(document: Document, source_crs: object = None) -> Source:
     Args:
         document: The document.
         source_crs: A CRS agreed with whoever wrote the document, or None. For
-            an AnyCrs document that states one, it must be the same.
+            an AnyCrs document that states one, it must be the same. For plain
+            GeoJSON, CRS84 or CRS84h changes nothing: RFC 7946 already says
+            so, heights included.
 
     Raises:
         InvalidGeoJsonError: If a CRS or unit member is not a string, a unit
@@ -228,19 +237,18 @@ def read_source(document: Document, source_crs: object = None) -> Source:
             "an AnyCrs document states its CRS in CoordinateReferenceSystemID or "
             "persistableReferenceCrs, not in a GeoJSON 2008 crs member",
         )
-    stated: CoordinateReferenceSystem | None = None
-    stated_by = "source_crs"
-    for key in ("CoordinateReferenceSystemID", "persistableReferenceCrs"):
-        if (text := _text(root, key)) is not None:
-            stated, stated_by = _resolve(text, f"$.{key}"), f"$.{key}"
-            break
-    if stated is not None and given is not None and not _same_crs(stated, given):
-        raise GeoJsonCrsError(
-            stated_by,
-            f"the document's CRS, {_label(stated)}, is not source_crs, {_label(given)}",
-        )
-    crs = stated or given
-    if crs is None:
+    stated = _stated_crs(root)
+    if stated is not None:
+        crs, stated_by = stated
+        if given is not None and not _same_crs(crs, given):
+            raise GeoJsonCrsError(
+                stated_by,
+                f"the document's CRS, {_label(crs)}, is not source_crs, "
+                f"{_label(given)}",
+            )
+    elif given is not None:
+        crs, stated_by = given, "source_crs"
+    else:
         raise GeoJsonCrsError(
             "$",
             "an AnyCrs document states its CRS in CoordinateReferenceSystemID or "
@@ -360,7 +368,7 @@ def read_target(
         except ValueError as error:
             raise ValueError(f"target_unit_z: {error}") from error
     if flavour is Flavour.GEOJSON:
-        if z_unit is not None and (z_unit.scale, z_unit.offset) != (1.0, 0.0):
+        if z_unit is not None and z_unit.scale != 1.0:
             raise ValueError(
                 f"plain GeoJSON heights are in metres, not {z_unit.symbol!r} "
                 "(RFC 7946, section 4); write output='anycrs' for other units"
@@ -431,7 +439,9 @@ def _plain_source(
             )
     legacy = root.get(LEGACY_CRS)
     if legacy is None:
-        return Source(given, METRE, "source_crs" if given else "RFC 7946")
+        if given is None:
+            return Source(None, METRE, "RFC 7946")
+        return Source(None if _is_rfc_7946(given) else given, METRE, "source_crs")
     name = _legacy_name(legacy)
     if name not in _CRS84_NAMES:
         raise UnsupportedGeoJsonError(
@@ -439,13 +449,47 @@ def _plain_source(
             f"a GeoJSON 2008 crs member naming {name or _shown(legacy)} is not "
             "supported yet; only CRS84, which RFC 7946 assumes, is read",
         )
-    crs84 = CoordinateReferenceSystem.from_user_input(CRS84)
-    if given is not None and not _same_crs(given, crs84):
+    if given is not None and not _is_rfc_7946(given):
         raise GeoJsonCrsError(
             f"$.{LEGACY_CRS}",
             f"the document's crs member names CRS84, not source_crs, {_label(given)}",
         )
-    return Source(given, METRE, f"$.{LEGACY_CRS}")
+    return Source(None, METRE, f"$.{LEGACY_CRS}")
+
+
+def _is_rfc_7946(crs: CoordinateReferenceSystem) -> bool:
+    """Whether ``crs`` is the one RFC 7946 puts positions in, CRS84 or CRS84h."""
+    return any(
+        _same_crs(crs, CoordinateReferenceSystem.from_user_input(name))
+        for name in (CRS84, CRS84H)
+    )
+
+
+def _stated_crs(
+    root: Mapping[str, Any],
+) -> tuple[CoordinateReferenceSystem, str] | None:
+    """The CRS an AnyCrs document states, and the path of the member stating it.
+
+    The record id takes precedence, as in the OSDU service. The service can
+    always look it up; here it resolves only when the proj.db in use records
+    it, so an id that does not resolve gives way to the persistableReference
+    beside it, which is self-contained.
+    """
+    record = _text(root, _RECORD_ID)
+    payload = _text(root, _PAYLOAD)
+    if record is not None:
+        try:
+            return _resolve(record, f"$.{_RECORD_ID}"), f"$.{_RECORD_ID}"
+        except UnresolvableCRSError as unresolved:
+            if payload is None:
+                raise
+            try:
+                return _resolve(payload, f"$.{_PAYLOAD}"), f"$.{_PAYLOAD}"
+            except UnresolvableCRSError as error:
+                raise UnresolvableCRSError(f"{unresolved}; {error}") from error
+    if payload is not None:
+        return _resolve(payload, f"$.{_PAYLOAD}"), f"$.{_PAYLOAD}"
+    return None
 
 
 def _legacy_name(member: object) -> str | None:

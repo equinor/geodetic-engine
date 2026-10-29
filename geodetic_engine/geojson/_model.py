@@ -38,7 +38,7 @@ import json
 import math
 import numbers
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Final, cast
@@ -149,6 +149,9 @@ class Geometry:
         positions: Its positions, one row each in document order, with one
             column per value. Shape ``(0, 0)`` when it is empty.
         shape: How the positions nest in ``coordinates``.
+        feature: Index into :attr:`Document.features` of the feature holding
+            it, directly or in a geometry collection. None when the document
+            is a geometry.
     """
 
     path: str
@@ -156,6 +159,7 @@ class Geometry:
     target: dict[str, Any]
     positions: FloatArray
     shape: Shape
+    feature: int | None
 
     @property
     def count(self) -> int:
@@ -174,16 +178,37 @@ class Geometry:
         nesting = "".join(f"[{number}]" for number in _locate(self.shape, index))
         return f"{self.path}.coordinates{nesting}"
 
-    def write(self, rows: Sequence[Position | None]) -> None:
+    def write(self, rows: Sequence[Position]) -> None:
         """Replace the coordinates with ``rows``, one per position, nested as read.
 
-        A row may be None, which is written as JSON ``null``.
+        Every row is a position: GeoJSON has no null position. A feature whose
+        positions cannot all be written is withdrawn instead, with
+        :meth:`Document.withdraw`.
         """
         if len(rows) != self.count:
             raise ValueError(
                 f"{self.path} has {self.count} positions, but {len(rows)} were given"
             )
+        for index, row in enumerate(rows):
+            if row is None:
+                raise ValueError(f"{self.position_path(index)} cannot be null")
         self.target["coordinates"] = _nested(rows, self.shape, 0)[0]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class Feature:
+    """A feature, as it sits in the document being written.
+
+    Attributes:
+        path: JSON path of the feature.
+        target: The feature in the document being written.
+        geometries: Indices into :attr:`Document.geometries` of the geometries
+            in it, consecutive as those of a :class:`BoundingBox` are.
+    """
+
+    path: str
+    target: dict[str, Any]
+    geometries: range
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -214,6 +239,7 @@ class Document:
         flavour: The flavour of every ``type`` in it.
         geometries: Every geometry with coordinates, in document order,
             including those inside geometry collections.
+        features: Every feature, in document order.
         bounding_boxes: Every object carrying a ``bbox``, each listed after
             those it contains.
         typed: Every object with a ``type``, and what it is.
@@ -223,8 +249,10 @@ class Document:
     kind: Kind
     flavour: Flavour
     geometries: tuple[Geometry, ...]
+    features: tuple[Feature, ...]
     bounding_boxes: tuple[BoundingBox, ...]
     typed: tuple[tuple[dict[str, Any], Kind], ...]
+    _withdrawn: set[int] = field(default_factory=set, init=False, repr=False)
 
     @property
     def count(self) -> int:
@@ -236,10 +264,29 @@ class Document:
         """The numbers of values its positions have: 2, 3 or both."""
         return frozenset(g.dimension for g in self.geometries if g.count)
 
+    @property
+    def withdrawn(self) -> frozenset[int]:
+        """Indices into :attr:`geometries` of those withdrawn with their feature."""
+        return frozenset(self._withdrawn)
+
     def retype(self, flavour: Flavour) -> None:
         """Rename every ``type`` to its name in ``flavour``."""
         for target, kind in self.typed:
             target["type"] = kind.name_in(flavour)
+
+    def withdraw(self, feature: Feature) -> None:
+        """Write ``feature`` with a null geometry, as when a position fails.
+
+        A position cannot be null in GeoJSON, and a geometry without one of its
+        positions is another geometry, so the feature loses all of it: RFC 7946
+        allows a feature without a geometry. Its ``bbox`` goes too, as there
+        is nothing left to bound. A ``bbox`` around it is to be computed
+        without the geometries :attr:`withdrawn` lists, and one bounding only
+        those is not to be written.
+        """
+        feature.target["geometry"] = None
+        feature.target.pop("bbox", None)
+        self._withdrawn.update(feature.geometries)
 
 
 def read_document(value: object) -> Document:
@@ -253,9 +300,16 @@ def read_document(value: object) -> Document:
     Raises:
         TypeError: If ``value`` is none of these.
         InvalidGeoJsonError: If the document is not GeoJSON as described in
-            the module docstring.
+            the module docstring, or nests too deeply to be read.
         UnsupportedGeoJsonError: If it states something not converted yet.
     """
+    try:
+        return _read(value)
+    except RecursionError:
+        raise InvalidGeoJsonError("$", "nests too deeply to be read") from None
+
+
+def _read(value: object) -> Document:
     data, owned = _load(value)
     kind, flavour = _type(data, "$")
     reader = _Reader(flavour, owned=owned)
@@ -270,6 +324,7 @@ def read_document(value: object) -> Document:
         kind=kind,
         flavour=flavour,
         geometries=tuple(reader.geometries),
+        features=tuple(reader.features),
         bounding_boxes=tuple(reader.bounding_boxes),
         typed=tuple(reader.typed),
     )
@@ -282,7 +337,10 @@ class _Reader:
         self._flavour = flavour
         # Parsed from JSON text here, so its member values need no copy.
         self._owned = owned
+        # The feature being read, which holds the geometries read meanwhile.
+        self._feature: int | None = None
         self.geometries: list[Geometry] = []
+        self.features: list[Feature] = []
         self.bounding_boxes: list[BoundingBox] = []
         self.typed: list[tuple[dict[str, Any], Kind]] = []
 
@@ -308,6 +366,7 @@ class _Reader:
 
     def feature(self, data: Mapping[str, Any], path: str) -> dict[str, Any]:
         first = len(self.geometries)
+        self._feature = len(self.features)
         out: dict[str, Any] = {}
         for key, value in data.items():
             if key == "geometry":
@@ -322,6 +381,8 @@ class _Reader:
                 )
             else:
                 out[key] = self._member(key, value, path, root=path == "$")
+        self._feature = None
+        self.features.append(Feature(path, out, range(first, len(self.geometries))))
         self._record(out, Kind.FEATURE, path, first)
         return out
 
@@ -346,7 +407,7 @@ class _Reader:
                 )
             else:
                 out[key] = self._member(key, value, path, root=path == "$")
-        geometry = Geometry(path, kind, out, positions, shape)
+        geometry = Geometry(path, kind, out, positions, shape, self._feature)
         geometry.write(positions.tolist() if geometry.count else [])
         self.geometries.append(geometry)
         self._record(out, kind, path, first)
@@ -616,9 +677,7 @@ def _is_array(value: object) -> bool:
     )
 
 
-def _nested(
-    rows: Sequence[Position | None], shape: Shape, start: int
-) -> tuple[Any, int]:
+def _nested(rows: Sequence[Position], shape: Shape, start: int) -> tuple[Any, int]:
     """``rows`` from ``start`` nested as ``shape``, and where they end."""
     if shape is None:
         return rows[start], start + 1

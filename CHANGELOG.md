@@ -187,6 +187,10 @@ All notable changes to this project are documented here. The format follows
   that cannot be built is a warning, or an error with `--strict`. The console
   names the first 25 replacements of each kind, and the log file and report
   every one.
+- `TransformationFailedError.point` and `.detail`: the index of the point a
+  transformation failed for, counted in the batch or stream, and what is wrong
+  with it, without the `point N` its message starts with. When the failure is
+  not one point's, `point` is None and `detail` is the whole message.
 
 ### Changed
 

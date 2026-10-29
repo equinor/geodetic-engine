@@ -19,17 +19,21 @@ That rests on two properties of ``transform_arrays``, which the tests check:
 Splitting costs nothing until something fails. :func:`first_failure` then
 finds the first failing point in a number of calls logarithmic in the batch
 size. :func:`isolate` finds every failing point; its cost grows with the
-number of failures, which only callers that ask to keep going pay.
+number of failures, which only callers that ask to keep going pay, and they
+can cap it. A failure that only appears once points are transformed, such as
+a grid that cannot be fetched, fails every point; the cap keeps that from
+costing a call per point.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 import numpy as np
 from numpy.typing import NDArray
 
+from geodetic_engine.errors import GeodeticEngineError
 from geodetic_engine.geodesy import (
     ArrayTransformationResult,
     Transformation,
@@ -40,7 +44,6 @@ type FloatArray = NDArray[np.float64]
 
 SMALL_PART: Final = 8
 """A failing part at most this large is transformed point by point."""
-_UNNAMED_POINT: Final = "point 0 "
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +77,21 @@ class Isolated:
         mask = np.zeros(len(self.columns[0]) if self.columns else 0, dtype=np.bool_)
         mask[[failure.index for failure in self.failures]] = True
         return mask
+
+
+class TooManyFailures(GeodeticEngineError):
+    """More rows failed than the caller allows, so isolating them stopped.
+
+    Attributes:
+        failures: The first rows that failed, in order: one more than allowed.
+    """
+
+    def __init__(self, failures: tuple[Failure, ...]) -> None:
+        super().__init__(f"more than {len(failures) - 1} rows failed")
+        self.failures = failures
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return type(self), (self.failures,)
 
 
 def probe(
@@ -132,21 +150,28 @@ def isolate(
     coordinate_epoch: float | None,
     *,
     small_part: int = SMALL_PART,
+    max_failures: int | None = None,
 ) -> Isolated:
     """Transform every row that can be, and say which cannot.
 
     One call when nothing fails. A part that fails is halved, and one of at
-    most ``small_part`` rows is transformed row by row.
+    most ``small_part`` rows is transformed row by row. Parts are taken in
+    order, so failures are found in order.
 
     Args:
         transformation: The transformation to apply.
         rows: One row per point.
         coordinate_epoch: As for ``transform_arrays``.
         small_part: The largest failing part transformed row by row.
+        max_failures: The most failing rows to isolate, or None for no limit.
+            When every row fails, isolating them all costs a call per row.
 
     Raises:
+        TooManyFailures: If more than ``max_failures`` rows fail.
         Whatever :func:`probe` raises: a failure no row is to blame for.
     """
+    if max_failures is not None and max_failures < 0:
+        raise ValueError(f"max_failures must not be negative, not {max_failures}")
     width = len(probe(transformation, rows.shape[1], coordinate_epoch).columns)
     count = len(rows)
     columns = tuple(np.full(count, np.nan) for _ in range(width))
@@ -162,6 +187,8 @@ def isolate(
             size = stop - start
             if size == 1:
                 failures.append(Failure(start, error))
+                if max_failures is not None and len(failures) > max_failures:
+                    raise TooManyFailures(tuple(failures)) from None
             elif size <= small_part:
                 pending.extend((row, row + 1) for row in reversed(range(start, stop)))
             else:
@@ -170,21 +197,19 @@ def isolate(
             continue
         for column, values in zip(columns, result.columns, strict=True):
             column[start:stop] = values
-    failures.sort(key=lambda failure: failure.index)
     return Isolated(columns, tuple(failures))
 
 
 def relocated(error: TransformationFailedError, path: str) -> TransformationFailedError:
     """``error``, of the same type, saying where its point is in the document.
 
-    ``error`` is that of a point transformed on its own, which it calls point
-    0 when it names one: that is replaced by ``path``.
+    ``error`` is that of a point transformed on its own. When it names the
+    point, ``path`` takes the place of its index.
     """
-    message = str(error)
-    if message.startswith(_UNNAMED_POINT):
-        message = f"{path} {message.removeprefix(_UNNAMED_POINT)}"
+    if error.point is not None:
+        message = f"{path} {error.detail}"
     else:
-        message = f"{path}: {message}"
+        message = f"{path}: {error}"
     try:
         return type(error)(message)
     except TypeError:

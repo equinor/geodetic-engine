@@ -161,13 +161,42 @@ def test_writing_positions_rebuilds_the_nesting() -> None:
     assert document.root["features"][0]["geometry"]["coordinates"] == [1001.5, 1002.5]
 
 
-def test_failed_positions_can_be_written_as_null() -> None:
+def test_positions_are_never_written_as_null() -> None:
     document = read_document(_rich_document())
     line = document.geometries[2]
-    line.write([[0.0, 0.0], None, [2.0, 2.0]])
-    assert line.target["coordinates"] == [[0.0, 0.0], None, [2.0, 2.0]]
+    with pytest.raises(ValueError, match=r"features\[2\].geometry.coordinates\[1\]"):
+        line.write([[0.0, 0.0], None, [2.0, 2.0]])  # type: ignore[list-item]
     with pytest.raises(ValueError, match="3 positions"):
         line.write([[0.0, 0.0]])
+    assert line.target["coordinates"] == GEOMETRIES["LineString"]
+
+
+def test_each_geometry_knows_its_feature() -> None:
+    document = read_document(_rich_document())
+    assert [geometry.feature for geometry in document.geometries] == [
+        0, 1, 2, 3, 4, 5, 6, 6,
+    ]  # fmt: skip
+    assert [(f.path, f.geometries) for f in document.features[5:]] == [
+        ("$.features[5]", range(5, 6)),
+        ("$.features[6]", range(6, 8)),
+        ("$.features[7]", range(8, 8)),
+    ]
+    assert document.features[6].target is document.root["features"][6]
+    root = read_document({"type": "Point", "coordinates": [1, 2]})
+    assert (root.geometries[0].feature, root.features) == (None, ())
+
+
+def test_a_feature_is_withdrawn_whole() -> None:
+    """Its geometry becomes null, as RFC 7946 allows, and its bbox goes with it."""
+    document = read_document(_rich_document())
+    failed = document.geometries[7]
+    assert failed.feature is not None
+    document.withdraw(document.features[failed.feature])
+    expected = _rich_document()
+    expected["features"][6] = {"type": "Feature", "properties": {}, "geometry": None}
+    assert document.root == expected
+    assert document.withdrawn == frozenset({6, 7})
+    json.dumps(document.root, allow_nan=False)
 
 
 def test_retyping_renames_every_type() -> None:
@@ -337,6 +366,24 @@ def test_harmless_foreign_members_are_not_mistaken_for_json_fg() -> None:
 def test_a_non_document_is_a_type_error() -> None:
     with pytest.raises(TypeError, match="__geo_interface__"):
         read_document(42)
+
+
+def _nested_collections(depth: int) -> dict[str, Any]:
+    geometry: dict[str, Any] = {"type": "Point", "coordinates": [1, 2]}
+    for _ in range(depth):
+        geometry = {"type": "GeometryCollection", "geometries": [geometry]}
+    return geometry
+
+
+@pytest.mark.parametrize(
+    "document",
+    ["[" * 100_000 + "]" * 100_000, _nested_collections(5_000)],
+    ids=["text", "mapping"],
+)
+def test_a_document_nested_too_deeply_is_refused(document: object) -> None:
+    with pytest.raises(InvalidGeoJsonError, match="nests too deeply") as raised:
+        read_document(document)
+    assert raised.value.path == "$"
 
 
 def test_errors_carry_their_path_and_survive_pickling() -> None:

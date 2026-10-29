@@ -75,7 +75,19 @@ class MissingCoordinateEpochError(GeodesyError):
 
 
 class TransformationFailedError(GeodesyError):
-    """PROJ could not produce a finite result for one or more coordinates."""
+    """PROJ could not produce a finite result for one or more coordinates.
+
+    Attributes:
+        point: The index of the point that failed, counted from 0 in the batch
+            or stream, or None when the failure is not one point's.
+        detail: What is wrong with that point: the message without its
+            ``point N`` prefix. The whole message when :attr:`point` is None.
+    """
+
+    def __init__(self, message: str, *, point: int | None = None) -> None:
+        super().__init__(message if point is None else f"point {point} {message}")
+        self.point = point
+        self.detail = message
 
 
 class CoordinateOutOfRangeError(TransformationFailedError):

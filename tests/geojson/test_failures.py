@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 from typing import Any
 
 import numpy as np
@@ -14,6 +15,7 @@ from geodetic_engine.geodesy import (
     TransformationFailedError,
 )
 from geodetic_engine.geojson._failures import (
+    TooManyFailures,
     first_failure,
     isolate,
     probe,
@@ -145,6 +147,28 @@ def test_an_empty_batch_is_isolated_without_transforming(
     isolated = isolate(to_utm, np.empty((0, 2)), None)
     assert [len(column) for column in isolated.columns] == [0, 0]
     assert isolated.failures == ()
+
+
+def test_isolation_stops_at_one_failure_too_many(to_utm: Transformation) -> None:
+    """When every row fails, the cost stays that of finding the first few."""
+    counting = _Counting(to_utm)
+    rows = np.tile(OUT_OF_RANGE, (1024, 1))
+    with pytest.raises(TooManyFailures, match="more than 2 rows") as raised:
+        isolate(counting, rows, None, max_failures=2)  # type: ignore[arg-type]
+    assert [failure.index for failure in raised.value.failures] == [0, 1, 2]
+    assert len(counting.sizes) < 20
+    restored = pickle.loads(pickle.dumps(raised.value))
+    assert [failure.index for failure in restored.failures] == [0, 1, 2]
+
+
+def test_isolation_within_the_limit_is_complete(to_utm: Transformation) -> None:
+    rows = _rows(100, {10: OUT_OF_RANGE, 90: OUTSIDE_DOMAIN})
+    isolated = isolate(to_utm, rows, None, max_failures=2)
+    assert [failure.index for failure in isolated.failures] == [10, 90]
+    with pytest.raises(TooManyFailures):
+        isolate(to_utm, rows, None, max_failures=1)
+    with pytest.raises(ValueError, match="negative"):
+        isolate(to_utm, rows, None, max_failures=-1)
 
 
 @pytest.mark.parametrize(

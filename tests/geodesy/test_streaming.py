@@ -1,5 +1,6 @@
 """Numeric buffers and lazy batches retain the ordinary geodetic guarantees."""
 
+import pickle
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -262,8 +263,10 @@ def test_stream_global_range_error_stops_consumption(
     )
     assert next(batches).count == 1
     assert next(batches).count == 0
-    with pytest.raises(CoordinateOutOfRangeError, match="point 2"):
+    with pytest.raises(CoordinateOutOfRangeError, match=r"^point 2 has ") as raised:
         next(batches)
+    assert raised.value.point == 2
+    assert str(raised.value) == f"point 2 {raised.value.detail}"
     with pytest.raises(StopIteration):
         next(batches)
 
@@ -274,8 +277,13 @@ def test_stream_global_nonfinite_error() -> None:
         [[[10.0, 60.0], [11.0, 61.0]], [[float("nan"), 60.0]]]
     )
     next(batches)
-    with pytest.raises(TransformationFailedError, match="point 2"):
+    with pytest.raises(TransformationFailedError, match=r"^point 2 has ") as raised:
         next(batches)
+    error = raised.value
+    assert (error.point, error.detail.startswith("has no finite")) == (2, True)
+    restored = pickle.loads(pickle.dumps(error))
+    assert (type(restored), str(restored)) == (type(error), str(error))
+    assert (restored.point, restored.detail) == (error.point, error.detail)
 
 
 def test_array_execution_does_not_materialise_legacy_coordinates(

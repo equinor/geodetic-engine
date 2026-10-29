@@ -19,6 +19,7 @@ from geodetic_engine.geojson._model import Document, Flavour, read_document
 from geodetic_engine.geojson._scope import (
     METRE,
     LengthUnit,
+    Source,
     _same_crs,
     is_wgs84_lonlat,
     length_unit,
@@ -42,6 +43,7 @@ SERVICE_METRE = (
 )
 FEET_ID = "osdu:reference-data--UnitOfMeasure:ft:"
 MISSING_ID = "osdu:reference-data--CoordinateReferenceSystem:Projected:EPSG::99999:"
+ED50_UTM31_ID = "osdu:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031:"
 
 
 def _crs(value: Any) -> CoordinateReferenceSystem:
@@ -131,19 +133,30 @@ def test_source_crs_is_a_prior_arrangement_for_plain_geojson() -> None:
     assert source.stated_by == "source_crs"
 
 
+@pytest.mark.parametrize("given", ["OGC:CRS84", "EPSG:4326", "OGC:CRS84h", "EPSG:4979"])
+def test_source_crs_repeating_rfc_7946_changes_nothing(given: str) -> None:
+    """Heights stay CRS84h heights when source_crs only confirms CRS84."""
+    source = read_source(_document([3.0, 60.0], [3.0, 60.0, 10.0]), given)
+    assert source.crs is None
+    assert source.crs_for(2) == _crs("OGC:CRS84")
+    assert source.crs_for(3) == _crs("OGC:CRS84h")
+    assert source.stated_by == "source_crs"
+
+
 @pytest.mark.parametrize(
     "name",
     ["urn:ogc:def:crs:OGC:1.3:CRS84", "http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
 )
 def test_a_legacy_crs_member_naming_crs84_is_read(name: str) -> None:
     member = {"type": "name", "properties": {"name": name}}
-    document = _document([3.0, 60.0], crs=member)
-    source = read_source(document)
-    assert source.crs_for(2) == _crs("OGC:CRS84")
-    assert source.stated_by == "$.crs"
-    assert read_source(document, "OGC:CRS84").crs == _crs("OGC:CRS84")
-    # Declared latitude first, but its values are CRS84's: longitude first.
-    assert read_source(document, "EPSG:4326").crs == _crs("EPSG:4326")
+    document = _document([3.0, 60.0], [3.0, 60.0, 10.0], crs=member)
+    # Declared latitude first, EPSG:4326 still holds CRS84's values: longitude first.
+    for given in (None, "OGC:CRS84", "EPSG:4326", "OGC:CRS84h"):
+        source = read_source(document, given)
+        assert source.crs is None
+        assert source.crs_for(2) == _crs("OGC:CRS84")
+        assert source.crs_for(3) == _crs("OGC:CRS84h")
+        assert source.stated_by == "$.crs"
     with pytest.raises(GeoJsonCrsError, match="names CRS84") as raised:
         read_source(document, "EPSG:25832")
     assert raised.value.path == "$.crs"
@@ -183,16 +196,61 @@ def test_anycrs_geojson_states_its_crs() -> None:
     assert source.z_unit is None
 
 
-def test_the_record_id_takes_precedence_over_the_payload() -> None:
+def test_a_record_id_that_does_not_resolve_gives_way_to_the_payload() -> None:
+    """As with a proj.db that records no OSDU ids."""
     document = _document(
         [500000.0, 6600000.0],
         anycrs=True,
         CoordinateReferenceSystemID=MISSING_ID,
         persistableReferenceCrs=ED50_UTM31,
     )
+    source = read_source(document)
+    assert source.crs == _crs("EPSG:23031")
+    assert source.stated_by == "$.persistableReferenceCrs"
+
+
+def test_a_record_id_alone_must_resolve() -> None:
+    document = _document(
+        [500000.0, 6600000.0], anycrs=True, CoordinateReferenceSystemID=MISSING_ID
+    )
     with pytest.raises(UnresolvableCRSError) as raised:
         read_source(document)
     assert str(raised.value).startswith("$.CoordinateReferenceSystemID: ")
+
+
+def test_when_neither_member_resolves_both_are_named() -> None:
+    document = _document(
+        [500000.0, 6600000.0],
+        anycrs=True,
+        CoordinateReferenceSystemID=MISSING_ID,
+        persistableReferenceCrs='{"type": "LBC", "wkt": "nonsense"}',
+    )
+    with pytest.raises(UnresolvableCRSError) as raised:
+        read_source(document)
+    assert str(raised.value).startswith("$.CoordinateReferenceSystemID: ")
+    assert "; $.persistableReferenceCrs: " in str(raised.value)
+
+
+def test_the_record_id_takes_precedence_over_the_payload() -> None:
+    """Even over a payload stating another CRS, as in the OSDU service."""
+    document = _document(
+        [500000.0, 6600000.0],
+        anycrs=True,
+        CoordinateReferenceSystemID=ED50_UTM31_ID,
+        persistableReferenceCrs=to_persistable_reference(CRS.from_epsg(32631)),
+    )
+    source = _resolving_osdu_ids(document)
+    assert source.crs == _crs("EPSG:23031")
+    assert source.stated_by == "$.CoordinateReferenceSystemID"
+
+
+def _resolving_osdu_ids(document: Document) -> Source:
+    """read_source, skipping the test where the proj.db records no OSDU ids."""
+    try:
+        _crs(ED50_UTM31_ID)
+    except UnresolvableCRSError:
+        pytest.skip("the proj.db in use records no OSDU ids")
+    return read_source(document)
 
 
 @pytest.mark.parametrize(
@@ -276,22 +334,17 @@ def test_the_vertical_unit_id_takes_precedence_over_the_payload() -> None:
     assert read_source(document).z_unit == LengthUnit("ft", 0.3048)
 
 
-def test_a_unit_payload_is_kept_with_its_offset() -> None:
-    payload = _unit("odd", 2.0, 5.0)
+def test_a_unit_payload_is_kept() -> None:
+    payload = _unit("odd", 2.0)
     document = _document(
         [1.0, 2.0, 3.0], anycrs=True, persistableReferenceCrs=ED50_UTM31,
         persistableReferenceUnitZ=payload,
     )  # fmt: skip
     unit = read_source(document).z_unit
     assert unit is not None
-    assert (unit.symbol, unit.scale, unit.offset, unit.payload) == (
-        "odd",
-        2.0,
-        5.0,
-        payload,
-    )
-    assert unit.to_metres(3.0) == 11.0
-    assert unit.from_metres(11.0) == 3.0
+    assert (unit.symbol, unit.scale, unit.payload) == ("odd", 2.0, payload)
+    assert unit.to_metres(3.0) == 6.0
+    assert unit.from_metres(6.0) == 3.0
     assert unit.reference() == payload
 
 
@@ -493,6 +546,12 @@ def test_length_units_are_read_as_elsewhere(value: str, expected: LengthUnit) ->
             '{"abcd":{"a":0.0,"b":1.0,"c":1.0,"d":1.0},"symbol":"odd",'
             '"baseMeasurement":{"ancestry":"Length","type":"UM"},"type":"UAD"}',
             "cannot read the unit",
+        ),
+        (_unit("odd", 2.0, 5.0), "offset of 5.0"),
+        (
+            '{"abcd":{"a":1.0,"b":1.0,"c":1.0,"d":0.0},"symbol":"odd",'
+            '"baseMeasurement":{"ancestry":"Length","type":"UM"},"type":"UAD"}',
+            "offset of 1.0",
         ),
     ],
 )
