@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any
 
 import pytest
@@ -362,6 +363,16 @@ def test_unreadable_members_are_named(member: str, value: Any, reason: str) -> N
     with pytest.raises(InvalidGeoJsonError, match=reason) as raised:
         read_source(_document([1.0, 2.0, 3.0], anycrs=True, **members))
     assert raised.value.path == f"$.{member}"
+
+
+@pytest.mark.skipif(
+    not sys.get_int_max_str_digits(), reason="Python writes out integers of any length"
+)
+def test_a_member_too_long_to_show_is_named() -> None:
+    too_long = 10 ** (2 * sys.get_int_max_str_digits())
+    document = _document([1.0, 2.0], anycrs=True, persistableReferenceCrs=too_long)
+    with pytest.raises(InvalidGeoJsonError, match="not a number too long to show"):
+        read_source(document)
 
 
 @pytest.mark.parametrize(

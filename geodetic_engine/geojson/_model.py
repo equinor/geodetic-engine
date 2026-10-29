@@ -513,6 +513,11 @@ def _load(value: object) -> tuple[Mapping[str, Any], bool]:
             raise InvalidGeoJsonError(
                 "$", f"the document is not JSON: {error}"
             ) from error
+        except ValueError as error:
+            # An integer longer than sys.get_int_max_str_digits() digits.
+            raise InvalidGeoJsonError(
+                "$", f"the document cannot be read: {error}"
+            ) from error
         owned = True
     elif isinstance(value, Mapping):
         data = value
@@ -713,5 +718,11 @@ def _size(shape: Shape) -> int:
 
 
 def _shown(value: object) -> str:
-    text = repr(value)
+    try:
+        text = repr(value)
+    except ValueError:
+        # More than sys.get_int_max_str_digits() digits, possibly nested in value.
+        if isinstance(value, int):
+            return "a number too long to show"
+        return "a value that cannot be shown"
     return text if len(text) <= _SHOWN else f"{text[: _SHOWN - 3]}..."

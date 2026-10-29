@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import pickle
+import sys
 from decimal import Decimal
 from typing import Any
 
@@ -354,6 +355,30 @@ def test_what_is_not_converted_yet_is_refused(
     assert raised.value.path == path
 
 
+_DIGITS = sys.get_int_max_str_digits()
+# Twice the limit, as Python's check when writing an integer out is approximate.
+_TOO_LONG = 10 ** (2 * _DIGITS)
+
+
+@pytest.mark.skipif(not _DIGITS, reason="Python writes out integers of any length")
+@pytest.mark.parametrize(
+    ("document", "path", "reason"),
+    [
+        (_point([1, _TOO_LONG]), "$.features[0].geometry.coordinates[1]", "a number too long to show cannot"),
+        ({"type": "Point", "coordinates": _TOO_LONG}, "$.coordinates", "not a number too long to show"),
+        ({"type": "Point", "coordinates": [[_TOO_LONG], 1]}, "$.coordinates[0]", "a value that cannot be shown is not"),
+        ('{"type": "Point", "coordinates": [1, ' + "1" * (2 * _DIGITS) + "]}", "$", "cannot be read: Exceeds the limit"),
+    ],
+    ids=["position", "coordinates", "nested", "text"],
+)  # fmt: skip
+def test_a_number_too_long_to_write_out_is_refused(
+    document: Any, path: str, reason: str
+) -> None:
+    with pytest.raises(InvalidGeoJsonError, match=reason) as raised:
+        read_document(document)
+    assert raised.value.path == path
+
+
 def test_harmless_foreign_members_are_not_mistaken_for_json_fg() -> None:
     source = _collection(
         _feature(None, place=None, time={"date": "2020-01-01"}),
@@ -375,9 +400,16 @@ def _nested_collections(depth: int) -> dict[str, Any]:
     return geometry
 
 
+def _nested_collections_text(depth: int) -> str:
+    collection = '{"type": "GeometryCollection", "geometries": ['
+    point = '{"type": "Point", "coordinates": [1, 2]}'
+    return collection * depth + point + "]}" * depth
+
+
+# json or the reader gives up first, depending on the Python release and stack size.
 @pytest.mark.parametrize(
     "document",
-    ["[" * 100_000 + "]" * 100_000, _nested_collections(5_000)],
+    [_nested_collections_text(100_000), _nested_collections(5_000)],
     ids=["text", "mapping"],
 )
 def test_a_document_nested_too_deeply_is_refused(document: object) -> None:

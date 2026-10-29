@@ -610,5 +610,11 @@ def _label(crs: CoordinateReferenceSystem) -> str:
 
 
 def _shown(value: object) -> str:
-    text = repr(value)
+    try:
+        text = repr(value)
+    except ValueError:
+        # More than sys.get_int_max_str_digits() digits, possibly nested in value.
+        if isinstance(value, int):
+            return "a number too long to show"
+        return "a value that cannot be shown"
     return text if len(text) <= 40 else f"{text[:37]}..."
