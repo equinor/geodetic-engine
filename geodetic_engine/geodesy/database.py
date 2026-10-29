@@ -21,17 +21,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import sqlite3
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from threading import local
 
-from pyproj import datadir
-
+from geodetic_engine._search_path import DatabaseIdentity as DatabaseIdentity
+from geodetic_engine._search_path import database_identity as database_identity
 from geodetic_engine._sqlite import read_only
 
 logger = logging.getLogger(__name__)
@@ -46,7 +44,6 @@ _CRS_TABLES = (
     "engineering_crs",
 )
 
-_DATABASE_NAME = "proj.db"
 _BOUND_KEYWORD = "BOUNDCRS"
 
 # Extensions a grid file is published under, by any of the authorities whose
@@ -104,36 +101,6 @@ OPERATION_OBJECT_TABLES = frozenset(
         "concatenated_operation",
     }
 )
-
-type DatabaseIdentity = tuple[tuple[str, int, int, int, int, int], ...]
-_context = local()
-
-
-def database_identity() -> DatabaseIdentity:
-    """Identify the active search path and on-disk database generations."""
-    entries = []
-    for directory in datadir.get_data_dir().split(os.pathsep):
-        path = (Path(directory) / _DATABASE_NAME).resolve()
-        try:
-            stat = path.stat()
-        except OSError:
-            entries.append((str(path), 0, 0, 0, 0, 0))
-        else:
-            entries.append(
-                (
-                    str(path),
-                    stat.st_dev,
-                    stat.st_ino,
-                    stat.st_size,
-                    stat.st_mtime_ns,
-                    stat.st_ctime_ns,
-                )
-            )
-    identity = tuple(entries)
-    if getattr(_context, "identity", None) != identity:
-        datadir.set_data_dir(datadir.get_data_dir())
-        _context.identity = identity
-    return identity
 
 
 @lru_cache(maxsize=32)

@@ -35,7 +35,6 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-import threading
 from contextlib import closing, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +43,7 @@ from typing import Final
 from pyproj import datadir
 from pyproj.exceptions import DataDirError
 
+from geodetic_engine import _search_path
 from geodetic_engine._sqlite import read_only
 
 logger = logging.getLogger(__name__)
@@ -96,24 +96,27 @@ class _Choice:
     restore: str | None = None
 
 
-_lock = threading.Lock()
 _choice: _Choice | None = None
 
 
 def activate_at_import() -> None:
     """Apply rules a to d, once, when ``geodetic_engine`` is first imported."""
     global _choice
-    with _lock:
+    # Logged once the lock is released; see _search_path.
+    warnings: list[str] = []
+    with _search_path.lock:
         if _choice is not None:
             return
-        reason, search = _decide()
+        reason, search = _decide(warnings)
         before = _data_dir()
         if search is not None:
-            datadir.set_data_dir(os.pathsep.join(search))
+            _search_path.set_search_path(os.pathsep.join(search))
         _choice = _Choice(
             reason, _data_dir(), restore=before if search is not None else None
         )
         active = _active()
+    for warning in warnings:
+        logger.warning("%s", warning)
     _log(active)
 
 
@@ -131,9 +134,7 @@ def active_database() -> ActiveDatabase:
         >>> active_database().bundled  # doctest: +SKIP
         True
     """
-    with _lock:
-        _synchronise_thread()
-        return _active()
+    return _reading()
 
 
 def use_bundled_database(enabled: bool = True) -> ActiveDatabase:
@@ -163,7 +164,7 @@ def use_bundled_database(enabled: bool = True) -> ActiveDatabase:
             PROJ's search path holds a ``proj.db``.
     """
     global _choice
-    with _lock:
+    with _search_path.lock:
         database = _bundled_database()
         current = _data_dir()
         directories = _split(current)
@@ -182,7 +183,9 @@ def use_bundled_database(enabled: bool = True) -> ActiveDatabase:
                 restore = current
             elif _choice is not None and current == _choice.seen:
                 restore = _choice.restore
-            datadir.set_data_dir(os.pathsep.join(_unique([bundled, *directories])))
+            _search_path.set_search_path(
+                os.pathsep.join(_unique([bundled, *directories]))
+            )
             reason = "use_bundled_database() switched it on"
         else:
             if database is not None and any(
@@ -193,22 +196,38 @@ def use_bundled_database(enabled: bool = True) -> ActiveDatabase:
                     and _choice.restore is not None
                     and current == _choice.seen
                 ):
-                    search = _split(_choice.restore)
+                    search = _database_first(_split(_choice.restore))
                 else:
                     search = _database_first(
                         [e for e in directories if not _same(e, database.parent)]
                     )
-                datadir.set_data_dir(os.pathsep.join(search))
+                _search_path.set_search_path(os.pathsep.join(search))
             reason = "use_bundled_database(False) switched it off"
         _choice = _Choice(reason, _data_dir(), restore=restore)
-        _synchronise_thread()
-        active = _active()
+    active = _reading()
     _log(active)
     return active
 
 
-def _decide() -> tuple[str, list[str] | None]:
-    """Why the bundled database is or is not used, and the search path to set."""
+def _reading() -> ActiveDatabase:
+    """Re-point the calling thread's PROJ context, then report what it reads.
+
+    The thread re-points without the lock, so the report is taken under it
+    only once no switch has landed in between.
+    """
+    while True:
+        with suppress(DataDirError):
+            _search_path.database_identity()
+        with _search_path.lock:
+            if _search_path.followed():
+                return _active()
+
+
+def _decide(warnings: list[str]) -> tuple[str, list[str] | None]:
+    """Why the bundled database is or is not used, and the search path to set.
+
+    What to warn about is added to ``warnings``, for the caller to log.
+    """
     # Read first: once this package has called set_data_dir() itself, a call
     # of the caller's own can no longer be told apart from it.
     explicit = _user_data_dir()
@@ -217,10 +236,9 @@ def _decide() -> tuple[str, list[str] | None]:
     if setting in _OFF:
         return f"{ENVIRONMENT_VARIABLE}={raw} turns it off", None
     if setting not in _ON:
-        logger.warning(
-            "%s=%r is not a boolean; the bundled OSDU database stays on by default",
-            ENVIRONMENT_VARIABLE,
-            raw,
+        warnings.append(
+            f"{ENVIRONMENT_VARIABLE}={raw!r} is not a boolean; the bundled OSDU "
+            "database stays on by default"
         )
     if explicit is not None:
         return (
@@ -245,13 +263,11 @@ def _decide() -> tuple[str, list[str] | None]:
             if current == search:
                 return reason, None
             if (refused := _refusal(name, entry, current)) is not None:
-                logger.warning("%s", refused)
+                warnings.append(refused)
                 return refused, None
-            logger.warning(
-                "PROJ's search path becomes %s, from %s; it was %s",
-                os.pathsep.join(search),
-                name,
-                os.pathsep.join(current) or "unset",
+            warnings.append(
+                f"PROJ's search path becomes {os.pathsep.join(search)}, from "
+                f"{name}; it was {os.pathsep.join(current) or 'unset'}"
             )
             return reason, search
     database = _bundled_database()
@@ -282,20 +298,6 @@ def _active() -> ActiveDatabase:
     else:
         reason = _choice.reason
     return ActiveDatabase(path, bundled, reason, directories)
-
-
-def _synchronise_thread() -> None:
-    """Give the calling thread's PROJ context the current search path.
-
-    pyproj keeps one context per thread and set_data_dir() updates only the
-    caller's, so a thread that used pyproj before another switched would
-    otherwise report one database and read another.
-    """
-    # Imported here, since importing geodesy imports most of the package.
-    from geodetic_engine.geodesy.database import database_identity
-
-    with suppress(DataDirError):
-        database_identity()
 
 
 def _log(active: ActiveDatabase) -> None:

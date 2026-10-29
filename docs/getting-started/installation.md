@@ -116,13 +116,21 @@ pyproj keeps one PROJ context per thread, and a switch updates the calling
 thread's at once. Another thread that has already used pyproj follows the next
 time it calls `active_database()` or resolves a CRS, operation or identifier
 through this package; one that only calls pyproj directly keeps the database it
-had. Switch before starting threads to avoid the question.
+had. There is one gap: if a thread sets a path of its own with
+`set_data_dir()`, and another thread then sets back, also with
+`set_data_dir()`, the path the first one read before, the path looks unchanged
+to the first thread, and it goes on reading its own until the path changes
+again or `use_bundled_database()` is called. Switch before starting threads to
+avoid the question.
 
 Child processes need nothing extra. A process started by `multiprocessing`
 with the spawn method, the default on Windows and macOS, imports
 `geodetic_engine` again and applies the same rules to the environment it
-inherits. A `set_data_dir()` call under `if __name__ == "__main__":` is not
-repeated in such a child.
+inherits, and so does one started with forkserver, the default on Linux from
+Python 3.14. A `set_data_dir()` call under `if __name__ == "__main__":` is not
+repeated in such a child. A child forked with the fork method, the default on
+Linux before Python 3.14, inherits its parent's choice; a fork waits for a
+switch in progress to finish.
 
 `geodetic-osdudb build` is still how to get a newer or a custom catalogue
 ({doc}`/user-guide/osdudb`): put the database it writes first on `PROJ_DATA`,

@@ -67,11 +67,12 @@ All notable changes to this project are documented here. The format follows
   off. Another thread follows a switch the next time it calls
   `active_database()` or resolves anything through the package, so what is
   reported is what that thread reads. pyproj's installed `proj.db` is never
-  modified, provenance names the
-  shipped file when it answered, and a spawned child process applies the same
-  rules when it imports the package. `geodetic-osdudb build` and
-  `geodetic-projdb build` still start from the stock database, and
-  `geodetic-osdudb build` is still how to get a newer or a custom catalogue.
+  modified, provenance names the shipped file when it answered, and a spawned
+  child process applies the same rules when it imports the package; a forked
+  one inherits its parent's choice, and a fork waits for a switch in progress
+  to finish. `geodetic-osdudb build` and `geodetic-projdb build` still start
+  from the stock database, and `geodetic-osdudb build` is still how to get a
+  newer or a custom catalogue.
   The test suite runs with `GEODETIC_ENGINE_OSDU_DB=0`, against the stock
   database, and tests each rule in a fresh interpreter.
 
