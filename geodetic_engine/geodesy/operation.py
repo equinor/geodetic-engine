@@ -878,7 +878,8 @@ class OperationRequest:
                 which expands it. Or if a payload states no usable operation,
                 or an OSDU id names a CRS record rather than a transformation.
             OperationNotAvailableError: If an OSDU transformation id names
-                nothing in the active proj.db.
+                nothing in the active proj.db, or an integer is too long to be
+                an EPSG code.
 
         Example:
             >>> OperationRequest.parse("EPSG:15670").code
@@ -898,10 +899,17 @@ class OperationRequest:
         if isinstance(reference, StatedOperation):
             return cls.stated(reference.to_operation())
         if isinstance(reference, int):
+            try:
+                text = f"EPSG:{reference}"
+            except ValueError:
+                # More digits than sys.get_int_max_str_digits(): no code is that long.
+                raise OperationNotAvailableError(
+                    "cannot name an operation by an integer too long to be an EPSG code"
+                ) from None
             return cls(
-                text=f"EPSG:{reference}",
+                text=text,
                 auth_name="EPSG",
-                code=str(reference),
+                code=text.removeprefix("EPSG:"),
                 name=None,
             )
 

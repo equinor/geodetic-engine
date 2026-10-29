@@ -2570,12 +2570,13 @@ def _require_in_range(
             point = int(np.argmax(invalid))
             value = float(values[point])
             raise CoordinateOutOfRangeError(
-                f"point {point + point_offset} has {axis.name.lower()} {value} "
+                f"has {axis.name.lower()} {value} "
                 f"{axis.unit_name}, outside the valid range "
                 f"[-{limit:g}, {limit:g}] for {_label(source)}; values are "
                 f"given in {source.value_axis_abbreviations} order and in "
                 f"{source.axis_units} -- projected coordinates in metres "
-                "need a projected CRS"
+                "need a projected CRS",
+                point=point + point_offset,
             )
 
 
@@ -2598,8 +2599,9 @@ def _require_finite(
         index = int(np.argmin(finite))
         row = tuple(float(column[index]) for column in columns)
         raise TransformationFailedError(
-            f"point {index + point_offset} has no finite representation transforming "
-            f"{_label(source)} to {_label(target)}; PROJ produced {row}"
+            "has no finite representation transforming "
+            f"{_label(source)} to {_label(target)}; PROJ produced {row}",
+            point=index + point_offset,
         )
 
 

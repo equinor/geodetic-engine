@@ -27,6 +27,14 @@ The module most users need.
 survey by minimum curvature, place it in a CRS, and plot it in 3D.
 :::
 
+:::{grid-item-card} Seismic bin grids
+:link: bingrid
+:link-type: doc
+
+`geodetic_engine.bingrid`: convert between bin grid and map grid with P6
+parameters, and check, square and convert a four-corner bin grid.
+:::
+
 :::{grid-item-card} Persistable references
 :link: /persistable-reference/index
 :link-type: doc
@@ -51,13 +59,5 @@ a Georepository geodetic registry.
 `geodetic_engine.projdb`, `geodetic_engine.osdudb` and their commands: add a
 Georepository register's or an OSDU catalogue's own CRSs and transformations
 to a copy of PROJ's `proj.db`, and use the result.
-:::
-
-:::{grid-item-card} Seismic bin grids
-:link: bingrid
-:link-type: doc
-
-`geodetic_engine.bingrid`: convert between bin grid and map grid with P6
-parameters, and check, square and convert a four-corner bin grid.
 :::
 ::::

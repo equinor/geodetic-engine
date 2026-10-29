@@ -19,6 +19,11 @@ classifiers = [
 dependencies = [
     "pyproj==3.8.0",
     "httpx>=0.27",
+    # httpx and pyproj verify TLS against certifi's roots by default. Before
+    # 2026.10.18 it trusts emSign ECC Root CA - G3, under which intermediate CA
+    # keys were compromised (GHSA-6q48-6c7w-9gw2); 2026.10.18 also dropped
+    # emSign's unaffected roots, restored in 2026.10.19.
+    "certifi>=2026.10.19",
     "python-dotenv>=1.0",
     "filelock>=3.16",
     "numpy>=1.26",

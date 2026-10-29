@@ -256,6 +256,10 @@ All notable changes to this project are documented here. The format follows
   that cannot be built is a warning, or an error with `--strict`. The console
   names the first 25 replacements of each kind, and the log file and report
   every one.
+- `TransformationFailedError.point` and `.detail`: the index of the point a
+  transformation failed for, counted in the batch or stream, and what is wrong
+  with it, without the `point N` its message starts with. When the failure is
+  not one point's, `point` is None and `detail` is the whole message.
 
 ### Changed
 
@@ -326,6 +330,17 @@ All notable changes to this project are documented here. The format follows
   grids into the installed data directory; local grids are read from
   `local/grids/` through `PROJ_DATA`, and a patched database is written only
   under the repository. `tests/test_environment.py` guards this.
+
+### Security
+
+- certifi 2026.10.19 or later is required, and the lock file takes certifi
+  2026.10.23, up from 2026.7.22. httpx, through which the Georepository client
+  and the OSDU catalogue download connect, and PROJ's network access through
+  pyproj verify TLS against certifi's roots unless an environment variable such
+  as `SSL_CERT_FILE` names another bundle. Releases before 2026.10.18 trust
+  emSign ECC Root CA - G3, under which intermediate CA keys were compromised
+  (GHSA-6q48-6c7w-9gw2); 2026.10.18 also dropped emSign's unaffected roots,
+  which 2026.10.19 restored.
 
 ## 0.1.0
 

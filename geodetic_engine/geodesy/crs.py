@@ -403,7 +403,13 @@ class CoordinateReferenceSystem:
 def _normalize(value: Any) -> str:
     """Render user input as the cache key string PROJ will be given."""
     if isinstance(value, int):
-        return f"EPSG:{value}"
+        try:
+            return f"EPSG:{value}"
+        except ValueError:
+            # More digits than sys.get_int_max_str_digits(): no code is that long.
+            raise UnresolvableCRSError(
+                "cannot resolve a CRS from an integer too long to be an EPSG code"
+            ) from None
     if isinstance(value, str):
         return value.strip()
     raise UnresolvableCRSError(
