@@ -275,6 +275,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A `proj.db` whose path holds `#`, `?` or `%`, as one installed under a
+  directory such as `C#` does, is read as the file PROJ reads. The package's
+  read-only lookups, and the Python fallback in
+  `scripts/install-osdu-projdb.sh`, put the path into a SQLite `file:` URI as
+  it was, which reads those characters as a fragment, a query and an escape,
+  so they opened another file: OSDU record ids, bound CRSs, skip reasons, grid
+  names and persistable references were not found there,
+  `default_base_proj_db()` found the search path ambiguous, and builds failed.
+  After a `#` or `?`, `mode=ro` was lost as well, so SQLite could create an
+  empty database named after the path up to that character.
 - `geodetic-osdudb build` and `geodetic-projdb build` work on Windows.
   Validation stages the database as `proj.db` in the calling process, so the
   temporary copy is removed only after the validation process, in which PROJ

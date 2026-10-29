@@ -28,10 +28,15 @@ from geodetic_engine.geodesy import (
     UnresolvableCRSError,
 )
 from geodetic_engine.geodesy import database as database_module
-from geodetic_engine.geodesy.database import identified_object, object_identifiers
+from geodetic_engine.geodesy.database import (
+    grid_dataset,
+    identified_object,
+    object_identifiers,
+    recorded_identifiers,
+)
 from geodetic_engine.geodesy.osdu_id import CRS_ENTITY, SCHEME, TRANSFORMATION_ENTITY
 from geodetic_engine.projdb import schema
-from tests.support import installed_proj_db
+from tests.support import URI_SYNTAX_DIRECTORIES, installed_proj_db
 
 NAMESPACE = "opendes"
 BOUND_AUTHORITY = "OSDU"
@@ -131,6 +136,15 @@ def _reading(directory: Path) -> Iterator[None]:
 def osdu_database(tmp_path: Path) -> Iterator[Path]:
     """PROJ reading a database that records OSDU ids."""
     database = _write(tmp_path / "proj")
+    yield from _reading(database.parent)
+
+
+@pytest.fixture(params=URI_SYNTAX_DIRECTORIES)
+def osdu_database_named_as_uri_syntax(
+    tmp_path: Path, request: pytest.FixtureRequest
+) -> Iterator[None]:
+    """PROJ reading that database from a directory named with URI syntax."""
+    database = _write(tmp_path / request.param)
     yield from _reading(database.parent)
 
 
@@ -346,3 +360,24 @@ def test_a_lookup_returns_what_the_row_states(osdu_database: Path) -> None:
     assert found.is_operation and not found.is_crs
     assert not found.deprecated
     assert identified_object(SCHEME, f"{NAMESPACE}:{TRANSFORMATION}") is None
+
+
+def test_every_lookup_reads_the_database_proj_reads_wherever_it_is(
+    osdu_database_named_as_uri_syntax: None, tmp_path: Path
+) -> None:
+    """A path is not a URI: "#", "?" and "%" in it name the directory."""
+    crs = CoordinateReferenceSystem.from_osdu_id(f"{NAMESPACE}:{PROJECTED}")
+    assert crs.authority_code == "EPSG:23031"
+    bound = CoordinateReferenceSystem.from_user_input(f"{NAMESPACE}:{BOUND}")
+    assert bound.crs.is_bound
+    with pytest.raises(UnresolvableCRSError, match="EPSG:8094 does not collapse"):
+        CoordinateReferenceSystem.from_user_input(f"{NAMESPACE}:{SKIPPED}:")
+    assert object_identifiers("projected_crs", "EPSG", "23031", scheme=SCHEME) == (
+        PROJECTED,
+    )
+    assert recorded_identifiers(SCHEME, code="23031") == (PROJECTED,)
+    assert grid_dataset("conus") is not None
+    # Reading the path as a URI opened, and so created, a database named after
+    # the part before the "#" or "?", read-write: the fragment or query had
+    # swallowed "mode=ro". The directory holding the database is all there is.
+    assert len(list(tmp_path.iterdir())) == 1

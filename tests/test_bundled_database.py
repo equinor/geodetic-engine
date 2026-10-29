@@ -22,7 +22,12 @@ from typing import Any
 
 import pytest
 
-from geodetic_engine.projdb.schema import BUILD_HISTORY_TABLE
+from geodetic_engine.projdb.schema import (
+    BUILD_HISTORY_TABLE,
+    IDENTIFIER_DDL,
+    IDENTIFIER_TABLE,
+)
+from tests.support import URI_SYNTAX_DIRECTORIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CATALOG = REPO_ROOT / "catalogs/osdu/CRS_CT_osdu_official_crs_catalog.json"
@@ -469,6 +474,38 @@ def test_builds_start_from_the_stock_database_while_the_bundled_one_is_active(
     )
     assert state["bundled"]
     assert state["extra"]["bases"] == [str(installation.stock)] * 2
+
+
+@pytest.mark.parametrize("name", URI_SYNTAX_DIRECTORIES)
+def test_an_installation_under_any_directory_name_answers_osdu_ids(
+    installation: Installation, tmp_path: Path, name: str
+) -> None:
+    """A path is not a URI: "#", "?" and "%" in it name the directory."""
+    root = _copy_package(tmp_path / name)
+    bundled = root / "geodetic_engine/osdudb/_data/proj_data/proj.db"
+    bundled.parent.mkdir(parents=True)
+    shutil.copyfile(installation.bundled, bundled)
+    osdu_id = "reference-data--CoordinateReferenceSystem:Projected:EPSG::23031"
+    with closing(sqlite3.connect(bundled)) as connection, connection:
+        for statement in IDENTIFIER_DDL:
+            connection.execute(statement)
+        connection.execute(
+            f"INSERT INTO {IDENTIFIER_TABLE} VALUES "
+            "('OSDU', ?, 'projected_crs', 'EPSG', '23031', 0, NULL)",
+            (osdu_id,),
+        )
+    [state], _ = _probe(
+        installation,
+        root=root,
+        after=(
+            "from geodetic_engine.geodesy import CoordinateReferenceSystem\n"
+            "from geodetic_engine.projdb.settings import default_base_proj_db\n"
+            f"crs = CoordinateReferenceSystem.from_osdu_id('opendes:{osdu_id}')\n"
+            "extra['answers'] = [crs.authority_code, str(default_base_proj_db())]"
+        ),
+    )
+    assert state["path"] == str(bundled.resolve())
+    assert state["extra"]["answers"] == ["EPSG:23031", str(installation.stock)]
 
 
 def test_pyproj_keeps_the_explicit_data_dir_where_this_package_reads_it() -> None:

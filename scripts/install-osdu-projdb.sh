@@ -165,7 +165,11 @@ import sqlite3
 import sys
 from contextlib import closing
 
-with closing(sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)) as db:
+# As geodetic_engine._sqlite.read_only(): "%", "?" and "#" are URI syntax,
+# and a leading "//" would be read as the URI's authority.
+path = sys.argv[1].translate(str.maketrans({"%": "%25", "?": "%3F", "#": "%23"}))
+uri = f"file:{'//' if path.startswith('//') else ''}{path}?mode=ro"
+with closing(sqlite3.connect(uri, uri=True)) as db:
     row = db.execute(sys.argv[2]).fetchone()
     print(row[0] if row else "")
 EOF
