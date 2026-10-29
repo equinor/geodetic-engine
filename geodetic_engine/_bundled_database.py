@@ -9,30 +9,42 @@ a. ``GEODETIC_ENGINE_OSDU_DB=0``: nothing is changed.
 b. ``pyproj.datadir.set_data_dir()`` or ``append_data_dir()`` was called
    before the import: nothing is changed.
 c. ``PROJ_DATA``, or ``PROJ_LIB`` when ``PROJ_DATA`` is unset, names a
-   directory that holds a ``proj.db``: nothing is changed.
+   directory that holds a ``proj.db``: PROJ's search path becomes the
+   variable's directories, the first that holds a ``proj.db`` first. That is
+   pyproj's search path already when pyproj read the variable on import and
+   its first directory holds the ``proj.db``, and nothing is changed. Any
+   other search path, say for a value set after pyproj was imported, is
+   replaced, with a warning; but if the variable's ``proj.db`` records no
+   database layout, another major one, or an older minor one than the
+   ``proj.db`` PROJ reads, which PROJ would refuse, nothing is changed, with a
+   warning.
 d. Otherwise PROJ's search path becomes the bundled database's directory, then
    the ``PROJ_DATA``/``PROJ_LIB`` directories, then pyproj's own data
    directory, so grids and ``proj.ini`` are still found where they were.
 
 That is the precedence of this project's pyproj wheels (``set_data_dir``, then
 a ``PROJ_DATA`` holding a database, then the database the wheel bundles) with
-the OSDU database in place of the wheel's. No file is written and the
-environment is left alone, so a child process that imports the package applies
-the same rules.
+the OSDU database in place of the wheel's, applied to the environment as it is
+on import: the environment a child process starts with. No file is written and
+the environment is left alone, so a child process that imports the package
+applies the same rules.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import threading
-from contextlib import suppress
+from contextlib import closing, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 from pyproj import datadir
 from pyproj.exceptions import DataDirError
+
+from geodetic_engine._sqlite import read_only
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +57,7 @@ BUNDLED_DIRECTORY: Final = (
 )
 
 _DATABASE: Final = "proj.db"
+_LAYOUT: Final = ("DATABASE.LAYOUT.VERSION.MAJOR", "DATABASE.LAYOUT.VERSION.MINOR")
 _OFF: Final = frozenset({"0", "false", "no", "off"})
 _ON: Final = frozenset({"", "1", "true", "yes", "on"})
 _CHANGED: Final = (
@@ -217,11 +230,30 @@ def _decide() -> tuple[str, list[str] | None]:
         )
     name, value = _environment_data_dir()
     entries = _split(value)
-    for entry in entries:
+    for index, entry in enumerate(entries):
         if (Path(entry) / _DATABASE).is_file():
             if len(entries) == 1:
-                return f"{name}={entry} holds a proj.db", None
-            return f"{name} lists {entry}, which holds a proj.db", None
+                reason = f"{name}={entry} holds a proj.db"
+            else:
+                reason = f"{name} lists {entry}, which holds a proj.db"
+            # pyproj passes PROJ the proj.db of the first directory only.
+            search = [entry, *entries[:index], *entries[index + 1 :]]
+            # pyproj keeps the value verbatim when it reads it, and reads it
+            # once: a value it has not read, or read with no proj.db first, is
+            # applied, so that this process reads what a new one would.
+            current = _split(_data_dir())
+            if current == search:
+                return reason, None
+            if (refused := _refusal(name, entry, current)) is not None:
+                logger.warning("%s", refused)
+                return refused, None
+            logger.warning(
+                "PROJ's search path becomes %s, from %s; it was %s",
+                os.pathsep.join(search),
+                name,
+                os.pathsep.join(current) or "unset",
+            )
+            return reason, search
     database = _bundled_database()
     if database is None:
         return (
@@ -336,3 +368,49 @@ def _database_first(entries: list[str]) -> list[str]:
         "no directory on PROJ's search path but the bundled database's holds "
         "a proj.db to switch to"
     )
+
+
+def _refusal(name: str, entry: str, current: list[str]) -> str | None:
+    """Why the proj.db a variable names is not applied, or None to apply it.
+
+    PROJ refuses a database that records no layout version, another major one,
+    or a minor one older than it was built for. The layout of the proj.db PROJ
+    reads now stands in for that, being at least as new.
+    """
+    reading = next(
+        (
+            Path(directory) / _DATABASE
+            for directory in current
+            if (Path(directory) / _DATABASE).is_file()
+        ),
+        None,
+    )
+    expected = None if reading is None else _layout(reading)
+    if reading is None or expected is None:
+        return None
+    candidate = Path(entry) / _DATABASE
+    found = _layout(candidate)
+    if found is not None and found[0] == expected[0] and found[1] >= expected[1]:
+        return None
+    layout = "no database layout" if found is None else _layout_name(found)
+    return (
+        f"{name} names {candidate}, with {layout}, so PROJ keeps reading "
+        f"{reading.resolve()}, with {_layout_name(expected)}"
+    )
+
+
+def _layout(database: Path) -> tuple[int, int] | None:
+    """The database layout version a proj.db records, or None if none."""
+    try:
+        with closing(read_only(database)) as connection:
+            rows = connection.execute(
+                "SELECT key, value FROM metadata WHERE key IN (?, ?)", _LAYOUT
+            ).fetchall()
+        found = dict(rows)
+        return int(found[_LAYOUT[0]]), int(found[_LAYOUT[1]])
+    except (sqlite3.Error, KeyError, TypeError, ValueError):
+        return None
+
+
+def _layout_name(layout: tuple[int, int]) -> str:
+    return f"database layout {layout[0]}.{layout[1]}"

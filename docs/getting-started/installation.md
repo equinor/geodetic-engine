@@ -63,8 +63,15 @@ matches decides whether PROJ reads it:
 2. `pyproj.datadir.set_data_dir()` or `append_data_dir()` was called before
    the import: nothing changes.
 3. `PROJ_DATA`, or `PROJ_LIB` when `PROJ_DATA` is unset, names a directory
-   that holds a `proj.db`: nothing changes. QGIS, OSGeo4W and conda often set
-   one of these for the whole machine, and PROJ then reads their database.
+   that holds a `proj.db`: PROJ reads the first such `proj.db` and searches
+   the variable's directories. QGIS, OSGeo4W and conda often set one of these
+   for the whole machine. pyproj reads the variable when it is imported, so
+   the import usually changes nothing; it applies a variable set later, say in
+   a notebook that had already imported pyproj or a library that uses it, and
+   logs a warning. A later one whose `proj.db` records no database layout, or
+   an older or another one than the `proj.db` PROJ reads, as another PROJ
+   release's may, is not applied, since PROJ would refuse it: the import logs
+   a warning and changes nothing.
 4. Otherwise PROJ's search path becomes the shipped database's directory, then
    the `PROJ_DATA` or `PROJ_LIB` directories, then pyproj's own data
    directory. Only the database comes from the shipped file; grids and
@@ -113,8 +120,9 @@ had. Switch before starting threads to avoid the question.
 
 Child processes need nothing extra. A process started by `multiprocessing`
 with the spawn method, the default on Windows and macOS, imports
-`geodetic_engine` again and applies the same rules. A `set_data_dir()` call
-under `if __name__ == "__main__":` is not repeated in such a child.
+`geodetic_engine` again and applies the same rules to the environment it
+inherits. A `set_data_dir()` call under `if __name__ == "__main__":` is not
+repeated in such a child.
 
 `geodetic-osdudb build` is still how to get a newer or a custom catalogue
 ({doc}`/user-guide/osdudb`): put the database it writes first on `PROJ_DATA`,

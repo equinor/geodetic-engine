@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pyproj
 import pytest
 
 from geodetic_engine.projdb.schema import (
@@ -45,7 +46,7 @@ import json
 import logging
 import os
 
-logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 import pyproj
 
@@ -282,6 +283,69 @@ _MARKED = frozenset({"bundled", "user"})
             True,
             id="GEODETIC_ENGINE_OSDU_DB=0",
         ),
+        # pyproj reads the variables when it is imported: below, before this
+        # package is. The import applies them as a new interpreter reads them.
+        pytest.param(
+            {},
+            "os.environ['PROJ_DATA'] = os.pathsep.join([{user!r}, {grids!r}])",
+            "user",
+            "PROJ_DATA lists {user}, which holds a proj.db",
+            True,
+            id="PROJ_DATA set after pyproj was imported",
+        ),
+        pytest.param(
+            {},
+            "os.environ['PROJ_LIB'] = {user!r}",
+            "user",
+            "PROJ_LIB={user} holds a proj.db",
+            False,
+            id="PROJ_LIB set after pyproj was imported",
+        ),
+        pytest.param(
+            {"PROJ_DATA": "{stock}{sep}{grids}"},
+            "os.environ['PROJ_DATA'] = {user!r}",
+            "user",
+            "PROJ_DATA={user} holds a proj.db",
+            False,
+            id="PROJ_DATA changed after pyproj was imported",
+        ),
+        pytest.param(
+            {},
+            "os.environ['PROJ_DATA'] = os.pathsep.join([{stock!r}, {grids!r}])",
+            "stock",
+            "PROJ_DATA lists {stock}, which holds a proj.db",
+            True,
+            id="PROJ_DATA adding grids to pyproj's database after it was imported",
+        ),
+        pytest.param(
+            {"PROJ_LIB": "{user}"},
+            "os.environ['PROJ_DATA'] = os.pathsep.join([{stock!r}, {grids!r}])",
+            "stock",
+            "PROJ_DATA lists {stock}, which holds a proj.db",
+            True,
+            id="PROJ_DATA set after pyproj read PROJ_LIB",
+        ),
+        # pyproj gives PROJ the proj.db of the first directory only.
+        pytest.param(
+            {},
+            "os.environ['PROJ_DATA'] = os.pathsep.join([{grids!r}, {user!r}])",
+            "user",
+            "PROJ_DATA lists {user}, which holds a proj.db",
+            True,
+            id="PROJ_DATA set later, with no proj.db in its first directory",
+        ),
+        pytest.param(
+            {"PROJ_DATA": "{grids}{sep}{user}"},
+            "",
+            "user",
+            "PROJ_DATA lists {user}, which holds a proj.db",
+            True,
+            marks=pytest.mark.skipif(
+                "+proj" in pyproj.__version__,
+                reason="the project's pyproj wheels refuse this environment",
+            ),
+            id="PROJ_DATA with no proj.db in its first directory",
+        ),
     ],
 )
 def test_import_reads_the_bundled_database_unless_another_was_chosen(
@@ -336,7 +400,7 @@ def test_switching_explicitly_overrides_the_choice_made_on_import(
 def test_switching_on_overrides_a_database_the_environment_chose(
     installation: Installation,
 ) -> None:
-    states, _ = _probe(
+    states, log = _probe(
         installation,
         variables={"PROJ_DATA": "{user}{sep}{grids}"},
         after="use_bundled_database(); record(); use_bundled_database(False)",
@@ -346,6 +410,8 @@ def test_switching_on_overrides_a_database_the_environment_chose(
         str(installation.user),
     ]
     assert all(state["grid"] for state in states)
+    # pyproj read the variable, so the import left PROJ's search path alone.
+    assert "PROJ's search path becomes" not in log
 
 
 def test_switching_off_returns_to_pyprojs_own_search_path(
@@ -354,6 +420,69 @@ def test_switching_off_returns_to_pyprojs_own_search_path(
     [state], _ = _probe(installation, after="use_bundled_database(False)")
     assert state["path"] == str(installation.stock)
     assert state["search_path"] == [str(installation.stock.parent)]
+
+
+def test_a_variable_set_after_pyproj_was_imported_is_applied_with_a_warning(
+    installation: Installation,
+) -> None:
+    states, log = _probe(
+        installation,
+        before="os.environ['PROJ_DATA'] = os.pathsep.join([{user!r}, {grids!r}])",
+        after="record(); use_bundled_database(); record(); use_bundled_database(False)",
+    )
+    assert [state["path"] for state in states] == [
+        str(installation.user),
+        str(installation.bundled),
+        str(installation.user),
+    ]
+    assert "PROJ's search path becomes" in log
+    # Switching off returns to the variable's directories, not to pyproj's.
+    variable = [str(installation.user.parent), str(installation.grids.resolve())]
+    assert states[0]["search_path"] == states[2]["search_path"] == variable
+    assert all(state["grid"] for state in states)
+
+
+@pytest.mark.parametrize("layout", ["older", "none"])
+def test_a_database_proj_cannot_read_is_not_applied(
+    installation: Installation, tmp_path: Path, layout: str
+) -> None:
+    """Such as another PROJ release's, named after pyproj was imported.
+
+    PROJ refuses to switch a thread's context to it, and new threads would
+    find no database, so applying it would report one that no thread reads.
+    """
+    refused = tmp_path / "refused" / "proj.db"
+    if layout == "older":
+        _marked_copy(installation.stock, refused, "refused")
+        with closing(sqlite3.connect(refused)) as connection, connection:
+            connection.execute(
+                "UPDATE metadata SET value = CAST(CAST(value AS INTEGER) - 1 AS TEXT) "
+                "WHERE key = 'DATABASE.LAYOUT.VERSION.MINOR'"
+            )
+    else:
+        refused.parent.mkdir()
+        with closing(sqlite3.connect(refused)) as connection, connection:
+            connection.execute("CREATE TABLE unrelated (value TEXT)")
+    [state], log = _probe(
+        installation,
+        before=f"os.environ['PROJ_LIB'] = {str(refused.parent)!r}",
+        after=(
+            "from concurrent.futures import ThreadPoolExecutor\n"
+            "def opened():\n"
+            "    try:\n"
+            "        return pyproj.database.get_database_metadata('EPSG.VERSION')\n"
+            "    except Exception as error:\n"
+            "        return repr(error)\n"
+            "with ThreadPoolExecutor(1) as pool:\n"
+            "    extra['worker'] = pool.submit(opened).result()\n"
+        ),
+    )
+    # active_database(), the main thread and a new one agree on the database.
+    assert state["path"] == str(installation.stock)
+    assert state["epsg"] == state["extra"]["worker"] not in {*_MARKED, "refused"}
+    assert str(refused) in state["reason"]
+    assert state["path"] in state["reason"]
+    assert f"WARNING geodetic_engine._bundled_database: {state['reason']}" in log
 
 
 def test_a_reused_worker_thread_reads_the_database_it_reports(
@@ -424,14 +553,48 @@ def test_an_installation_without_the_database_changes_nothing(
     assert "has no bundled OSDU database" in state["reason"]
 
 
+@pytest.mark.parametrize(
+    ("variables", "parent", "expected"),
+    [
+        pytest.param({}, "pass", "bundled", id="nothing set"),
+        pytest.param(
+            {},
+            "os.environ['PROJ_DATA'] = os.pathsep.join([{user!r}, {grids!r}])",
+            "user",
+            id="PROJ_DATA set after pyproj was imported",
+        ),
+        pytest.param(
+            {"PROJ_DATA": "{user}{sep}{grids}"},
+            "del os.environ['PROJ_DATA']",
+            "bundled",
+            id="PROJ_DATA removed after pyproj was imported",
+        ),
+    ],
+)
 def test_a_spawned_child_applies_the_same_rules(
-    installation: Installation, tmp_path: Path
+    installation: Installation,
+    tmp_path: Path,
+    variables: dict[str, str],
+    parent: str,
+    expected: str,
 ) -> None:
-    """Windows starts every multiprocessing child this way."""
+    """Windows starts every multiprocessing child this way.
+
+    The child's pyproj reads the environment the child inherits, so the parent
+    must read the same database when a variable changed after its own pyproj
+    was imported.
+    """
+    paths = installation.paths()
     script = tmp_path / "spawn.py"
     script.write_text(
         "import json\n"
         "import multiprocessing\n"
+        "import os\n"
+        "\n"
+        "import pyproj\n"
+        "\n"
+        "if __name__ == '__main__':\n"
+        f"    {parent.format(**paths)}\n"
         "\n"
         "import geodetic_engine\n"
         "from geodetic_engine.osdudb import active_database\n"
@@ -449,14 +612,17 @@ def test_a_spawned_child_applies_the_same_rules(
     )
     result = subprocess.run(
         [sys.executable, str(script)],
-        env=_clean_environment(PYTHONPATH=str(installation.root)),
+        env=_clean_environment(
+            PYTHONPATH=str(installation.root),
+            **{name: value.format(**paths) for name, value in variables.items()},
+        ),
         cwd=tmp_path,
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == [str(installation.bundled)] * 2
+    assert json.loads(result.stdout) == [str(getattr(installation, expected))] * 2
 
 
 def test_builds_start_from_the_stock_database_while_the_bundled_one_is_active(

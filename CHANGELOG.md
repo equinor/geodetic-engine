@@ -50,7 +50,13 @@ All notable changes to this project are documented here. The format follows
   changes nothing; nor does a `pyproj.datadir.set_data_dir()` or
   `append_data_dir()` call made before the import; nor a `PROJ_DATA`, or
   `PROJ_LIB` when `PROJ_DATA` is unset, that names a directory holding a
-  `proj.db`. Otherwise PROJ searches the shipped database's directory first,
+  `proj.db`. PROJ then searches the variable's directories, the one holding
+  the `proj.db` first; a value pyproj has not read, such as one set after
+  pyproj was imported, is applied, with a warning, so a process reads the
+  database a child started with its environment reads; but not if that
+  `proj.db` records no database layout, or an older or another one than the
+  `proj.db` PROJ reads, which PROJ would refuse: then nothing changes, with a
+  warning. Otherwise PROJ searches the shipped database's directory first,
   then the `PROJ_DATA`/`PROJ_LIB` directories, then pyproj's own, so grids and
   `proj.ini` are still found. The outcome is logged at `INFO`, with the
   reason when the shipped database is not used, such as
