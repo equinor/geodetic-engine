@@ -368,11 +368,22 @@ def test_unreadable_members_are_named(member: str, value: Any, reason: str) -> N
 @pytest.mark.skipif(
     not sys.get_int_max_str_digits(), reason="Python writes out integers of any length"
 )
-def test_a_member_too_long_to_show_is_named() -> None:
+def test_a_member_too_long_to_read_is_refused() -> None:
     too_long = 10 ** (2 * sys.get_int_max_str_digits())
-    document = _document([1.0, 2.0], anycrs=True, persistableReferenceCrs=too_long)
-    with pytest.raises(InvalidGeoJsonError, match="not a number too long to show"):
-        read_source(document)
+    with pytest.raises(InvalidGeoJsonError, match="integer of more than") as raised:
+        _document([1.0, 2.0], anycrs=True, persistableReferenceCrs=too_long)
+    assert raised.value.path == "$.persistableReferenceCrs"
+
+
+@pytest.mark.skipif(
+    not sys.get_int_max_str_digits(), reason="Python writes out integers of any length"
+)
+def test_a_crs_given_as_an_integer_too_long_to_write_out_is_unresolvable() -> None:
+    too_long = 10 ** (2 * sys.get_int_max_str_digits())
+    with pytest.raises(UnresolvableCRSError, match="too long"):
+        read_source(_document([3.0, 60.0]), too_long)
+    with pytest.raises(UnresolvableCRSError, match="too long"):
+        read_target(too_long, source=Flavour.GEOJSON)
 
 
 @pytest.mark.parametrize(

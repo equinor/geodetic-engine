@@ -19,6 +19,9 @@ The reading is strict where a conversion would otherwise produce something
 wrong without saying so:
 
 * a position is two or three finite numbers, and a boolean is not a number;
+* an integer anywhere has no more digits than Python's json reads
+  (``sys.get_int_max_str_digits()``), in a mapping as in JSON text, so either
+  reads the same and the result can be written out;
 * a line has at least two positions, and a linear ring at least four, the last
   equal to the first (RFC 7946, section 3.1);
 * all positions of one geometry have as many values;
@@ -37,10 +40,12 @@ import copy
 import json
 import math
 import numbers
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
+from functools import lru_cache
 from typing import Any, Final, cast
 
 import numpy as np
@@ -467,11 +472,14 @@ class _Reader:
 
     def _member(self, key: str, value: object, path: str, *, root: bool) -> object:
         """Copy a member, refusing those that would be wrong left unconverted."""
-        member = f"{path}.{key}"
         if key == "type":
             return value
         if key == "bbox":
-            return _read_bbox(value, member)
+            # Refuses any integer too long to be a float, so any too long to read.
+            return _read_bbox(value, f"{path}.{key}")
+        if not self._owned:
+            _refuse_long_integers({key: value}, path)
+        member = f"{path}.{key}"
         if key == "coordRefSys" and value is not None:
             raise UnsupportedGeoJsonError(
                 member, "JSON-FG coordRefSys is not supported yet"
@@ -680,6 +688,94 @@ def _is_array(value: object) -> bool:
     return isinstance(value, list | tuple) or (
         isinstance(value, np.ndarray) and value.ndim > 0
     )
+
+
+def _refuse_long_integers(value: Mapping[Any, Any], path: str) -> None:
+    """Refuse an integer in ``value``, or a key, that Python's json would not read.
+
+    JSON text holding one is refused as it is parsed, so a mapping holding one
+    is refused too: either way the same document is read, and can be written.
+    """
+    limit = sys.get_int_max_str_digits()
+    # No more bits than this is fewer than limit + 1 digits, as 3.321928 < log2(10),
+    # so 10**limit, slow for a large limit, is computed only for an integer as long.
+    bits = limit * 3321928 // 1000000
+    if not limit or not _may_hold_long_integer(value, bits):
+        return
+
+    def too_long(number: object) -> bool:
+        return (
+            isinstance(number, int)
+            and number.bit_length() > bits
+            and abs(number) >= _power_of_ten(limit)
+        )
+
+    reason = f"an integer of more than {limit} digits, which Python's json won't read"
+    # Holding each container keeps its id from being reused by another one.
+    seen: dict[int, object] = {}
+    pending: list[tuple[object, str]] = [(value, path)]
+    while pending:
+        item, where = pending.pop()
+        if too_long(item):
+            raise InvalidGeoJsonError(where, reason)
+        if isinstance(item, list | tuple | Mapping) and id(item) not in seen:
+            seen[id(item)] = item
+            members: list[tuple[object, str]] = []
+            if isinstance(item, Mapping):
+                for key, member in item.items():
+                    if too_long(key):
+                        raise InvalidGeoJsonError(where, f"has a key that is {reason}")
+                    step = key if isinstance(key, str) else _shown(key)
+                    members.append((member, f"{where}.{step}"))
+            else:
+                members = [(member, f"{where}[{i}]") for i, member in enumerate(item)]
+            # Reversed, so that the first one too long is the one named.
+            pending.extend(reversed(members))
+
+
+def _may_hold_long_integer(value: Mapping[Any, Any], bits: int) -> bool:
+    """Whether ``value`` holds an integer, or a key, of more than ``bits`` bits.
+
+    The walk that names the path costs a string per value, so this one,
+    without paths, keeps the common case cheap. Each container is walked
+    once, so one that holds itself, which ``copy.deepcopy`` copies, ends; and
+    held meanwhile, so a Mapping that makes a new one each time it is read
+    cannot pass one off as another, freed one with the same id.
+    """
+    seen: dict[int, object] = {}
+    pending: list[Any] = [value]
+    while pending:
+        container = pending.pop()
+        if id(container) in seen:
+            continue
+        seen[id(container)] = container
+        members = container
+        if isinstance(container, Mapping):
+            # By items(), as copy.deepcopy copies a mapping.
+            members = []
+            for key, member in container.items():
+                if isinstance(key, int) and key.bit_length() > bits:
+                    return True
+                members.append(member)
+        for member in members:
+            if isinstance(member, int):
+                if member.bit_length() > bits:
+                    return True
+            elif not isinstance(member, _SCALARS) and isinstance(
+                member, list | tuple | Mapping
+            ):
+                pending.append(member)
+    return False
+
+
+# What JSON text reads to besides integers and containers, tested first as the
+# test for a Mapping is slower.
+_SCALARS: Final = (str, float, type(None))
+
+
+@lru_cache(maxsize=1)
+def _power_of_ten(exponent: int) -> int:
+    return int(10**exponent)
 
 
 def _nested(rows: Sequence[Position], shape: Shape, start: int) -> tuple[Any, int]:

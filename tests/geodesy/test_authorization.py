@@ -1,6 +1,7 @@
 """Regression tests for strict operation and epoch authorization."""
 
 import math
+import sys
 
 import pytest
 from pyproj import CRS, Transformer
@@ -32,6 +33,17 @@ def test_partial_compound_request_is_refused(operations: str) -> None:
 def test_projection_request_does_not_authorize_a_datum_shift() -> None:
     with pytest.raises(OperationNotAvailableError):
         Transformation("EPSG:4326", "EPSG:25832", operation="EPSG:16032")
+
+
+@pytest.mark.skipif(
+    not sys.get_int_max_str_digits(), reason="Python writes out integers of any length"
+)
+def test_an_operation_code_too_long_to_write_out_is_not_available() -> None:
+    too_long = 10 ** (2 * sys.get_int_max_str_digits())
+    with pytest.raises(OperationNotAvailableError, match="too long to be an EPSG code"):
+        OperationRequest.parse(too_long)
+    with pytest.raises(OperationNotAvailableError, match="too long to be an EPSG code"):
+        Transformation("EPSG:4326", "EPSG:25832", operation=too_long)
 
 
 def test_a_dynamic_frame_alone_does_not_require_an_epoch() -> None:

@@ -6,6 +6,7 @@ import copy
 import json
 import pickle
 import sys
+from collections.abc import Callable, Iterator, Mapping
 from decimal import Decimal
 from typing import Any
 
@@ -17,6 +18,7 @@ from geodetic_engine.geojson import (
     GeoJsonError,
     InvalidGeoJsonError,
     UnsupportedGeoJsonError,
+    _model,
 )
 from geodetic_engine.geojson._model import Flavour, Kind, read_document
 
@@ -358,6 +360,7 @@ def test_what_is_not_converted_yet_is_refused(
 _DIGITS = sys.get_int_max_str_digits()
 # Twice the limit, as Python's check when writing an integer out is approximate.
 _TOO_LONG = 10 ** (2 * _DIGITS)
+_TOO_LONG_TEXT = "1" + "0" * (2 * _DIGITS)
 
 
 @pytest.mark.skipif(not _DIGITS, reason="Python writes out integers of any length")
@@ -367,9 +370,10 @@ _TOO_LONG = 10 ** (2 * _DIGITS)
         (_point([1, _TOO_LONG]), "$.features[0].geometry.coordinates[1]", "a number too long to show cannot"),
         ({"type": "Point", "coordinates": _TOO_LONG}, "$.coordinates", "not a number too long to show"),
         ({"type": "Point", "coordinates": [[_TOO_LONG], 1]}, "$.coordinates[0]", "a value that cannot be shown is not"),
-        ('{"type": "Point", "coordinates": [1, ' + "1" * (2 * _DIGITS) + "]}", "$", "cannot be read: Exceeds the limit"),
+        ({"type": "Point", "coordinates": [1, 2], "bbox": [0, 0, _TOO_LONG, 1]}, "$.bbox[2]", "a number too long to show cannot"),
+        ('{"type": "Point", "coordinates": [1, ' + _TOO_LONG_TEXT + "]}", "$", "cannot be read: Exceeds the limit"),
     ],
-    ids=["position", "coordinates", "nested", "text"],
+    ids=["position", "coordinates", "nested", "bbox", "text"],
 )  # fmt: skip
 def test_a_number_too_long_to_write_out_is_refused(
     document: Any, path: str, reason: str
@@ -377,6 +381,112 @@ def test_a_number_too_long_to_write_out_is_refused(
     with pytest.raises(InvalidGeoJsonError, match=reason) as raised:
         read_document(document)
     assert raised.value.path == path
+
+
+@pytest.mark.skipif(not _DIGITS, reason="Python writes out integers of any length")
+@pytest.mark.parametrize(
+    ("document", "path", "reason"),
+    [
+        (_collection(_feature(None, properties={"n": [1, _TOO_LONG]})), "$.features[0].properties.n[1]", "an integer of more than"),
+        (_collection(_feature(None, properties={_TOO_LONG: 1})), "$.features[0].properties", "a key that is an integer of more than"),
+        (_collection(_feature(None, id=-_TOO_LONG)), "$.features[0].id", "an integer of more than"),
+        (_collection(_feature(None, properties={"a": [_TOO_LONG], "b": _TOO_LONG})), "$.features[0].properties.a[0]", "an integer of more than"),
+        (_collection(_feature(None, properties={(_TOO_LONG,): 1, "b": _TOO_LONG})), "$.features[0].properties.b", "an integer of more than"),
+        (_collection(_feature(None, properties={"n": 10**_DIGITS})), "$.features[0].properties.n", "an integer of more than"),
+        ('{"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"n": [1, ' + _TOO_LONG_TEXT + ']}, "geometry": null}]}', "$", "cannot be read: Exceeds the limit"),
+        ('{"type": "Feature", "properties": {"n": 1' + "0" * _DIGITS + '}, "geometry": null}', "$", "cannot be read: Exceeds the limit"),
+    ],
+    ids=["mapping", "mapping-key", "mapping-id", "mapping-first", "mapping-tuple-key", "mapping-limit", "text", "text-limit"],
+)  # fmt: skip
+def test_a_number_too_long_to_write_out_is_refused_where_nothing_reads_it(
+    document: object, path: str, reason: str
+) -> None:
+    """In a mapping as in JSON text, which Python's json refuses to read."""
+    with pytest.raises(InvalidGeoJsonError, match=reason) as raised:
+        read_document(document)
+    assert raised.value.path == path
+
+
+@pytest.mark.skipif(not _DIGITS, reason="Python writes out integers of any length")
+@pytest.mark.parametrize(
+    "document",
+    [
+        _feature(None, properties={"n": 10**_DIGITS - 1, "m": -(10**_DIGITS - 1)}),
+        '{"type": "Feature", "properties": {"n": ' + "9" * _DIGITS + '}, "geometry": null}',
+    ],
+    ids=["mapping", "text"],
+)  # fmt: skip
+def test_a_number_as_long_as_python_reads_is_read(document: object) -> None:
+    assert read_document(document).root["properties"]["n"] == 10**_DIGITS - 1
+
+
+def test_a_high_digit_limit_does_not_slow_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """10**limit, minutes to compute at this limit, is not for integers far shorter."""
+
+    def slow(exponent: int) -> int:
+        raise AssertionError(f"computed 10**{exponent}")
+
+    monkeypatch.setattr(_model, "_power_of_ten", slow)
+    limit = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(100_000_000)
+    try:
+        document = read_document(_feature(None, id=1, properties={"n": [1, 2]}))
+    finally:
+        sys.set_int_max_str_digits(limit)
+    assert document.root["properties"] == {"n": [1, 2]}
+
+
+def test_properties_holding_themselves_are_read_as_copied() -> None:
+    properties: dict[str, Any] = {"n": [1, 2]}
+    properties["self"] = properties
+    root = read_document(_collection(_feature(None, properties=properties))).root
+    read = root["features"][0]["properties"]
+    assert read["self"] is read
+    assert read is not properties
+
+
+@pytest.mark.skipif(not _DIGITS, reason="Python writes out integers of any length")
+def test_a_number_too_long_beside_properties_holding_themselves_is_refused() -> None:
+    properties: dict[str, Any] = {"n": [1, _TOO_LONG]}
+    properties["self"] = properties
+    with pytest.raises(InvalidGeoJsonError, match="an integer of more than") as raised:
+        read_document(_collection(_feature(None, properties=properties)))
+    assert raised.value.path == "$.features[0].properties.n[1]"
+
+
+class _Made(Mapping[str, Any]):
+    """A mapping whose one value is made anew each time it is read."""
+
+    def __init__(self, make: Callable[[], Any]) -> None:
+        self._make = make
+
+    def __getitem__(self, key: str) -> Any:
+        if key != "v":
+            raise KeyError(key)
+        return self._make()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(["v"])
+
+    def __len__(self) -> int:
+        return 1
+
+
+@pytest.mark.skipif(not _DIGITS, reason="Python writes out integers of any length")
+@pytest.mark.parametrize(
+    ("made", "other"),
+    [(lambda: [_TOO_LONG], lambda: [[[0]]]), (lambda: {"x": _TOO_LONG}, lambda: {"y": 0})],
+    ids=["lists", "dicts"],
+)  # fmt: skip
+def test_a_number_too_long_in_a_value_made_as_read_is_refused(
+    made: Callable[[], Any], other: Callable[[], Any]
+) -> None:
+    """A value freed once walked does not hide the next, made with its id."""
+    properties = {"p": [_Made(made), _Made(other)]}
+    with pytest.raises(InvalidGeoJsonError, match="an integer of more than"):
+        read_document(_feature(None, properties=properties))
 
 
 def test_harmless_foreign_members_are_not_mistaken_for_json_fg() -> None:

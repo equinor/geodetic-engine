@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from geodetic_engine.geodesy import CoordinateReferenceSystem, UnresolvableCRSError
@@ -87,3 +89,13 @@ def test_bad_definition_raises_our_own_error() -> None:
     """PROJ's error is wrapped rather than leaking through unannotated."""
     with pytest.raises(UnresolvableCRSError, match="could not resolve"):
         CoordinateReferenceSystem.from_user_input("EPSG:this-is-not-a-crs")
+
+
+@pytest.mark.skipif(
+    not sys.get_int_max_str_digits(), reason="Python writes out integers of any length"
+)
+def test_an_integer_too_long_to_write_out_is_unresolvable() -> None:
+    """Python refuses to write it out, so it cannot even be tried as a code."""
+    too_long = 10 ** (2 * sys.get_int_max_str_digits())
+    with pytest.raises(UnresolvableCRSError, match="too long to be an EPSG code"):
+        CoordinateReferenceSystem.from_user_input(too_long)
