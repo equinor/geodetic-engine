@@ -8,8 +8,22 @@ from contextlib import closing
 from pathlib import Path
 
 import pyproj
+import pytest
 
 from geodetic_engine.projdb.schema import BUILD_HISTORY_TABLE
+
+# Directory names holding what a file: URI reads as syntax: "#" begins a
+# fragment, "?" a query and "%" an escape. Each is legal in a file name, so a
+# database may be installed under one; Windows forbids only the "?".
+URI_SYNTAX_DIRECTORIES = (
+    pytest.param("with#hash", id="hash"),
+    pytest.param("with%41percent", id="percent"),
+    pytest.param(
+        "with?query",
+        id="query",
+        marks=pytest.mark.skipif(os.name == "nt", reason="Windows forbids '?'"),
+    ),
+)
 
 
 def installed_proj_db() -> Path:

@@ -25,6 +25,7 @@ from typing import Any, Final, Protocol, runtime_checkable
 
 from dotenv import find_dotenv, load_dotenv
 
+from geodetic_engine._sqlite import read_only
 from geodetic_engine.georepository.cache import CacheMode
 from geodetic_engine.projdb.errors import ConfigurationError, OutputWouldBeDiscarded
 from geodetic_engine.projdb.schema import BUILD_HISTORY_TABLE
@@ -137,9 +138,7 @@ def default_base_proj_db() -> Path:
 def _built_by_this_package(database: Path) -> bool:
     """Whether a database records a build of this package's."""
     try:
-        with closing(
-            sqlite3.connect(f"file:{database}?mode=ro", uri=True)
-        ) as connection:
+        with closing(read_only(database)) as connection:
             row = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
                 (BUILD_HISTORY_TABLE,),
@@ -182,9 +181,7 @@ def recorded_authorities(database: Path) -> frozenset[str]:
         return frozenset()
     found: set[str] = set()
     try:
-        with closing(
-            sqlite3.connect(f"file:{database}?mode=ro", uri=True)
-        ) as connection:
+        with closing(read_only(database)) as connection:
             rows = connection.execute(
                 f"SELECT report FROM {BUILD_HISTORY_TABLE}"
             ).fetchall()

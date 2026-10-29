@@ -42,10 +42,10 @@ RUN update-ca-certificates
 
 # PROJ is built from source so the version is pinned and reproducible. See the
 # script for why the resource files must not be embedded into libproj.
-COPY install-proj.sh /tmp/install-proj.sh
+COPY install-proj.sh pins.env /tmp/
 RUN chmod +x /tmp/install-proj.sh \
     && /tmp/install-proj.sh \
-    && rm /tmp/install-proj.sh
+    && rm /tmp/install-proj.sh /tmp/pins.env
 
 # Chromium renders the well trajectory plots' still images, through kaleido.
 RUN apt-get update \

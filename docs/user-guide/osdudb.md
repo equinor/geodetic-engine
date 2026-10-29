@@ -12,7 +12,9 @@ publishes it, for example
 
 **You may not need it**: if your records carry full `persistableReference`
 payloads, {doc}`/persistable-reference/usage` transforms with them directly, with no
-database build.
+database build. And the installed wheel already ships the official catalogue
+built into `proj.db`, used by default ({ref}`osdu-shipped-database`); build
+only for a newer or a custom catalogue.
 
 ```{admonition} Not executed
 :class: note
@@ -39,10 +41,11 @@ It is committed in this repository, byte for byte, as
 `CRS_CT_osdu_official_crs_catalog.source.json` records the OSDU commit it came
 from and its SHA-256, and a build records that commit as its `source_version`.
 A build therefore needs no network, and is reproducible from the repository
-alone. The released wheel includes the same catalogue and provenance;
-`geodetic-osdudb build --official` verifies their SHA-256 and records the
-source commit. `scripts/install-osdu-projdb.sh` builds and activates it in one
-step from a repository checkout, and is what the devcontainer runs.
+alone. The released wheel includes the same catalogue and provenance, and the
+database built from them; `geodetic-osdudb build --official` verifies their
+SHA-256 and records the source commit. `scripts/install-osdu-projdb.sh`
+builds and activates it in one step from a repository checkout, and is what
+the devcontainer runs.
 
 `geodetic-osdudb download`, or
 {func}`~geodetic_engine.osdudb.download_official_catalog`, replaces the
@@ -60,12 +63,48 @@ published it. Give its path on the command line, as `catalog` in
 
 ## Running it
 
-From an installed package, build the bundled official catalogue and put the
-result first on PROJ's data path:
+(osdu-shipped-database)=
+### The database the wheel ships
+
+The installed wheel ships `proj.db` with the official catalogue already built
+into it, at release time, by `geodetic-osdudb build --official` on the pinned
+pyproj wheel's own database. `import geodetic_engine` makes it the database
+PROJ reads unless you chose another: `GEODETIC_ENGINE_OSDU_DB=0`, a
+`pyproj.datadir.set_data_dir()` call before the import, or a `PROJ_DATA` or
+`PROJ_LIB` directory holding a `proj.db` each keep it out. The rules, and how
+they keep grids on the search path, are in
+{doc}`/getting-started/installation`. Nothing needs building for the examples
+on this page:
+
+```python
+from geodetic_engine.osdudb import active_database, use_bundled_database
+
+active_database()
+# ActiveDatabase(path=.../geodetic_engine/osdudb/_data/proj_data/proj.db,
+#                bundled=True, reason='it is the default, and nothing chose
+#                another database', search_path=(...))
+
+use_bundled_database(False)  # PROJ's stock database again
+use_bundled_database()       # the shipped one, whatever the import decided
+```
+
+{func}`~geodetic_engine.osdudb.active_database` tells which database PROJ
+reads and why. {func}`~geodetic_engine.osdudb.use_bundled_database` switches
+the shipped one on or off; a later `pyproj.datadir.set_data_dir()` overrides
+it in turn.
+
+### Building a newer or a custom catalogue
+
+The shipped database holds the catalogue committed when the release was made.
+For a newer one, or a catalogue of your own, build it and put the result first
+on PROJ's data path. Naming it there is choosing it, so it is read instead of
+the shipped one. A build starts from PROJ's stock database even while the
+shipped one is active, because a database this package built is never taken
+as the base. From an installed package, with the catalogue in `CRS_CT.json`:
 
 ```bash
 previous_proj_data="$(python -c 'import pyproj; print(pyproj.datadir.get_data_dir())')"
-geodetic-osdudb build --official --output "$PWD/build/proj.db"
+geodetic-osdudb build CRS_CT.json --output "$PWD/build/proj.db"
 export PROJ_DATA="$PWD/build:$previous_proj_data"
 ```
 
@@ -273,19 +312,20 @@ use. After a build, those ids work wherever an authority code does.
 ```{important}
 **The record has to be in `proj.db`.** An id resolves only against a database
 built by `geodetic-osdudb` from a catalogue that publishes the record, and only
-when that database is first on PROJ's data path. The standard PROJ database
-records no OSDU ids, so against it every id is refused with
+when that database is first on PROJ's data path. The database the wheel ships
+is one ({ref}`osdu-shipped-database`). PROJ's stock database records no OSDU
+ids, so against it every id is refused with
 {class}`~geodetic_engine.geodesy.UnresolvableCRSError`, even one as plain to
 read as `Projected:EPSG::23031`:
 
     UnresolvableCRSError: could not resolve 'opendes:reference-data--CoordinateReferenceSystem:Projected:EPSG::23031'
-    as a CRS: the active proj.db records no OSDU ids; build one from the OSDU catalogue that publishes
-    the record with geodetic-osdudb and put it on PROJ's data path (scripts/install-osdu-projdb.sh
-    does both for the official catalogue)
+    as a CRS: the active proj.db records no OSDU ids; geodetic_engine.osdudb.active_database() says why
+    the OSDU database this package ships is not in use, and use_bundled_database() switches it on. For
+    another catalogue, build a database with geodetic-osdudb and put it on PROJ's data path
 
-The devcontainer installs the official catalogue this way by default
-({doc}`/getting-started/installation`). Elsewhere, build and activate one
-first:
+The devcontainer installs the official catalogue into `build/proj.db` by
+default ({doc}`/getting-started/installation`). In another checkout, build and
+activate one first:
 
     scripts/install-osdu-projdb.sh
     export PROJ_DATA="$PWD/local/proj-data:$(uv run python -c 'import pyproj; print(pyproj.datadir.get_data_dir())')"

@@ -10,8 +10,8 @@ pip install "pygeodetic-engine" "pyproj==3.8.0+proj9.9.0" \
     --extra-index-url https://equinor.github.io/geodetic-engine/simple/
 ```
 
-The explicit pyproj requirement selects the matching wheel even when another
-pyproj 3.8.0 is already installed. The same arguments work with
+The explicit pyproj requirement selects the matching wheel even when PyPI's
+build of the same pyproj release is already installed. The same arguments work with
 `uv pip install`. The wheel workflow builds CPython 3.13, 3.14 and 3.15
 wheels for manylinux x86-64 and aarch64, macOS arm64 and x86-64, and Windows
 AMD64. If the index has no wheel for your Python or platform, build PROJ from
@@ -28,9 +28,119 @@ Set `PROJ_DIR` to the actual PROJ installation prefix. On Windows, set
 does not restrict newer Python versions merely because a wheel is unavailable.
 The source-built test suite runs on CPython 3.13 and 3.15.
 
-The wheel includes the committed official OSDU catalogue. To build it into a
-database without a repository checkout or network access, use
-`geodetic-osdudb build --official`; see {doc}`/user-guide/osdudb`.
+The wheel includes the committed official OSDU catalogue, and the database
+built from it, which PROJ reads by default; see below.
+
+## The OSDU database the wheel ships
+
+The wheel ships a `proj.db` built at release time with
+`geodetic-osdudb build --official`: the pinned pyproj wheel's own database,
+with the official OSDU catalogue's CRSs, transformations, record ids and
+persistable references added. Its EPSG content is exactly the pinned wheel's.
+It is about 23 MB on disk and 3 MB in the wheel, in
+`geodetic_engine/osdudb/_data/proj_data/`, a directory of its own. pyproj's
+installed `proj.db` is never modified.
+
+With it, OSDU objects resolve right after installation, with no build step:
+
+```python
+import geodetic_engine
+from pyproj import CRS
+from geodetic_engine.geodesy.database import identified_object
+
+CRS.from_authority("OSDU", "2003001").name
+# 'Grenada 1953 * DOS-Grd / British West Indies Grid [2003,1443]'
+identified_object(
+    "OSDU", "reference-data--CoordinateReferenceSystem:Projected:EPSG::23031"
+)
+# IdentifiedObject(table_name='projected_crs', auth_name='EPSG', code='23031', ...)
+```
+
+When `geodetic_engine` is first imported, the first of these rules that
+matches decides whether PROJ reads it:
+
+1. `GEODETIC_ENGINE_OSDU_DB=0` (or `false`, `no`, `off`): nothing changes.
+2. `pyproj.datadir.set_data_dir()` or `append_data_dir()` was called before
+   the import: nothing changes.
+3. `PROJ_DATA`, or `PROJ_LIB` when `PROJ_DATA` is unset, names a directory
+   that holds a `proj.db`: PROJ reads the first such `proj.db` and searches
+   the variable's directories. QGIS, OSGeo4W and conda often set one of these
+   for the whole machine. pyproj reads the variable when it is imported, so
+   the import usually changes nothing; it applies a variable set later, say in
+   a notebook that had already imported pyproj or a library that uses it, and
+   logs a warning. A later one whose `proj.db` records no database layout, or
+   an older or another one than the `proj.db` PROJ reads, as another PROJ
+   release's may, is not applied, since PROJ would refuse it: the import logs
+   a warning and changes nothing.
+4. Otherwise PROJ's search path becomes the shipped database's directory, then
+   the `PROJ_DATA` or `PROJ_LIB` directories, then pyproj's own data
+   directory. Only the database comes from the shipped file; grids and
+   `proj.ini` are found where they were.
+
+This is the precedence of the project's pyproj wheels: `set_data_dir()`, then
+a `PROJ_DATA` holding a database, then the bundled database, with the OSDU
+database in place of the wheel's. A database you chose always wins, and a
+`PROJ_DATA` naming only grid directories keeps the shipped database. The import
+logs the outcome at `INFO`, under the `geodetic_engine` logger, with the reason
+when the shipped database is not used, for example
+`PROJ_LIB=C:\OSGeo4W\share\proj holds a proj.db`. Configure logging before
+the import to see it.
+
+To see which database PROJ reads, and why:
+
+```python
+from geodetic_engine.osdudb import active_database
+
+active = active_database()
+active.path     # the proj.db PROJ reads
+active.bundled  # True when it is the shipped one
+active.reason   # 'it is the default, and nothing chose another database'
+```
+
+To switch it on or off explicitly, whatever the import decided:
+
+```python
+from geodetic_engine.osdudb import use_bundled_database
+
+use_bundled_database()       # read the shipped database
+use_bundled_database(False)  # back to the search path from before it
+```
+
+To turn it off for a whole process, set `GEODETIC_ENGINE_OSDU_DB=0` before
+Python starts. A later `pyproj.datadir.set_data_dir()` call overrides the
+import and `use_bundled_database()` alike, and `active_database()` then says
+so. A result's provenance, its `database_fingerprints`, names the shipped file
+when that is the database that answered.
+
+pyproj keeps one PROJ context per thread, and a switch updates the calling
+thread's at once. Another thread that has already used pyproj follows the next
+time it calls `active_database()` or resolves a CRS, operation or identifier
+through this package; one that only calls pyproj directly keeps the database it
+had. There is one gap: if a thread sets a path of its own with
+`set_data_dir()`, and another thread then sets back, also with
+`set_data_dir()`, the path the first one read before, the path looks unchanged
+to the first thread, and it goes on reading its own until the path changes
+again or `use_bundled_database()` is called. Switch before starting threads to
+avoid the question.
+
+Child processes need nothing extra. A process started by `multiprocessing`
+with the spawn method, the default on Windows and macOS, imports
+`geodetic_engine` again and applies the same rules to the environment it
+inherits, and so does one started with forkserver, the default on Linux from
+Python 3.14. A `set_data_dir()` call under `if __name__ == "__main__":` is not
+repeated in such a child. A child forked with the fork method, the default on
+Linux before Python 3.14, inherits its parent's choice; a fork waits for a
+switch in progress to finish.
+
+`geodetic-osdudb build` is still how to get a newer or a custom catalogue
+({doc}`/user-guide/osdudb`): put the database it writes first on `PROJ_DATA`,
+or name it with `set_data_dir()`. A build starts from pyproj's stock database
+even while the shipped one is active: a database this package built is never
+taken as the base.
+
+A source checkout ships no database until `python scripts/build_bundled_osdudb.py`
+builds one, exactly as the release does. The devcontainer does not need it:
+its `PROJ_DATA` names `build/proj.db` through `local/proj-data` (rule 3).
 
 
 ## Why the versions are pinned
@@ -130,8 +240,8 @@ the build summary. See {ref}`osdu-custom-catalogue`.
 sudo apt-get install -y build-essential cmake ninja-build pkg-config \
     libsqlite3-dev sqlite3 libtiff-dev libcurl4-openssl-dev zlib1g-dev
 
-# 2. Build and install PROJ. The script pins the version and verifies the
-#    tarball checksum before building.
+# 2. Build and install PROJ. The script reads the version and the tarball
+#    checksum from .devcontainer/pins.env and verifies it before building.
 ./.devcontainer/install-proj.sh
 
 # 3. Install the Python dependencies, building pyproj from source against it.
@@ -160,7 +270,11 @@ python -c "import geodetic_engine, pyproj; print(pyproj.proj_version_str, pyproj
 The first value should be {{ proj_version }}, the second PROJ's data directory.
 The project's wheel keeps its data under `site-packages`; a source build may
 use `/usr/local/share/proj`. A different PROJ version raises an error when the
-package is imported.
+package is imported. To see which `proj.db` PROJ reads, and why:
+
+```bash
+python -c "from geodetic_engine.osdudb import active_database; print(active_database())"
+```
 
 ## Grids
 
@@ -172,7 +286,8 @@ data directory. The devcontainer installs the whole `proj-data` package, about
 The custom wheel honors `PROJ_DATA`. If it names a custom `proj.db`, put that
 database's directory first and grid-only directories after it. If it names only
 grid directories, the wheel keeps its bundled database and adds those
-directories to the search path. An explicit `pyproj.datadir.set_data_dir`
+directories to the search path, and so does this package with the OSDU
+database it ships. An explicit `pyproj.datadir.set_data_dir`
 continues to take precedence.
 
 If a grid an operation needs is missing, this package raises

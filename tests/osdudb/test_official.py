@@ -66,6 +66,19 @@ def test_official_catalogue_rejects_invalid_commit_metadata(bundled: Path) -> No
         pass
 
 
+def test_a_checkout_holding_only_the_generated_database_reads_the_committed_one(
+    bundled: Path,
+) -> None:
+    """scripts/build_bundled_osdudb.py writes _data/proj_data/ into a checkout."""
+    (bundled / "proj_data").mkdir()
+    (bundled / "proj_data" / "proj.db").write_bytes(b"")
+    with official.official_catalog() as (path, version):
+        assert path == Path(official.__file__).resolve().parents[2] / (
+            official.DEFAULT_CATALOG_DESTINATION
+        )
+        assert version.startswith("osdu/data/data-definitions@")
+
+
 def test_missing_installed_catalogue_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

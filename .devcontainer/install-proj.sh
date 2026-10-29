@@ -7,17 +7,59 @@
 # trixie ships an older PROJ, and pyproj's PyPI wheels bundle their own copy;
 # neither is acceptable when the exact EPSG dataset version baked into proj.db
 # is part of the answer we give callers.
+#
+# The versions and checksums come from pins.env beside this script, the one
+# place they are stated. Each can still be overridden from the environment, for
+# example PROJ_VERSION and PROJ_SHA256 to try a release before pinning it.
+# --print-pins prints what would be built and exits.
 set -euo pipefail
 
-PROJ_VERSION="${PROJ_VERSION:-9.9.0}"
-PROJ_SHA256="${PROJ_SHA256:-791a0610547eeabb17006cfd49cdbd2034f3240f47ed5e88a1031811f4e2bcf3}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly PINS="${PINS_FILE:-${script_dir}/pins.env}"
+
+# One value from pins.env, which is read as KEY=VALUE lines, never sourced.
+# A key set twice is refused, as geodetic_engine/_pins.py refuses it.
+pin() {
+    local key="$1" line value="" found=0
+    if [[ ! -f "${PINS}" ]]; then
+        echo "error: ${PINS} does not exist" >&2
+        exit 1
+    fi
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line%$'\r'}"
+        if [[ "${line}" == "${key}="* ]]; then
+            found=$((found + 1))
+            value="${line#*=}"
+        fi
+    done <"${PINS}"
+    if ((found > 1)); then
+        echo "error: ${PINS}: ${key} is set twice" >&2
+        exit 1
+    fi
+    if [[ -z "${value}" ]]; then
+        echo "error: ${PINS} does not set ${key}" >&2
+        exit 1
+    fi
+    printf '%s\n' "${value}"
+}
+
+PROJ_VERSION="${PROJ_VERSION:-$(pin PROJ_VERSION)}"
+PROJ_SHA256="${PROJ_SHA256:-$(pin PROJ_SHA256)}"
 PROJ_PREFIX="${PROJ_PREFIX:-/usr/local}"
 
 # The transformation grids, which a PROJ source build does not include. The
 # version matches the PROJ_DATA.VERSION recorded in this PROJ's proj.db.
 # Set SKIP_PROJ_DATA=1 to omit them; the download is roughly 800 MB.
-PROJ_DATA_VERSION="${PROJ_DATA_VERSION:-1.25}"
-PROJ_DATA_SHA256="${PROJ_DATA_SHA256:-16d65cb5d25b7d8492dbde4d39cafcc8c42f3e55e6715bac4d87519d6d08f4c8}"
+PROJ_DATA_VERSION="${PROJ_DATA_VERSION:-$(pin PROJ_DATA_VERSION)}"
+PROJ_DATA_SHA256="${PROJ_DATA_SHA256:-$(pin PROJ_DATA_SHA256)}"
+
+if [[ "${1:-}" == "--print-pins" ]]; then
+    printf '%s=%s\n' \
+        PROJ_VERSION "${PROJ_VERSION}" PROJ_SHA256 "${PROJ_SHA256}" \
+        PROJ_DATA_VERSION "${PROJ_DATA_VERSION}" \
+        PROJ_DATA_SHA256 "${PROJ_DATA_SHA256}"
+    exit 0
+fi
 
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT

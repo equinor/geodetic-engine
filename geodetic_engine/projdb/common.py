@@ -11,13 +11,13 @@ with that source.
 from __future__ import annotations
 
 import logging
-import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from geodetic_engine._sqlite import read_only
 from geodetic_engine.projdb import authority, schema
 from geodetic_engine.projdb.alias import AliasCollector
 from geodetic_engine.projdb.errors import MissingReferencedObjectError
@@ -230,9 +230,7 @@ def base_report(
         The report, without any field only one source can fill in.
     """
     config = context.config
-    with closing(
-        sqlite3.connect(f"file:{config.base_proj_db}?mode=ro", uri=True)
-    ) as base_connection:
+    with closing(read_only(config.base_proj_db)) as base_connection:
         base_metadata = schema.metadata(base_connection)
         layout = schema.database_layout_version(base_connection)
 

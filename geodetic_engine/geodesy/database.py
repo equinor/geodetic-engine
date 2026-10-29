@@ -21,16 +21,16 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import sqlite3
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from threading import local
 
-from pyproj import datadir
+from geodetic_engine._search_path import DatabaseIdentity as DatabaseIdentity
+from geodetic_engine._search_path import database_identity as database_identity
+from geodetic_engine._sqlite import read_only
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,6 @@ _CRS_TABLES = (
     "engineering_crs",
 )
 
-_DATABASE_NAME = "proj.db"
 _BOUND_KEYWORD = "BOUNDCRS"
 
 # Extensions a grid file is published under, by any of the authorities whose
@@ -102,36 +101,6 @@ OPERATION_OBJECT_TABLES = frozenset(
         "concatenated_operation",
     }
 )
-
-type DatabaseIdentity = tuple[tuple[str, int, int, int, int, int], ...]
-_context = local()
-
-
-def database_identity() -> DatabaseIdentity:
-    """Identify the active search path and on-disk database generations."""
-    entries = []
-    for directory in datadir.get_data_dir().split(os.pathsep):
-        path = (Path(directory) / _DATABASE_NAME).resolve()
-        try:
-            stat = path.stat()
-        except OSError:
-            entries.append((str(path), 0, 0, 0, 0, 0))
-        else:
-            entries.append(
-                (
-                    str(path),
-                    stat.st_dev,
-                    stat.st_ino,
-                    stat.st_size,
-                    stat.st_mtime_ns,
-                    stat.st_ctime_ns,
-                )
-            )
-    identity = tuple(entries)
-    if getattr(_context, "identity", None) != identity:
-        datadir.set_data_dir(datadir.get_data_dir())
-        _context.identity = identity
-    return identity
 
 
 @lru_cache(maxsize=32)
@@ -263,7 +232,7 @@ def _skips(identity: DatabaseIdentity) -> Mapping[str, str]:
 
 def _read_skips_into(found: dict[str, str], database: Path) -> None:
     """Collect the skipped objects recorded in one database's build history."""
-    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+    with closing(read_only(database)) as connection:
         if not _has_table(connection, _BUILD_HISTORY_TABLE):
             return
         reports = connection.execute(
@@ -435,9 +404,7 @@ def _query_identifiers(
         if not database.is_file():
             continue
         try:
-            with closing(
-                sqlite3.connect(f"file:{database}?mode=ro", uri=True)
-            ) as connection:
+            with closing(read_only(database)) as connection:
                 table = next(
                     (
                         candidate
@@ -807,7 +774,7 @@ def _reference_gaps(found: DatabaseFile) -> Mapping[str, str]:
 
 def _read_only(found: DatabaseFile) -> sqlite3.Connection:
     """Open one database file for reading."""
-    return sqlite3.connect(f"file:{found[0]}?mode=ro", uri=True)
+    return read_only(found[0])
 
 
 def _optional(value: object) -> str | None:
@@ -820,7 +787,7 @@ def _read_into(
 ) -> None:
     """Collect the bound CRS rows of one database into ``found`` and ``names``."""
     ambiguous: set[str] = set()
-    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+    with closing(read_only(database)) as connection:
         for table in _CRS_TABLES:
             if not _has_text_definition(connection, table):
                 continue
@@ -957,7 +924,7 @@ def _read_grids_into(
     found: dict[str, set[GridDataset]], reads: dict[str, str], database: Path
 ) -> None:
     """Index one database's grid transformations by each grid name it reads."""
-    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+    with closing(read_only(database)) as connection:
         if not _has_table(connection, "grid_transformation"):
             return
         rows = connection.execute(

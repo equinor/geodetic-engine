@@ -24,6 +24,7 @@ scripts/run_all_tests.sh
 uv run ruff check geodetic_engine tests
 uv run ruff format --check geodetic_engine tests
 uv run mypy geodetic_engine
+uv run python scripts/sync_pins.py --check
 ```
 
 `pyproject.toml` deselects the `dataset` marker by default. The sweep is worth
@@ -42,7 +43,9 @@ uv run pytest tests/bingrid/test_properties.py --hypothesis-profile=geodetic-eng
 CI runs these as two separate GitHub workflows, so a red check says which kind
 of problem it is:
 
-- **Lint and type check** (`.github/workflows/lint.yml`): `ruff` and `mypy`.
+- **Lint and type check** (`.github/workflows/lint.yml`): `ruff`, `mypy`, and
+  `scripts/sync_pins.py --check`, which fails when a copy of the PROJ and
+  pyproj pins in `.devcontainer/pins.env` is stale.
 - **Tests** (`.github/workflows/tests.yml`): the unit and integration tests,
   the bin grid property tests with fresh Hypothesis examples, then the dataset
   sweep, with a coverage floor of 80 % across the unit tests and the sweep.
@@ -68,6 +71,35 @@ checked. This bypasses both native and vcpkg cache restores and saves for that
 run; it does not delete existing caches. If a restored cache fails validation,
 delete the affected cache in GitHub Actions or use a clean rebuild to diagnose
 it. Do not select **publish** unless a release is intended.
+
+## The OSDU database in the release wheel
+
+The release wheel ships `geodetic_engine/osdudb/_data/proj_data/proj.db`, the
+official OSDU catalogue built into the pinned pyproj wheel's own database
+({doc}`/getting-started/installation`). It is generated, gitignored and never
+committed; the build backend includes it in the sdist and the wheel when it is
+there. **pypi_release** builds it before `uv build`. To build the same file,
+and a release like it, locally:
+
+```bash
+python scripts/build_bundled_osdudb.py
+uv build
+python scripts/check_installed_wheel.py dist/*.whl dist/*.tar.gz
+```
+
+Both scripts make a new environment with the pyproj wheel
+`.devcontainer/pins.env` pins: the first with this checkout, the
+second with the built wheel, reading the pins from the wheel itself. They need
+network access to PyPI and the project's pyproj index. The second runs
+`scripts/check_package_dist.py` there, which compares the shipped database's
+metadata (PROJ release, database layout, EPSG version) with that pyproj's own
+`proj.db`, then checks that OSDU lookups answer with no `PROJ_DATA` and no
+build step, as CI does on Linux and Windows. No PROJ or pyproj version is
+stated in these scripts or the workflows that run them, so moving the pins
+needs no change to them.
+
+The devcontainer reads `build/proj.db` through `PROJ_DATA` whether the file is
+there or not, and the test suite runs with `GEODETIC_ENGINE_OSDU_DB=0`.
 
 ## Building the documentation
 

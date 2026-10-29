@@ -11,9 +11,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -32,7 +34,7 @@ from tests.osdudb.conftest import (
     write_catalog,
 )
 from tests.osdudb.test_build import geographic, projected, with_id
-from tests.support import installed_proj_db
+from tests.support import URI_SYNTAX_DIRECTORIES, installed_proj_db
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 WARNING = "WARNING: the OSDU catalogue is NOT installed"
@@ -487,3 +489,39 @@ def test_a_custom_catalogue_that_cannot_be_applied_is_a_warning(
     assert result.returncode == status, result.stdout + result.stderr
     assert "absent.json was NOT applied" in result.stderr
     assert "OSDU catalogue installed" in result.stdout
+
+
+@pytest.mark.parametrize("name", URI_SYNTAX_DIRECTORIES)
+def test_without_the_sqlite3_command_a_database_is_read_wherever_it_is(
+    tmp_path: Path, name: str
+) -> None:
+    """query() falls back to Python, which must not read the path as a URI."""
+    database = tmp_path / "databases" / name / "proj.db"
+    database.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(database)) as db, db:
+        db.execute("CREATE TABLE answer (value INTEGER)")
+        db.execute("INSERT INTO answer VALUES (42)")
+    # python3 and nothing else on PATH, so query() finds no sqlite3 command.
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    (commands / "python3").symlink_to(sys.executable)
+    script = (REPOSITORY / "scripts/install-osdu-projdb.sh").read_text(encoding="utf-8")
+    query = re.search(r"^query\(\) \{$.*?^\}$", script, re.MULTILINE | re.DOTALL)
+    assert query is not None
+
+    result = subprocess.run(
+        [
+            str(shutil.which("bash")),
+            "-c",
+            f'{query.group()}\nquery "$1" "SELECT value FROM answer"',
+            "bash",
+            str(database),
+        ],
+        env={"PATH": str(commands)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.stdout.strip() == "42", result.stderr
+    assert [entry.name for entry in database.parent.parent.iterdir()] == [name]

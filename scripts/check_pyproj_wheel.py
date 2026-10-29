@@ -2,7 +2,8 @@
 
 cibuildwheel runs it against every wheel, with the PROJ the wheel must bundle:
 
-    python scripts/check_pyproj_wheel.py 9.9.0
+    python scripts/check_pyproj_wheel.py \
+        "$(python scripts/sync_pins.py --get PROJ_VERSION)"
 """
 
 from __future__ import annotations

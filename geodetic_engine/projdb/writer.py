@@ -22,6 +22,7 @@ from typing import Any
 
 from filelock import FileLock
 
+from geodetic_engine._sqlite import read_only
 from geodetic_engine.projdb.errors import (
     ForeignAuthorityCollision,
     MissingReferencedObjectError,
@@ -114,9 +115,7 @@ class ProjDbWriter:
         """Whether a key belongs to the protected base database."""
         _assert_known_table(table)
         if table not in self._base_keys:
-            with closing(
-                sqlite3.connect(f"file:{self._config.base_proj_db}?mode=ro", uri=True)
-            ) as connection:
+            with closing(read_only(self._config.base_proj_db)) as connection:
                 self._base_keys[table] = {
                     (str(owner), str(value))
                     for owner, value in connection.execute(
@@ -188,9 +187,7 @@ class ProjDbWriter:
             self._staging = Path(name)
             source = output if self._appended else self._config.base_proj_db
             self._connection = sqlite3.connect(self._staging, isolation_level=None)
-            with closing(
-                sqlite3.connect(f"file:{source}?mode=ro", uri=True)
-            ) as original:
+            with closing(read_only(source)) as original:
                 original.backup(self.connection)
             self.connection.execute("PRAGMA foreign_keys = ON")
             verify_schema(self.connection)

@@ -38,6 +38,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
+from geodetic_engine._sqlite import read_only
 from geodetic_engine.projdb.errors import ProjDbBuildError
 from geodetic_engine.projdb.schema import (
     IDENTIFIER_TABLE,
@@ -157,7 +158,7 @@ def _validate_in_process(
     authority_list = sorted(authorities)
     logger.info("validating %s for %s", database, authority_list)
 
-    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+    with closing(read_only(database)) as connection:
         _check_integrity(connection)
         _check_foreign_keys(connection)
         identifiers = _check_identifiers(connection)

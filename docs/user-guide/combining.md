@@ -140,7 +140,8 @@ datadir.set_data_dir(os.pathsep.join(["/path/to/build", datadir.get_data_dir()])
 ```
 
 A database this package built is never taken for the official base, so a
-further build still finds the installed one behind it. Two databases this
+further build still finds the installed one behind it. That includes the OSDU
+database the wheel ships, while it is the one PROJ reads. Two databases this
 package did not build, such as a patched copy and the installed one, are
 ambiguous, and a build refuses to guess; name the base with
 `GEODETIC_ENGINE_BASE_PROJ_DB=/usr/local/share/proj/proj.db` or `base_proj_db`

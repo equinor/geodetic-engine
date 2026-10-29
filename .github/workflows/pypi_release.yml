@@ -8,7 +8,9 @@ name: pypi_release
 # stored.
 #
 # The package is pure Python. pyproj with the pinned PROJ comes from the index
-# pyproj-wheels.yml publishes, not from here.
+# pyproj-wheels.yml publishes, not from here. The wheel ships the official OSDU
+# catalogue built into that pyproj wheel's own proj.db; the database is built
+# here, at release time, and never committed.
 
 run-name: Publish ${{ inputs.version || 'the pyproject.toml version' }} to ${{ inputs.target }}
 
@@ -38,6 +40,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - uses: astral-sh/setup-uv@v6
 
       # The input reaches the shell through the environment, never inline, and
@@ -62,14 +68,26 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Publishing pygeodetic-engine $version to ${{ inputs.target }}" >> "$GITHUB_STEP_SUMMARY"
 
+      # In a new environment with the pinned pyproj wheel from the project's
+      # index, so the base database is the one users install. Written to
+      # geodetic_engine/osdudb/_data/proj_data/proj.db, which is gitignored
+      # and which the build backend includes in the sdist and the wheel.
+      - name: Build the bundled OSDU database
+        run: python scripts/build_bundled_osdudb.py
+
       - name: Build the sdist and the wheel
         run: uv build
 
       - name: Check the distributions
         run: uvx twine check --strict dist/*
 
-      - name: Verify the bundled OSDU catalogue
-        run: python3 scripts/check_package_dist.py dist/*.whl
+      # In a new environment holding the wheel and the pyproj wheel it pins:
+      # the bundled catalogue and database are checked against that pyproj's
+      # own proj.db, then, as a user installs it, with nothing on PROJ_DATA and
+      # no build step, OSDU lookups must answer from the database the wheel
+      # ships. The pins are read from the wheel, so none is stated here.
+      - name: Verify the bundled OSDU database as installed
+        run: python scripts/check_installed_wheel.py dist/*.whl dist/*.tar.gz
 
       - uses: actions/upload-artifact@v4
         with:

@@ -7,6 +7,7 @@ that is what these check.
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -15,6 +16,8 @@ import pytest
 
 from geodetic_engine.osdudb.__main__ import main, sidecar
 from geodetic_engine.osdudb.catalog import GEODETIC_CRS
+from geodetic_engine.projdb.settings import recorded_authorities
+from tests.support import URI_SYNTAX_DIRECTORIES
 
 from .conftest import (
     AUTHORITY,
@@ -400,6 +403,35 @@ def test_inspect_counts_the_references(
     assert json.loads(capsys.readouterr().out)["persistable_references_by_kind"] == {
         "LBC": 1
     }
+
+
+@pytest.mark.parametrize("name", URI_SYNTAX_DIRECTORIES)
+def test_a_build_reads_its_databases_wherever_they_are(
+    name: str,
+    tmp_path: Path,
+    base_proj_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A path is not a URI: "#", "?" and "%" in it name the directory."""
+    directory = tmp_path / name
+    base = directory / "base" / "proj.db"
+    base.parent.mkdir(parents=True)
+    shutil.copyfile(base_proj_db, base)
+    monkeypatch.setenv("GEODETIC_ENGINE_BASE_PROJ_DB", str(base))
+    record = geographic() | {"id": f"{{{{NAMESPACE}}}}:{_GEOGRAPHIC_ID}"}
+    record["data"]["PersistableReference"] = _REFERENCE
+    catalog = write_catalog(directory / "referenced.json", record)
+    output = directory / "out" / "proj.db"
+
+    assert main(["build", str(catalog), "--output", str(output)]) == 0
+    assert recorded_authorities(output) == {AUTHORITY}
+    capsys.readouterr()
+    assert main(["inspect", str(output)]) == 0
+    assert json.loads(capsys.readouterr().out)["identifiers_by_scheme"] == {"OSDU": 1}
+    assert main(["references", str(output)]) == 0
+    (entry,) = json.loads(capsys.readouterr().out)
+    assert entry["persistable_reference"] == _REFERENCE
 
 
 def test_references_can_be_turned_off_on_the_command_line(

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 
+from geodetic_engine._sqlite import read_only
 from geodetic_engine.projdb.report import BuildReport, log_summary
 from geodetic_engine.projdb.schema import IDENTIFIER_TABLE, PERSISTABLE_REFERENCE_TABLE
 from geodetic_engine.projdb.settings import DatabaseSettings
@@ -27,7 +28,7 @@ def inspect_database(database: Path) -> dict[str, object]:
     example, are counted by scheme, and the persistable references recorded
     against them by kind, when the database records any.
     """
-    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+    with closing(read_only(database)) as connection:
         metadata = dict(connection.execute("SELECT key, value FROM metadata"))
         authorities = {
             str(auth): int(count)

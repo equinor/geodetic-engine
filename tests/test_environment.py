@@ -15,7 +15,9 @@ from pathlib import Path
 import pyproj
 from pyproj import CRS
 
-EXPECTED_PROJ_VERSION = "9.9.0"
+from geodetic_engine._environment import PINNED_PROJ_VERSION, PINNED_PYPROJ_VERSION
+from geodetic_engine._pins import read
+from tests.support import installed_proj_db
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,11 +37,25 @@ def _search_path() -> list[Path]:
 
 
 def test_pyproj_version_is_pinned() -> None:
-    assert pyproj.__version__ == "3.8.0"
+    assert pyproj.__version__ == PINNED_PYPROJ_VERSION
 
 
 def test_proj_version_is_pinned() -> None:
-    assert pyproj.proj_version_str == EXPECTED_PROJ_VERSION
+    """pyproj must also be compiled against it: one built before an upgrade of
+    PROJ links the new library but was compiled for the old one."""
+    assert pyproj.proj_version_str == PINNED_PROJ_VERSION
+    assert pyproj.__proj_compiled_version__ == PINNED_PROJ_VERSION
+
+
+def test_proj_data_matches_the_pinned_proj() -> None:
+    """The grids installed are the proj-data release this PROJ's proj.db names."""
+    with closing(
+        sqlite3.connect(f"file:{installed_proj_db()}?mode=ro", uri=True)
+    ) as connection:
+        (recorded,) = connection.execute(
+            "SELECT value FROM metadata WHERE key = 'PROJ_DATA.VERSION'"
+        ).fetchone()
+    assert read().proj_data_version == recorded
 
 
 def test_proj_data_dir_is_not_vendored() -> None:

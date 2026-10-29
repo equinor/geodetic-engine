@@ -13,8 +13,18 @@ definitions differs.
 
 The public surface is deliberately small: a configuration object, a build
 function, a validation function, and the errors they raise.
+
+A release wheel also ships the official catalogue already built into PROJ's
+database, and PROJ reads it unless another database was chosen.
+:func:`active_database` reports which database PROJ reads and why, and
+:func:`use_bundled_database` switches the shipped one on or off.
 """
 
+from geodetic_engine._bundled_database import (
+    ActiveDatabase,
+    active_database,
+    use_bundled_database,
+)
 from geodetic_engine.osdudb.build import BuildReport, build
 from geodetic_engine.osdudb.catalog import OsduCatalog
 from geodetic_engine.osdudb.config import OsduBuildConfig, load_config
@@ -34,6 +44,7 @@ from geodetic_engine.projdb.settings import AuthorityPreference
 from geodetic_engine.projdb.validate import validate
 
 __all__ = [
+    "ActiveDatabase",
     "AuthorityPreference",
     "BuildReport",
     "CatalogDownload",
@@ -48,8 +59,10 @@ __all__ = [
     "SchemaDriftError",
     "UnreadableDefinitionError",
     "UnsupportedMethodError",
+    "active_database",
     "build",
     "download_official_catalog",
     "load_config",
+    "use_bundled_database",
     "validate",
 ]
