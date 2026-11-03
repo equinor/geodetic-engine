@@ -36,8 +36,8 @@ from pyproj.crs import CoordinateOperation
 from pyproj.exceptions import CRSError, ProjError
 
 from geodetic_engine._referencing.axes import value_axis_units
+from geodetic_engine._referencing.errors import NotCollapsibleError
 from geodetic_engine._referencing.projjson import has_inverted_step
-from geodetic_engine.geodesy.errors import NotCollapsibleError
 
 # Radians per arc-second, the unit EPSG states Helmert rotations in and the unit
 # PROJ's "+proj=helmert +rx=" expects. Parameter values are never assumed to be

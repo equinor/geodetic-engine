@@ -141,7 +141,6 @@ layers = [
 ]
 # The cycle issue #29 removes; each step shortens this list.
 ignore_imports = [
-    "geodetic_engine.persistablereference.reference -> geodetic_engine.geodesy.utils",
     "geodetic_engine.persistablereference.stored -> geodetic_engine.geodesy.crs",
 ]
 

@@ -7,8 +7,8 @@ the units an abridged transformation assumes, and the numerical checks that
 prove such a rewrite did not change the answer.
 """
 
-from geodetic_engine.geodesy.utils.abridged import scale_in_parts_per_million
-from geodetic_engine.geodesy.utils.helmert import (
+from geodetic_engine._referencing.abridged import scale_in_parts_per_million
+from geodetic_engine._referencing.helmert import (
     HelmertParameters,
     Rotation,
     collapse_concatenated,

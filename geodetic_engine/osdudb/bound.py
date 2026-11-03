@@ -17,7 +17,7 @@ which publishes none for a bound CRS, so the transformation actually embedded
 is one this package has inspected. That matters for a bound CRS defined over a
 concatenated operation: PROJ cannot embed a chain, so the chain is first
 collapsed into a single equivalent step and refused if it does not compose. See
-:mod:`geodetic_engine.geodesy.utils.helmert`.
+:func:`~geodetic_engine.geodesy.utils.collapse_concatenated`.
 """
 
 from __future__ import annotations

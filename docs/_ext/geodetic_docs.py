@@ -97,6 +97,8 @@ PRIVATE_HOMES = {
     "geodetic_engine._referencing.database": "geodetic_engine.geodesy",
     "geodetic_engine._referencing.errors": "geodetic_engine.geodesy",
     "geodetic_engine._referencing.osdu_id": "geodetic_engine.geodesy",
+    "geodetic_engine._referencing.abridged": "geodetic_engine.geodesy.utils",
+    "geodetic_engine._referencing.helmert": "geodetic_engine.geodesy.utils",
 }
 
 _GROUPS = (

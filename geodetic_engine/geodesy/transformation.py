@@ -1371,7 +1371,7 @@ def _bound_operation(
 
     A collapsed concatenated operation carries no identifier of its own, having
     been synthesised rather than published, so the name is the only handle on
-    it. See :mod:`geodetic_engine.geodesy.utils.helmert`.
+    it. See :func:`~geodetic_engine.geodesy.utils.collapse_concatenated`.
     """
     if not crs.crs.is_bound:
         return None
