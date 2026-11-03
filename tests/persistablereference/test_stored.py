@@ -16,6 +16,7 @@ import shutil
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
@@ -37,6 +38,7 @@ from geodetic_engine.persistablereference import (
     persistable_references_from_catalog,
     pretty_persistable_reference,
 )
+from geodetic_engine.persistablereference.stored import ResolvedCrs
 from geodetic_engine.projdb import schema
 from tests.support import installed_proj_db
 
@@ -467,6 +469,21 @@ class TestConvenience:
     def test_a_crs_can_be_looked_up_in_another_database(self, database: Path) -> None:
         crs = CoordinateReferenceSystem.from_user_input("EPSG:23031")
         found = crs.persistable_reference_from_catalog(database=database)
+        assert found is not None and found.identifier == PROJECTED
+
+    def test_any_crs_keeping_its_definition_is_looked_up_by_it(
+        self, database: Path
+    ) -> None:
+        """Not only geodesy's CRS: the lookup names the record, not the CRS."""
+
+        @dataclass(frozen=True)
+        class Resolved:
+            definition: str
+            crs: CRS
+
+        resolved = Resolved(f"opendes:{PROJECTED}", CRS.from_epsg(4326))
+        assert isinstance(resolved, ResolvedCrs)
+        found = persistable_reference_from_catalog(resolved, database=database)
         assert found is not None and found.identifier == PROJECTED
 
     def test_an_applied_operation_finds_its_reference(self, active: Path) -> None:
