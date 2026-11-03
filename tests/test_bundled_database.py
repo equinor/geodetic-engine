@@ -849,6 +849,11 @@ def fork_and_report():
 """
 
 _FORK = pytest.mark.skipif(not hasattr(os, "fork"), reason="needs os.fork")
+# A hook that forks, or waits for a fork, then blocks every other warning.
+_WARNINGS_UNLOCKED = pytest.mark.skipif(
+    sys.version_info >= (3, 14),
+    reason="Python 3.14+ shows a warning with its warnings lock held",
+)
 
 
 @_FORK
@@ -992,6 +997,7 @@ def test_a_handler_forking_in_another_thread_cannot_deadlock_the_import(
 
 
 @_FORK
+@_WARNINGS_UNLOCKED
 def test_a_fork_from_pyprojs_own_warning_leaves_the_child_the_lock(
     installation: Installation,
 ) -> None:
@@ -1077,6 +1083,7 @@ def test_a_raw_fork_inside_the_lock_leaves_the_child_able_to_take_it(
 
 
 @_FORK
+@_WARNINGS_UNLOCKED
 def test_a_warning_hook_waiting_on_a_fork_cannot_deadlock_it(
     installation: Installation,
 ) -> None:
