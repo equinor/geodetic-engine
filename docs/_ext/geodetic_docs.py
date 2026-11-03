@@ -75,6 +75,7 @@ SUPPORTING: dict[str, tuple[str, ...]] = {
     "geodetic_engine.persistablereference": (
         "geodetic_engine.persistablereference.esriwkt.Node",
         "geodetic_engine.persistablereference.esriwkt.write",
+        "geodetic_engine.persistablereference.stored.ResolvedCrs",
     ),
     "geodetic_engine.osdudb": ("geodetic_engine.osdudb.catalog.Record",),
     "geodetic_engine.projdb": ("geodetic_engine.projdb.errors.OutputWouldBeDiscarded",),

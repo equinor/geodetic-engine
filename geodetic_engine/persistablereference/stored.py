@@ -52,7 +52,7 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Literal
+from typing import IO, Any, Literal, Protocol, runtime_checkable
 
 from pyproj import CRS
 
@@ -89,9 +89,6 @@ from geodetic_engine.persistablereference.reference import (
     parse_persistable_reference,
 )
 
-if TYPE_CHECKING:
-    from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
-
 __all__ = [
     "CatalogPersistableReference",
     "Entity",
@@ -108,6 +105,29 @@ type Entity = Literal["crs", "operation"]
 
 type ExportFormat = Literal["json", "jsonl", "csv"]
 """The file formats :func:`export_persistable_references_from_catalog` writes."""
+
+
+@runtime_checkable
+class ResolvedCrs(Protocol):
+    """A CRS that keeps the input it was resolved from.
+
+    :class:`~geodetic_engine.geodesy.CoordinateReferenceSystem` is one. The
+    input, an OSDU id or ``"AUTH:CODE"``, names the record to look up, which
+    the CRS itself may no longer say: a bound CRS PROJ read from proj.db
+    reports no code of its own. Structural, so that this package need not
+    import ``geodesy``.
+    """
+
+    @property
+    def definition(self) -> str:
+        """The input the CRS was resolved from."""
+        ...
+
+    @property
+    def crs(self) -> CRS:
+        """The resolved CRS."""
+        ...
+
 
 _ENTITY_TABLES: dict[str, frozenset[str]] = {
     "crs": CRS_OBJECT_TABLES,
@@ -290,7 +310,7 @@ def pretty_persistable_reference(
 
 
 def persistable_reference_from_catalog(
-    value: str | CoordinateReferenceSystem | CRS,
+    value: str | ResolvedCrs | CRS,
     *,
     entity: Entity | None = None,
     database: Path | None = None,
@@ -389,7 +409,7 @@ def persistable_references_from_catalog(
 
 
 def missing_reference_reason(
-    value: str | CoordinateReferenceSystem | CRS,
+    value: str | ResolvedCrs | CRS,
     *,
     entity: Entity | None = None,
     database: Path | None = None,
@@ -587,10 +607,8 @@ class _Target:
 
 def _target(value: object, entity: Entity | None) -> _Target | None:
     """Read what a caller named, or None for a CRS that names no record."""
-    from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
-
     tables = _tables(entity)
-    if isinstance(value, CoordinateReferenceSystem | CRS):
+    if isinstance(value, ResolvedCrs | CRS):
         if entity == "operation":
             raise ValueError("a CRS cannot be looked up among operations")
         return _crs_target(value)
@@ -618,7 +636,7 @@ def _target(value: object, entity: Entity | None) -> _Target | None:
     )
 
 
-def _crs_target(crs: CoordinateReferenceSystem | CRS) -> _Target | None:
+def _crs_target(crs: ResolvedCrs | CRS) -> _Target | None:
     """The record id or code a CRS was resolved from.
 
     A bound CRS PROJ read from the database reports no authority code of its
@@ -626,10 +644,8 @@ def _crs_target(crs: CoordinateReferenceSystem | CRS) -> _Target | None:
     from comes first. A CRS defined by its WKT is identified only when PROJ is
     certain which object it is.
     """
-    from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
-
     tables = CRS_OBJECT_TABLES
-    if isinstance(crs, CoordinateReferenceSystem):
+    if isinstance(crs, ResolvedCrs):
         definition = crs.definition.strip()
         if (osdu := parse_osdu_id(definition)) is not None:
             return _Target(osdu.identifier, tables, osdu=osdu)

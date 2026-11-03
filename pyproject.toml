@@ -139,10 +139,6 @@ layers = [
     "geodetic_engine.persistablereference",
     "geodetic_engine._referencing",
 ]
-# The cycle issue #29 removes; each step shortens this list.
-ignore_imports = [
-    "geodetic_engine.persistablereference.stored -> geodetic_engine.geodesy.crs",
-]
 
 [[tool.importlinter.contracts]]
 name = "Domain packages do not depend on each other"
