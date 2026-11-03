@@ -35,8 +35,8 @@ from pyproj import CRS, Transformer
 from pyproj.crs import CoordinateOperation
 from pyproj.exceptions import CRSError, ProjError
 
+from geodetic_engine._referencing.axes import value_axis_units
 from geodetic_engine._referencing.projjson import has_inverted_step
-from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 from geodetic_engine.geodesy.errors import NotCollapsibleError
 
 # Radians per arc-second, the unit EPSG states Helmert rotations in and the unit
@@ -484,12 +484,7 @@ def _verify(
             f"as transformers, so the collapse cannot be verified: {error}"
         ) from error
 
-    source_info = CoordinateReferenceSystem.from_user_input(source)
-    target_info = CoordinateReferenceSystem.from_user_input(target)
-    source_units = [
-        source_info.axes[index].unit_conversion_factor
-        for index in source_info.value_axis_order
-    ]
+    source_units = value_axis_units(source)
     cartesian = None
     if source.is_geocentric:
         ellipsoid = source.ellipsoid
@@ -530,7 +525,7 @@ def _verify(
                 raise NotCollapsibleError(
                     "a verification sample could not be transformed"
                 ) from error
-            residual = _separation(target_info, got, expected)
+            residual = _separation(target, got, expected)
             if not math.isfinite(residual):
                 raise NotCollapsibleError("verification produced a non-finite residual")
             checked += 1
@@ -546,17 +541,15 @@ def _verify(
 
 
 def _separation(
-    target: CoordinateReferenceSystem,
+    target: CRS,
     got: tuple[float, ...],
     expected: tuple[float, ...],
 ) -> float:
     """Ground distance in metres between two transformed positions."""
     if not all(math.isfinite(value) for value in (*got, *expected)):
         return math.inf
-    units = [
-        target.axes[index].unit_conversion_factor for index in target.value_axis_order
-    ]
-    if target.crs.is_geocentric:
+    units = value_axis_units(target)
+    if target.is_geocentric:
         return math.sqrt(
             sum(
                 ((actual - reference) * unit) ** 2
@@ -565,7 +558,7 @@ def _separation(
         )
     if not target.is_geographic:
         raise NotCollapsibleError("verification target is not geographic or geocentric")
-    geod = target.crs.get_geod()
+    geod = target.get_geod()
     if geod is None:
         raise NotCollapsibleError("verification target has no ellipsoid")
     _, _, horizontal = geod.inv(

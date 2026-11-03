@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
+from geodetic_engine._referencing.axes import value_axis_order
 from geodetic_engine._referencing.database import (
     DatabaseIdentity,
     bound_definition,
@@ -55,12 +56,6 @@ logger = logging.getLogger(__name__)
 # records that by giving the datum a reference epoch. An ensemble or a static
 # datum has no such key.
 _DYNAMIC_MARKER = "frame_reference_epoch"
-# PROJ's always_xy only reorders a literal north+east pair into east+north; a
-# south/west axis (Krovak, Cape/Hartebeesthoek Lo grids) is left in its
-# declared order, so those directions must not be bucketed in here too.
-_EASTINGS = frozenset({"east"})
-_NORTHINGS = frozenset({"north"})
-_VERTICALS = frozenset({"up", "down"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,26 +360,7 @@ class CoordinateReferenceSystem:
             So the first coordinate value is the axis at declared index 1,
             longitude.
         """
-        directions = [axis.direction.lower() for axis in self._axes]
-        east = next((i for i, d in enumerate(directions) if d in _EASTINGS), None)
-        north = next((i for i, d in enumerate(directions) if d in _NORTHINGS), None)
-        if east is None or north is None or east == north:
-            # Both axes of a polar CRS share a direction, so resolve the pair
-            # together from the abbreviations rather than mixing the two
-            # sources and risking them naming the same axis.
-            abbreviations = [axis.abbrev.upper() for axis in self._axes]
-            by_letter = (
-                _first_index(abbreviations, "E"),
-                _first_index(abbreviations, "N"),
-            )
-            if by_letter[0] is not None and by_letter[0] != by_letter[1]:
-                east, north = by_letter
-        if east is None or north is None or east == north:
-            return tuple(range(len(self._axes)))
-        vertical = [i for i, d in enumerate(directions) if d in _VERTICALS]
-        placed = {east, north, *vertical}
-        rest = [i for i in range(len(self._axes)) if i not in placed]
-        return (east, north, *vertical, *rest)
+        return value_axis_order(self._axes)
 
     @property
     def value_axis_abbreviations(self) -> tuple[str, ...]:
@@ -560,8 +536,3 @@ def _has_dynamic_frame(definition: object) -> bool:
     if isinstance(definition, list):
         return any(_has_dynamic_frame(item) for item in definition)
     return False
-
-
-def _first_index(values: list[str], wanted: str) -> int | None:
-    """Position of the first matching entry, or None."""
-    return values.index(wanted) if wanted in values else None
