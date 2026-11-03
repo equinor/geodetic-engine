@@ -38,6 +38,7 @@ dev = [
     "hypothesis>=6.100",
     "ruff>=0.6",
     "mypy>=1.11",
+    "import-linter>=2.1",
     "ipykernel>=6.29",
     "pandas-stubs>=2.0",
     "plotly>=6.1",
@@ -124,3 +125,34 @@ implicit_reexport = true
 [[tool.mypy.overrides]]
 module = ["plotly.*"]
 ignore_missing_imports = true
+
+# `lint-imports` checks these. Imports inside functions and under TYPE_CHECKING
+# count too.
+[tool.importlinter]
+root_package = "geodetic_engine"
+
+[[tool.importlinter.contracts]]
+name = "geodesy reads payloads through persistablereference, never the reverse"
+type = "layers"
+layers = [
+    "geodetic_engine.geodesy",
+    "geodetic_engine.persistablereference",
+]
+# The cycle issue #29 removes; each step shortens this list.
+ignore_imports = [
+    "geodetic_engine.persistablereference.emit -> geodetic_engine.geodesy.operation",
+    "geodetic_engine.persistablereference.methods -> geodetic_engine.geodesy.database",
+    "geodetic_engine.persistablereference.reference -> geodetic_engine.geodesy.utils",
+    "geodetic_engine.persistablereference.stored -> geodetic_engine.geodesy.crs",
+    "geodetic_engine.persistablereference.stored -> geodetic_engine.geodesy.database",
+    "geodetic_engine.persistablereference.stored -> geodetic_engine.geodesy.osdu_id",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain packages do not depend on each other"
+type = "independence"
+modules = [
+    "geodetic_engine.welltrajectory",
+    "geodetic_engine.bingrid",
+    "geodetic_engine.geojson",
+]

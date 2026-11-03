@@ -24,6 +24,7 @@ scripts/run_all_tests.sh
 uv run ruff check geodetic_engine tests
 uv run ruff format --check geodetic_engine tests
 uv run mypy geodetic_engine
+uv run lint-imports
 uv run python scripts/sync_pins.py --check
 ```
 
@@ -43,9 +44,11 @@ uv run pytest tests/bingrid/test_properties.py --hypothesis-profile=geodetic-eng
 CI runs these as two separate GitHub workflows, so a red check says which kind
 of problem it is:
 
-- **Lint and type check** (`.github/workflows/lint.yml`): `ruff`, `mypy`, and
-  `scripts/sync_pins.py --check`, which fails when a copy of the PROJ and
-  pyproj pins in `.devcontainer/pins.env` is stale.
+- **Lint and type check** (`.github/workflows/lint.yml`): `ruff`, `mypy`,
+  `lint-imports`, which checks the import contracts in `pyproject.toml` (see
+  {doc}`/background/architecture`), and `scripts/sync_pins.py --check`, which
+  fails when a copy of the PROJ and pyproj pins in `.devcontainer/pins.env` is
+  stale.
 - **Tests** (`.github/workflows/tests.yml`): the unit and integration tests,
   the bin grid property tests with fresh Hypothesis examples, then the dataset
   sweep, with a coverage floor of 80 % across the unit tests and the sweep.

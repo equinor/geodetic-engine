@@ -125,6 +125,7 @@ uv run --extra docs sphinx-build -W --keep-going -b html docs docs/_build/html
 uv run pytest                  # the usual run
 scripts/run_all_tests.sh       # including the exhaustive dataset sweep
 uv run ruff check geodetic_engine tests && uv run mypy geodetic_engine
+uv run lint-imports            # the import layering contracts
 ```
 
 See [Development](https://equinor.github.io/geodetic-engine/dev/development/index.html).

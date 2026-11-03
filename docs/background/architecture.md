@@ -67,3 +67,14 @@ straight from it.
 | {mod}`geodetic_engine.osdudb` | OSDU catalogue parsing and definition recovery, on the shared database infrastructure |
 | {mod}`geodetic_engine.bingrid` | Seismic bin grids: P6 bin grid to map grid conversion, four-corner squaring and QC, outlines, and conversion to another CRS through `geodesy` |
 | {mod}`geodetic_engine.errors` | The root exception every package error derives from |
+
+## Import layering
+
+`lint-imports` ([import-linter](https://import-linter.readthedocs.io/)) checks
+these contracts in CI, configured in `pyproject.toml`. Imports inside functions
+and under `TYPE_CHECKING` count as imports.
+
+- `geodesy` reads payloads through `persistablereference`, and
+  `persistablereference` never imports `geodesy`. The imports that still run
+  the other way are listed in the contract, until issue #29 removes them.
+- `welltrajectory`, `bingrid` and `geojson` do not import each other.

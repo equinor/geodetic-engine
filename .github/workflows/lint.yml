@@ -59,8 +59,9 @@ jobs:
 
       # One container, and the exit status held to the end, so that a style
       # error cannot hide a typing error: a reviewer sees every problem at once.
+      # lint-imports checks the layering contracts in pyproject.toml.
       # The pins check fails when a copy of .devcontainer/pins.env is stale.
-      - name: Run ruff, mypy and the pins check
+      - name: Run ruff, mypy, import-linter and the pins check
         run: |
           $DOCKER_RUN bash -euo pipefail -c '
             status=0
@@ -68,6 +69,7 @@ jobs:
             check "ruff check"  uv run --no-sync ruff check geodetic_engine tests
             check "ruff format" uv run --no-sync ruff format --check geodetic_engine tests
             check "mypy"        uv run --no-sync mypy geodetic_engine
+            check "imports"     uv run --no-sync lint-imports
             check "pins"        uv run --no-sync python scripts/sync_pins.py --check
             exit $status
           '
