@@ -33,7 +33,7 @@ from pyproj.crs import CoordinateOperation
 from pyproj.enums import WktVersion
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.operation import has_inverted_step
+from geodetic_engine._referencing.projjson import has_inverted_step
 from geodetic_engine.persistablereference import esriwkt, methods
 from geodetic_engine.persistablereference.envelope import (
     AuthorityCode,
