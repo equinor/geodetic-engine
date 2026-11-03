@@ -52,7 +52,8 @@ The values are kept as given. {attr}`~geodetic_engine.welltrajectory.Survey.md_m
 ## Units
 
 A unit can be given in three forms, and is resolved the same way for MD, for
-depths and elevations (`z_unit`), and for angles:
+depths and elevations (`z_unit`), and for angles. It is read by
+{mod}`geodetic_engine.units`, as everywhere else in this package:
 
 | Form | Example |
 |---|---|
@@ -77,8 +78,13 @@ for unit in ("degree", "rad", "gon"):
 1200/3937 m. They differ by 2 parts per million, 2 cm over a 10 km well, so
 they are never treated as the same unit.
 
-An OSDU unit `persistableReference` is read for its scale. A unit with an
-offset, or one that is not a plain length or angle, is refused:
+An OSDU unit `persistableReference` is read for its scale, `USO` or a `UAD`
+that reduces to one. It must state what it measures: its `baseMeasurement`
+ancestry is `Length` or `L` for a length, and `Plane_Angle`, `Angle` or `A`
+for an angle, in any case. The OSDU CRS conversion service writes the names,
+and the OSDU unit catalogue the dimensions. A unit with an offset, or one that
+is not a plain length or angle, such as a rate per length, is refused. A
+payload in feet:
 
 ```{code-cell} python
 import json
@@ -94,7 +100,22 @@ feet = json.dumps(
 length_factor(feet)
 ```
 
-Anything else raises {class}`~geodetic_engine.welltrajectory.UnitError`. A
+The US survey foot as the OSDU unit catalogue states it:
+
+```{code-cell} python
+us_foot = json.dumps(
+    {
+        "abcd": {"a": 0.0, "b": 1200.0, "c": 3937.0, "d": 0.0},
+        "symbol": "ft[US]",
+        "baseMeasurement": {"ancestry": "L", "type": "UM"},
+        "type": "UAD",
+    }
+)
+length_factor(us_foot)
+```
+
+Anything else raises {class}`~geodetic_engine.welltrajectory.UnitError`, which
+is also a {class}`geodetic_engine.units.UnitError`. A
 unit is never defaulted:
 
 ```{code-cell} python

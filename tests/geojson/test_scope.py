@@ -19,11 +19,9 @@ from geodetic_engine.geojson import (
 from geodetic_engine.geojson._model import Document, Flavour, read_document
 from geodetic_engine.geojson._scope import (
     METRE,
-    LengthUnit,
     Source,
     _same_crs,
     is_wgs84_lonlat,
-    length_unit,
     read_source,
     read_target,
 )
@@ -32,6 +30,7 @@ from geodetic_engine.persistablereference import (
     parse_persistable_reference,
     to_persistable_reference,
 )
+from geodetic_engine.units import Unit, UnitError
 
 ED50_UTM31 = to_persistable_reference(CRS.from_epsg(23031))
 WGS84 = to_persistable_reference(CRS.from_epsg(4326))
@@ -332,7 +331,7 @@ def test_the_vertical_unit_id_takes_precedence_over_the_payload() -> None:
         VerticalUnitID=FEET_ID,
         persistableReferenceUnitZ=SERVICE_METRE,
     )
-    assert read_source(document).z_unit == LengthUnit("ft", 0.3048)
+    assert read_source(document).z_unit == Unit("ft", "length", 0.3048)
 
 
 def test_a_unit_payload_is_kept() -> None:
@@ -344,8 +343,8 @@ def test_a_unit_payload_is_kept() -> None:
     unit = read_source(document).z_unit
     assert unit is not None
     assert (unit.symbol, unit.scale, unit.payload) == ("odd", 2.0, payload)
-    assert unit.to_metres(3.0) == 6.0
-    assert unit.from_metres(6.0) == 3.0
+    assert unit.to_si(3.0) == 6.0
+    assert unit.from_si(6.0) == 3.0
     assert unit.reference() == payload
 
 
@@ -456,14 +455,14 @@ def test_plain_geojson_is_never_written_with_west_or_south_values(
 
 def test_target_heights_are_in_the_unit_asked_for() -> None:
     feet = read_target("EPSG:23031", source=Flavour.ANYCRS, target_unit_z="ft")
-    assert feet.z_unit == LengthUnit("ft", 0.3048)
+    assert feet.z_unit == Unit("ft", "length", 0.3048)
     metres = read_target(
         "EPSG:4326", source=Flavour.GEOJSON, target_unit_z=SERVICE_METRE
     )
     assert metres.z_unit == METRE
     with pytest.raises(ValueError, match="in metres"):
         read_target("EPSG:4326", source=Flavour.GEOJSON, target_unit_z="ft")
-    with pytest.raises(ValueError, match=r"^target_unit_z: "):
+    with pytest.raises(UnitError, match=r"^target_unit_z: "):
         read_target("EPSG:23031", source=Flavour.ANYCRS, target_unit_z="parsec")
 
 
@@ -536,47 +535,3 @@ def test_what_rfc_7946_calls_wgs_84(crs: str, expected: bool) -> None:
 
 def test_metres_are_written_as_the_service_writes_them() -> None:
     assert METRE.reference() == SERVICE_METRE
-    feet = json.loads(length_unit("ft").reference())
-    assert feet["scaleOffset"] == {"scale": 0.3048, "offset": 0.0}
-    assert feet["symbol"] == "ft"
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("ft", LengthUnit("ft", 0.3048)),
-        ("osdu:reference-data--UnitOfMeasure:ftUS:", LengthUnit("ftUS", 1200 / 3937)),
-        (SERVICE_METRE, METRE),
-        (
-            '{"abcd":{"a":0.0,"b":1200.0,"c":3937.0,"d":0.0},"symbol":"ftUS",'
-            '"baseMeasurement":{"ancestry":"Length","type":"UM"},"type":"UAD"}',
-            LengthUnit("ftUS", 1200 / 3937),
-        ),
-    ],
-)
-def test_length_units_are_read_as_elsewhere(value: str, expected: LengthUnit) -> None:
-    assert length_unit(value) == expected
-
-
-@pytest.mark.parametrize(
-    ("value", "reason"),
-    [
-        ("", "non-empty string"),
-        (None, "non-empty string"),
-        ("degC", "degC"),
-        (
-            '{"abcd":{"a":0.0,"b":1.0,"c":1.0,"d":1.0},"symbol":"odd",'
-            '"baseMeasurement":{"ancestry":"Length","type":"UM"},"type":"UAD"}',
-            "cannot read the unit",
-        ),
-        (_unit("odd", 2.0, 5.0), "offset of 5.0"),
-        (
-            '{"abcd":{"a":1.0,"b":1.0,"c":1.0,"d":0.0},"symbol":"odd",'
-            '"baseMeasurement":{"ancestry":"Length","type":"UM"},"type":"UAD"}',
-            "offset of 1.0",
-        ),
-    ],
-)
-def test_other_units_are_refused(value: Any, reason: str) -> None:
-    with pytest.raises(ValueError, match=reason):
-        length_unit(value)

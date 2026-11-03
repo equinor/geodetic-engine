@@ -8,11 +8,13 @@ from urllib.parse import quote
 import numpy as np
 import pytest
 
+from geodetic_engine import units
 from geodetic_engine.welltrajectory import (
     InvalidSurveyError,
     NorthReference,
     Survey,
     UnitError,
+    WellTrajectoryError,
     angle_factor,
     length_factor,
 )
@@ -39,6 +41,7 @@ def _unit_payload(symbol: str, scale: float, ancestry: str) -> str:
         ("dev:reference-data--UnitOfMeasure:ft:", 0.3048),
         (_unit_payload("ft", 0.3048, "Length"), 0.3048),
         (quote(_unit_payload("ft", 0.3048, "Length")), 0.3048),
+        (_unit_payload("ft", 0.3048, "L"), 0.3048),
     ],
 )
 def test_length_units_resolve(unit: str, metres: float) -> None:
@@ -73,6 +76,13 @@ def test_anything_that_is_not_a_plain_length_is_refused(unit: str) -> None:
         length_factor(unit)
 
 
+def test_a_unit_error_is_a_well_trajectory_error_and_a_units_one() -> None:
+    with pytest.raises(UnitError) as raised:
+        angle_factor("m")
+    assert isinstance(raised.value, WellTrajectoryError)
+    assert isinstance(raised.value, units.UnitError)
+
+
 @pytest.mark.parametrize(
     ("unit", "radians"),
     [
@@ -80,6 +90,7 @@ def test_anything_that_is_not_a_plain_length_is_refused(unit: str) -> None:
         ("rad", 1.0),
         ("gon", np.pi / 200),
         (_unit_payload("dega", np.pi / 180, "Plane_Angle"), np.pi / 180),
+        (_unit_payload("dega", np.pi / 180, "A"), np.pi / 180),
     ],
 )
 def test_angle_units_resolve(unit: str, radians: float) -> None:
