@@ -89,15 +89,16 @@ class _Writer:
         fmt = f"{order}{width}d"
         size = 8 * width
         replaced = self._rows.shape[1]
-        if replaced > width:
-            raise ValueError(
-                f"{replaced} values per position cannot replace a position of "
-                f"{width}; a collection's members differ in z or m"
-            )
         for _ in range(count):
             values = struct.unpack_from(fmt, self._buffer, offset)
             # An empty point is written as NaN, and has no row.
             if not (point and all(np.isnan(values))):
+                if replaced > width:
+                    raise ValueError(
+                        f"{replaced} values per position cannot replace a "
+                        f"position of {width}; a collection's members differ "
+                        "in z or m"
+                    )
                 row = self._rows[self.row]
                 struct.pack_into(
                     f"{order}{replaced}d", self._buffer, offset, *row.tolist()

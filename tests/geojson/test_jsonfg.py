@@ -257,6 +257,44 @@ def test_a_three_dimensional_target_keeps_heights_in_json_fg() -> None:
     assert len(result.document["features"][0]["geometry"]["coordinates"]) == 3
 
 
+def test_two_dimensional_places_need_a_two_dimensional_target() -> None:
+    source = _collection(
+        _feature(place=_point(60.0, 9.0)), coordRefSys=URI.format(4258)
+    )
+    with pytest.raises(ValueError, match="two-dimensional target"):
+        convert_geojson(source, "EPSG:4937")
+
+
+def test_source_crs_epsg_4326_keeps_latitude_first() -> None:
+    unscoped = _collection(_feature(place=_point(60.0, 9.0)))
+    stated = {**unscoped, "coordRefSys": URI.format(4326)}
+    given = convert_geojson(unscoped, "EPSG:32632", source_crs="EPSG:4326")
+    expected = convert_geojson(stated, "EPSG:32632")
+    assert given.document["features"] == expected.document["features"]
+
+
+def test_a_stated_unit_applies_to_a_geocentric_third_axis() -> None:
+    source = {
+        "type": "AnyCrsFeatureCollection",
+        "CoordinateReferenceSystemID": "EPSG:4978",
+        "VerticalUnitID": "ft",
+        "features": [
+            {
+                "type": "AnyCrsFeature",
+                "properties": {},
+                "geometry": {
+                    "type": "AnyCrsPoint",
+                    "coordinates": [1000.0, 2000.0, 3000.0],
+                },
+            }
+        ],
+    }
+    result = convert_geojson(source, "EPSG:4978", output="jsonfg")
+    assert result.document["features"][0]["place"]["coordinates"] == pytest.approx(
+        [1000.0, 2000.0, 914.4]
+    )
+
+
 def test_a_coord_ref_sys_by_value_is_not_read() -> None:
     source = _collection(
         _feature(place=_point(1.0, 2.0)), coordRefSys={"type": "PROJJSON", "value": {}}

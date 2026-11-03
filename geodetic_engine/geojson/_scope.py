@@ -497,7 +497,7 @@ def _given(source_crs: object) -> CoordinateReferenceSystem | None:
 
 def _unscoped(given: CoordinateReferenceSystem | None) -> Source:
     """Where a JSON-FG place without a coordRefSys is: CRS84, or as agreed."""
-    if given is None or _is_rfc_7946(given):
+    if given is None or _crs84_as_declared(given):
         return Source(None, METRE, "JSON-FG", axis_order="crs")
     return Source(given, None, "source_crs", axis_order="crs")
 
@@ -518,9 +518,14 @@ def _stated_scope(
             f"the document's CRS, {_label(crs)}, is not source_crs, {_label(given)}",
         )
     # CRS84 or CRS84h as declared; EPSG:4326 keeps its own, latitude first.
-    if _is_rfc_7946(crs) and crs.value_axis_order == tuple(range(crs.dimension)):
+    if _crs84_as_declared(crs):
         return Source(None, METRE, path, axis_order="crs", epoch=epoch)
     return Source(crs, None, path, axis_order="crs", epoch=epoch)
+
+
+def _crs84_as_declared(crs: CoordinateReferenceSystem) -> bool:
+    """Whether ``crs`` is CRS84 or CRS84h with its axes in value order."""
+    return _is_rfc_7946(crs) and crs.value_axis_order == tuple(range(crs.dimension))
 
 
 def _is_rfc_7946(crs: CoordinateReferenceSystem) -> bool:

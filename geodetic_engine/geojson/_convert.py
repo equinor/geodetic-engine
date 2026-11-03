@@ -400,6 +400,12 @@ class _Converter:
         """The target CRS, without its height axis for positions without one."""
         crs = self._target.crs
         if dimension == 2 and crs.dimension == 3:
+            if self._place:
+                raise ValueError(
+                    f"JSON-FG positions have as many values as their CRS has axes, "
+                    f"and these have two where {_label(crs)} has three; give a "
+                    "two-dimensional target CRS, or write output='anycrs'"
+                )
             return CoordinateReferenceSystem.from_user_input(crs.crs.to_2d())
         if dimension == 3 and crs.dimension == 2 and self._place:
             raise ValueError(
@@ -511,8 +517,8 @@ class _Converter:
         unit: Unit | None
         if produced.dimension == 3:
             unit = _third_unit(produced)
-        elif _height_axis(crs) is not None:
-            unit = _axis_unit(crs)
+        elif _height_axis(crs) is not None or crs.dimension == 3:
+            unit = _third_unit(crs)
         else:
             unit = source.z_unit
         wanted = self._target.z_unit
@@ -767,22 +773,13 @@ def _height_axis(crs: CoordinateReferenceSystem) -> int | None:
     return None
 
 
-def _axis_unit(crs: CoordinateReferenceSystem) -> Unit:
-    index = _height_axis(crs)
-    assert index is not None
-    axis = crs.axes[index]
-    if axis.unit_conversion_factor == 1.0:
-        return METRE
-    return Unit(axis.unit_name, "length", axis.unit_conversion_factor)
-
-
 def _to_axis_unit(
     heights: FloatArray, unit: Unit | None, crs: CoordinateReferenceSystem
 ) -> FloatArray:
-    """Heights in the unit of the CRS's height axis, if it has one."""
-    if unit is None or _height_axis(crs) is None:
+    """Third values in the unit of the CRS's height axis, or its third axis."""
+    if unit is None or (_height_axis(crs) is None and crs.dimension != 3):
         return heights
-    axis = _axis_unit(crs)
+    axis = _third_unit(crs)
     if axis.scale == unit.scale:
         return heights
     return heights * (unit.scale / axis.scale)

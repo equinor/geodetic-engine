@@ -499,9 +499,12 @@ def _transform(
     else:
         items, container, stated_all = _items(values)
     geometries, stated = _read_all(items, srid_authority)
-    if stated_all is not None:
-        stated = [stated_all] * len(items)
     _require_source(stated, source)
+    if stated_all is not None and not same_crs(stated_all, source):
+        raise GeometryError(
+            f"the GeoSeries is in {_label(stated_all)}, but the transformation "
+            f"is from {_label(source)}"
+        )
     if axis_order == "crs":
         geometries = _permute(geometries, source, True)
     if densify is not None:
@@ -822,13 +825,13 @@ def _join(
         return units
     parts = iter(units)
 
-    def rebuilt(geometry: shapely.Geometry) -> shapely.Geometry:
+    def rebuilt(geometry: shapely.Geometry | None) -> shapely.Geometry | None:
         if not isinstance(geometry, BaseMultipartGeometry) or _uniform(geometry):
-            return cast("shapely.Geometry", next(parts))
+            return cast("shapely.Geometry | None", next(parts))
         members = [rebuilt(part) for part in geometry.geoms]
         return cast("shapely.Geometry", type(geometry)(members))  # type: ignore[call-arg]
 
-    out = [None if geometry is None else rebuilt(geometry) for geometry in geometries]
+    out = [rebuilt(geometry) for geometry in geometries]
     return shapely.set_srid(_objects(out), shapely.get_srid(geometries))
 
 
@@ -998,13 +1001,20 @@ def _wkt_text(geometry: BaseGeometry) -> str:
     has_m = bool(shapely.has_m(geometry))
     name = type(geometry).__name__.upper()
     tag = _tag(has_z, has_m)
-    if geometry.is_empty:
+    if _without_parts(geometry):
         return f"{name}{tag} EMPTY"
     return f"{name}{tag} {_wkt_body(geometry, has_z, has_m)}"
 
 
+def _without_parts(geometry: BaseGeometry) -> bool:
+    """Whether WKT writes ``geometry`` as EMPTY: a collection only without members."""
+    if isinstance(geometry, BaseMultipartGeometry):
+        return len(geometry.geoms) == 0
+    return bool(geometry.is_empty)
+
+
 def _wkt_body(geometry: BaseGeometry, has_z: bool, has_m: bool) -> str:
-    if geometry.is_empty:
+    if _without_parts(geometry):
         return "EMPTY"
     if isinstance(geometry, shapely.GeometryCollection) and not isinstance(
         geometry, shapely.MultiPoint | shapely.MultiLineString | shapely.MultiPolygon

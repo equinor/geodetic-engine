@@ -350,6 +350,9 @@ def test_collection_members_are_rounded_in_their_own_dimensions() -> None:
     assert write_geometry(mixed, "wkt", decimals=1) == (
         "GEOMETRYCOLLECTION M (POINT (1.2 2.3), POINT M (1.2 2.3 3.5))"
     )
+    rounded = round_geometry(np.array([None, mixed], dtype=object), 1)
+    assert rounded[0] is None
+    assert write_geometry(rounded[1], "wkt") == write_geometry(mixed, "wkt", decimals=1)
 
 
 def test_wkb_rewriting_never_writes_past_a_position() -> None:
@@ -358,6 +361,19 @@ def test_wkb_rewriting_never_writes_past_a_position() -> None:
     rows = np.array([[10.0, 20.0, 0.0], [30.0, 40.0, 5.0]])
     with pytest.raises(ValueError, match="differ in z or m"):
         replace_coordinates(wkb, rows)
+
+
+@pytest.mark.parametrize(
+    "wkt",
+    [
+        "GEOMETRYCOLLECTION (POINT EMPTY, LINESTRING EMPTY)",
+        "GEOMETRYCOLLECTION (GEOMETRYCOLLECTION EMPTY)",
+        "MULTIPOINT (EMPTY, (1 2))",
+        "MULTIPOLYGON (EMPTY)",
+    ],
+)
+def test_collections_of_empty_members_keep_them(wkt: str) -> None:
+    assert write_geometry(shapely.from_wkt(wkt), "wkt") == wkt
 
 
 def test_rounding_reports_a_geometry_it_made_invalid() -> None:

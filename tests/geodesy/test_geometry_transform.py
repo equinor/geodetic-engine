@@ -202,7 +202,25 @@ def test_collection_members_keep_their_own_dimensions(
         )
 
 
-def test_a_two_dimensional_geometry_in_a_three_dimensional_crs_is_refused() -> None:
+def test_a_split_collection_after_a_missing_geometry_keeps_its_members(
+    ed50_to_utm: Transformation,
+) -> None:
+    mixed = "GEOMETRYCOLLECTION (POINT (2 60), POINT Z (3 61 10))"
+    batch = ed50_to_utm.transform_geometries([None, mixed, "POINT (2 60)"])
+    assert batch.wkt() == [
+        None,
+        ed50_to_utm.transform_geometry(mixed).wkt(),
+        ed50_to_utm.transform_geometry("POINT (2 60)").wkt(),
+    ]
+
+
+def test_an_empty_member_beside_measures_is_kept(ed50_to_utm: Transformation) -> None:
+    result = ed50_to_utm.transform_geometry(
+        "GEOMETRYCOLLECTION (POINT ZM (2 60 1 2), POINT EMPTY)"
+    )
+    assert result.wkt(decimals=1) == (
+        "GEOMETRYCOLLECTION ZM (POINT ZM (444131.2 6651774.9 1 2), POINT EMPTY)"
+    )
     with pytest.raises(ValueError, match="geometry 0"):
         Transformation("EPSG:4979", "EPSG:4978").transform_geometry("POINT (10 60)")
 
@@ -266,6 +284,11 @@ def test_a_geoseries_is_checked_and_comes_back_with_the_target_crs(
     with pytest.raises(GeometryError, match="EPSG:4326"):
         ed50_to_utm.transform_geometries(
             series.set_crs("EPSG:4326", allow_override=True)
+        )
+    stating_another = shapely.set_srid(shapely.Point(2, 60), 4326)
+    with pytest.raises(GeometryError, match="geometry 0 is in EPSG:4326"):
+        ed50_to_utm.transform_geometries(
+            geopandas.GeoSeries([stating_another], crs="EPSG:4230")
         )
 
 
