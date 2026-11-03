@@ -22,7 +22,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pyproj import CRS
 from pyproj.exceptions import CRSError
@@ -46,9 +46,14 @@ from geodetic_engine.geodesy.errors import (
     UnembeddableOperationError,
     UnresolvableCRSError,
 )
-
-if TYPE_CHECKING:
-    from geodetic_engine.persistablereference.stored import CatalogPersistableReference
+from geodetic_engine.persistablereference import (
+    CatalogPersistableReference,
+    CrsReference,
+    PersistableReferenceError,
+    looks_like_reference,
+    parse_persistable_reference,
+    persistable_reference_from_catalog,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -316,10 +321,6 @@ class CoordinateReferenceSystem:
             >>> crs.persistable_reference_from_catalog().kind  # doctest: +SKIP
             <Kind.EARLY_BOUND_CRS: 'EBC'>
         """
-        from geodetic_engine.persistablereference.stored import (
-            persistable_reference_from_catalog,
-        )
-
         return persistable_reference_from_catalog(self, database=database)
 
     @property
@@ -397,11 +398,6 @@ def _normalize(value: Any) -> str:
 @lru_cache(maxsize=256)
 def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceSystem:
     """Resolve and cache a CRS by its textual definition."""
-    # Imported where it is used rather than at module scope: reading a
-    # reference builds bound CRSs through geodesy.utils, which reads this
-    # module.
-    from geodetic_engine.persistablereference import looks_like_reference
-
     if (osdu := parse_osdu_id(definition)) is not None:
         # Resolved here, never by PROJ: PROJ would match an unknown id against
         # names approximately, and a near miss is a different object. Checked
@@ -470,12 +466,6 @@ def _reference(definition: str) -> CRS:
             about the input rather than about PROJ, so all of them are reported
             as one failure to resolve.
     """
-    from geodetic_engine.persistablereference import (
-        CrsReference,
-        PersistableReferenceError,
-        parse_persistable_reference,
-    )
-
     try:
         reference = parse_persistable_reference(definition)
         if not isinstance(reference, CrsReference):

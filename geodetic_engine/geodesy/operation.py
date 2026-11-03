@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pyproj.crs import CoordinateOperation
 from pyproj.database import get_authorities
@@ -46,9 +46,17 @@ from geodetic_engine._referencing.projjson import (
 )
 from geodetic_engine._referencing.projjson import operation_nodes
 from geodetic_engine.geodesy.errors import OperationNotAvailableError
-
-if TYPE_CHECKING:
-    from geodetic_engine.persistablereference.stored import CatalogPersistableReference
+from geodetic_engine.persistablereference import (
+    CatalogPersistableReference,
+    PersistableReferenceError,
+    looks_like_reference,
+    operation_from_geogtran,
+    parse_persistable_reference,
+    persistable_reference_from_catalog,
+)
+from geodetic_engine.persistablereference import (
+    OperationReference as PayloadOperation,
+)
 
 _URN_PREFIX = "urn:ogc:def:coordinateoperation:"
 
@@ -375,10 +383,6 @@ class AppliedOperation:
             AmbiguousCatalogReferenceError: If records publishing different
                 references name the operation applied.
         """
-        from geodetic_engine.persistablereference.stored import (
-            persistable_reference_from_catalog,
-        )
-
         if (
             self.requested
             and self.auth_name is not None
@@ -681,8 +685,9 @@ class StatedOperation(Protocol):
     its authority code against PROJ's database would answer with a different
     object that merely shares a code.
 
-    Structural rather than imported, because the package that reads payloads
-    reads this one.
+    Structural, so that anything stating an operation is accepted, not only
+    the :class:`~geodetic_engine.persistablereference.OperationReference` a
+    payload is read into.
     """
 
     def to_operation(self) -> CoordinateOperation:
@@ -704,16 +709,6 @@ def _stated_operation(payload: str) -> CoordinateOperation:
         ValueError: If the payload cannot be read, or states something that is
             not a coordinate operation.
     """
-    # Imported where it is used rather than at module scope: reading a payload
-    # goes through geodesy.utils, which reads this module.
-    from geodetic_engine.persistablereference import (
-        OperationReference as PayloadOperation,
-    )
-    from geodetic_engine.persistablereference import (
-        PersistableReferenceError,
-        parse_persistable_reference,
-    )
-
     try:
         reference = parse_persistable_reference(payload)
         if not isinstance(reference, PayloadOperation):
@@ -731,8 +726,6 @@ def _stated_operation(payload: str) -> CoordinateOperation:
 
 def _looks_like_payload(text: str) -> bool:
     """Whether the text is a persistableReference rather than a code or a name."""
-    from geodetic_engine.persistablereference import looks_like_reference
-
     return bool(looks_like_reference(text))
 
 
@@ -752,11 +745,6 @@ def _esri_operation(wkt: str) -> CoordinateOperation:
     Raises:
         ValueError: If the WKT cannot be read as a coordinate operation.
     """
-    from geodetic_engine.persistablereference import (
-        PersistableReferenceError,
-        operation_from_geogtran,
-    )
-
     try:
         return operation_from_geogtran(wkt)
     except PersistableReferenceError as error:
