@@ -137,15 +137,13 @@ type = "layers"
 layers = [
     "geodetic_engine.geodesy",
     "geodetic_engine.persistablereference",
+    "geodetic_engine._referencing",
 ]
 # The cycle issue #29 removes; each step shortens this list.
 ignore_imports = [
     "geodetic_engine.persistablereference.emit -> geodetic_engine.geodesy.operation",
-    "geodetic_engine.persistablereference.methods -> geodetic_engine.geodesy.database",
     "geodetic_engine.persistablereference.reference -> geodetic_engine.geodesy.utils",
     "geodetic_engine.persistablereference.stored -> geodetic_engine.geodesy.crs",
-    "geodetic_engine.persistablereference.stored -> geodetic_engine.geodesy.database",
-    "geodetic_engine.persistablereference.stored -> geodetic_engine.geodesy.osdu_id",
 ]
 
 [[tool.importlinter.contracts]]

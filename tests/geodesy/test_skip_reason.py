@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from geodetic_engine.geodesy import database
+from geodetic_engine._referencing import database
 
 SKIPPED_NAME = "ST_Example_LambertZoneI_T8094"
 SKIPPED_REASON = (

@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from geodetic_engine.geodesy.database import GridDataset, grid_dataset
+from geodetic_engine._referencing.database import GridDataset, grid_dataset
 from geodetic_engine.persistablereference.errors import (
     UnresolvableGridError,
     UnsupportedMethodError,

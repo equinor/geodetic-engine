@@ -20,6 +20,7 @@ import pytest
 from pyproj import CRS
 from pyproj.crs import BoundCRS, CoordinateOperation
 
+from geodetic_engine._referencing import database as database_module
 from geodetic_engine.geodesy import (
     CoordinateReferenceSystem,
     OperationNotAvailableError,
@@ -27,7 +28,6 @@ from geodetic_engine.geodesy import (
     Transformation,
     UnresolvableCRSError,
 )
-from geodetic_engine.geodesy import database as database_module
 from geodetic_engine.geodesy.database import (
     grid_dataset,
     identified_object,

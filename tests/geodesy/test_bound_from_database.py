@@ -90,8 +90,8 @@ def proj_data_with_bound_crs(tmp_path: Path) -> Iterator[Path]:
 
 
 def _clear_caches() -> None:
+    from geodetic_engine._referencing import database as database_module
     from geodetic_engine.geodesy import crs as crs_module
-    from geodetic_engine.geodesy import database as database_module
 
     crs_module._cached.cache_clear()
     database_module._definitions.cache_clear()

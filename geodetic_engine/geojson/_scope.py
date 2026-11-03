@@ -31,8 +31,8 @@ from typing import Any, Final, Literal
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
+from geodetic_engine._referencing.osdu_id import parse_osdu_id
 from geodetic_engine.geodesy import CoordinateReferenceSystem, UnresolvableCRSError
-from geodetic_engine.geodesy.osdu_id import parse_osdu_id
 from geodetic_engine.geojson._model import (
     ANYCRS_MEMBERS,
     LEGACY_CRS,

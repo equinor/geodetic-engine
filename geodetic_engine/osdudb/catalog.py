@@ -22,9 +22,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from geodetic_engine.geodesy.osdu_id import CRS_ENTITY as CRS_KIND
-from geodetic_engine.geodesy.osdu_id import TRANSFORMATION_ENTITY as TRANSFORMATION_KIND
-from geodetic_engine.geodesy.osdu_id import parse_osdu_id
+from geodetic_engine._referencing.osdu_id import CRS_ENTITY as CRS_KIND
+from geodetic_engine._referencing.osdu_id import (
+    TRANSFORMATION_ENTITY as TRANSFORMATION_KIND,
+)
+from geodetic_engine._referencing.osdu_id import parse_osdu_id
 from geodetic_engine.osdudb import translate as tr
 from geodetic_engine.osdudb.errors import OsduCatalogError
 

@@ -90,8 +90,14 @@ ALIASES = {
 
 # Private modules whose names a subpackage exports, and is documented as owning.
 # geodetic_engine/__init__.py imports _bundled_database, so it cannot live in
-# osdudb without importing all of osdudb with the package.
-PRIVATE_HOMES = {"geodetic_engine._bundled_database": "geodetic_engine.osdudb"}
+# osdudb without importing all of osdudb with the package. _referencing sits
+# below geodesy and persistablereference, so that neither imports the other.
+PRIVATE_HOMES = {
+    "geodetic_engine._bundled_database": "geodetic_engine.osdudb",
+    "geodetic_engine._referencing.database": "geodetic_engine.geodesy",
+    "geodetic_engine._referencing.errors": "geodetic_engine.geodesy",
+    "geodetic_engine._referencing.osdu_id": "geodetic_engine.geodesy",
+}
 
 _GROUPS = (
     ("function", "Functions"),

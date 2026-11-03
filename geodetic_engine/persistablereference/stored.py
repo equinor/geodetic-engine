@@ -56,7 +56,7 @@ from typing import IO, TYPE_CHECKING, Any, Literal
 
 from pyproj import CRS
 
-from geodetic_engine.geodesy.database import (
+from geodetic_engine._referencing.database import (
     CRS_OBJECT_TABLES,
     OPERATION_OBJECT_TABLES,
     StoredReferenceRow,
@@ -66,7 +66,7 @@ from geodetic_engine.geodesy.database import (
     stored_reference_rows,
     unrecorded_reference_reasons,
 )
-from geodetic_engine.geodesy.osdu_id import (
+from geodetic_engine._referencing.osdu_id import (
     CRS_ENTITY,
     SCHEME,
     TRANSFORMATION_ENTITY,

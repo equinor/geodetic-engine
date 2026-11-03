@@ -27,23 +27,23 @@ from typing import TYPE_CHECKING, Any
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.database import (
+from geodetic_engine._referencing.database import (
     DatabaseIdentity,
     bound_definition,
     bound_definition_by_name,
     database_identity,
     skip_reason,
 )
-from geodetic_engine.geodesy.errors import (
-    UnembeddableOperationError,
-    UnresolvableCRSError,
-)
-from geodetic_engine.geodesy.osdu_id import (
+from geodetic_engine._referencing.osdu_id import (
     CRS_ENTITY,
     OsduId,
     parse_osdu_id,
     resolve_osdu_id,
     unresolved_reason,
+)
+from geodetic_engine.geodesy.errors import (
+    UnembeddableOperationError,
+    UnresolvableCRSError,
 )
 
 if TYPE_CHECKING:

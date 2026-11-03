@@ -28,19 +28,20 @@ from pyproj.database import get_authorities
 from pyproj.enums import TransformDirection
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.database import (
+from geodetic_engine._referencing.database import (
     DatabaseIdentity,
     IdentifiedObject,
     database_identity,
+    recorded_identifiers,
 )
-from geodetic_engine.geodesy.errors import OperationNotAvailableError
-from geodetic_engine.geodesy.osdu_id import (
+from geodetic_engine._referencing.osdu_id import (
     SCHEME,
     OsduId,
     parse_osdu_id,
     resolve_osdu_id,
     unresolved_reason,
 )
+from geodetic_engine.geodesy.errors import OperationNotAvailableError
 
 if TYPE_CHECKING:
     from geodetic_engine.persistablereference.stored import CatalogPersistableReference
@@ -389,7 +390,6 @@ class AppliedOperation:
             AmbiguousCatalogReferenceError: If records publishing different
                 references name the operation applied.
         """
-        from geodetic_engine.geodesy.database import recorded_identifiers
         from geodetic_engine.persistablereference.stored import (
             persistable_reference_from_catalog,
         )
