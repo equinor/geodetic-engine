@@ -43,6 +43,11 @@ SUBPACKAGES: tuple[tuple[str, str], ...] = (
         "Read and write OSDU persistableReference definitions.",
     ),
     (
+        "geodetic_engine.units",
+        "Read length and angle units from symbols, OSDU unit ids and unit "
+        "persistableReferences.",
+    ),
+    (
         "geodetic_engine.georepository",
         "OAuth2 client for the Georepository geodetic registry API.",
     ),

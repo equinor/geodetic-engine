@@ -4,6 +4,7 @@ CRS and coordinate operation failures keep the types
 :mod:`geodetic_engine.geodesy` raises for them; these cover the survey itself.
 """
 
+from geodetic_engine import units
 from geodetic_engine.errors import GeodeticEngineError
 
 
@@ -31,9 +32,11 @@ class InvalidInputError(WellTrajectoryError):
     """
 
 
-class UnitError(WellTrajectoryError):
+class UnitError(units.UnitError, WellTrajectoryError):
     """A unit was not recognised, or is not a unit of the quantity needed.
 
-    Never resolved to a default: a length read in the wrong unit moves every
-    position by a plausible looking amount.
+    The :class:`~geodetic_engine.units.UnitError` of a well trajectory input,
+    so a :class:`WellTrajectoryError` too. Never resolved to a default: a
+    length read in the wrong unit moves every position by a plausible looking
+    amount.
     """

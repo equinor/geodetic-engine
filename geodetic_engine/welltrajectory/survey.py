@@ -12,17 +12,11 @@ import math
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from urllib.parse import unquote
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from geodetic_engine.persistablereference import (
-    PersistableReferenceError,
-    UnitReference,
-    looks_like_reference,
-    parse_persistable_reference,
-)
+from geodetic_engine import units
 from geodetic_engine.welltrajectory.errors import (
     InvalidInputError,
     InvalidSurveyError,
@@ -30,26 +24,6 @@ from geodetic_engine.welltrajectory.errors import (
 )
 
 type FloatArray = NDArray[np.float64]
-
-# Metres per unit, by casefolded symbol or name.
-_LENGTHS = {
-    **dict.fromkeys(("m", "metre", "meter", "metres", "meters"), 1.0),
-    **dict.fromkeys(("ft", "foot", "feet", "international foot"), 0.3048),
-    **dict.fromkeys(("ftus", "ft[us]", "usft", "us survey foot"), 1200 / 3937),
-    "km": 1000.0,
-    "cm": 0.01,
-    "mm": 0.001,
-    "in": 0.0254,
-}
-# Radians per unit, by casefolded symbol or name.
-_ANGLES = {
-    **dict.fromkeys(("deg", "dega", "degree", "degrees"), math.pi / 180),
-    **dict.fromkeys(("rad", "radian", "radians"), 1.0),
-    **dict.fromkeys(("gon", "grad", "grads"), math.pi / 200),
-}
-_UNIT_OF_MEASURE = "UnitOfMeasure:"
-# OSDU baseMeasurement ancestries accepted for each quantity, casefolded.
-_MEASUREMENTS = {"length": {"length"}, "angle": {"plane_angle", "angle"}}
 
 
 class NorthReference(StrEnum):
@@ -164,7 +138,7 @@ class Survey:
 
 
 def length_factor(unit: str) -> float:
-    """Metres per ``unit``.
+    """Metres per ``unit``, as :func:`geodetic_engine.units.length_unit` reads it.
 
     Args:
         unit: A symbol or name (``"m"``, ``"ft"``, ``"ftUS"``), an OSDU unit id
@@ -178,42 +152,22 @@ def length_factor(unit: str) -> float:
         >>> length_factor("ft")
         0.3048
     """
-    return _factor(unit, _LENGTHS, "length")
+    try:
+        return units.length_unit(unit).scale
+    except units.UnitError as error:
+        raise UnitError(str(error)) from error
 
 
 def angle_factor(unit: str) -> float:
-    """Radians per ``unit``, read the same ways as :func:`length_factor`."""
-    return _factor(unit, _ANGLES, "angle")
+    """Radians per ``unit``, as :func:`geodetic_engine.units.angle_unit` reads it.
 
-
-def _factor(unit: str, table: dict[str, float], quantity: str) -> float:
-    text = unquote(str(unit)).strip()
-    if looks_like_reference(text):
-        return _reference_factor(text, quantity)
-    if _UNIT_OF_MEASURE in text:
-        text = text.split(_UNIT_OF_MEASURE, 1)[1].split(":", 1)[0]
-    if (factor := table.get(text.casefold())) is None:
-        raise UnitError(f"{unit!r} is not a {quantity} unit this package knows")
-    return factor
-
-
-def _reference_factor(payload: str, quantity: str) -> float:
-    """The scale of an OSDU unit persistableReference, refusing an offset."""
+    Raises:
+        UnitError: If the unit is not recognised, or is not an angle.
+    """
     try:
-        reference = parse_persistable_reference(payload)
-        if not isinstance(reference, UnitReference):
-            raise UnitError(f"the payload given as a {quantity} unit is not a unit")
-        scale, offset = reference.scale, reference.offset
-    except PersistableReferenceError as error:
-        raise UnitError(f"could not read a {quantity} unit: {error}") from error
-    if reference.measurement.casefold() not in _MEASUREMENTS[quantity] or offset:
-        raise UnitError(
-            f"{reference.symbol!r} ({reference.measurement or 'no measurement'}) "
-            f"is not a {quantity} unit converted by a plain scale"
-        )
-    if not (math.isfinite(scale) and scale > 0):
-        raise UnitError(f"{reference.symbol!r} has a {quantity} scale of {scale!r}")
-    return scale
+        return units.angle_unit(unit).scale
+    except units.UnitError as error:
+        raise UnitError(str(error)) from error
 
 
 def _column(values: ArrayLike, name: str) -> FloatArray:

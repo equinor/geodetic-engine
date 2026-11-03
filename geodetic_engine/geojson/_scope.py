@@ -23,12 +23,10 @@ conversion between vertical CRSs.
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
-from urllib.parse import unquote
 
 from pyproj import CRS
 from pyproj.exceptions import CRSError
@@ -47,14 +45,10 @@ from geodetic_engine.geojson.errors import (
     UnsupportedGeoJsonError,
 )
 from geodetic_engine.persistablereference import (
-    PersistableReferenceError,
-    UnitReference,
     looks_like_reference,
-    parse_persistable_reference,
     to_persistable_reference,
 )
-from geodetic_engine.welltrajectory.errors import UnitError
-from geodetic_engine.welltrajectory.survey import length_factor
+from geodetic_engine.units import Unit, UnitError, length_unit
 
 type Output = Literal["auto", "geojson", "anycrs"]
 
@@ -79,99 +73,13 @@ _VERTICAL_CRS: Final = (
 )
 _RECORD_ID: Final = "CoordinateReferenceSystemID"
 _PAYLOAD: Final = "persistableReferenceCrs"
-_UNIT_OF_MEASURE: Final = "UnitOfMeasure:"
 # WGS 84's ellipsoid: semi-major axis in metres and inverse flattening.
 _WGS84_ELLIPSOID: Final = (6378137.0, 298.257223563)
 _DEGREE: Final = math.pi / 180
 # The axis directions of RFC 7946 positions, in value order.
 _LONGITUDE_LATITUDE: Final = (("east", "north"), ("east", "north", "up"))
 
-
-@dataclass(frozen=True, slots=True)
-class LengthUnit:
-    """A length unit, as metres = ``scale * value``.
-
-    Attributes:
-        symbol: Its symbol, for messages and for a payload written for it.
-        scale: Metres per unit.
-        payload: The persistableReference it was read from, to be written
-            back unchanged.
-    """
-
-    symbol: str
-    scale: float
-    payload: str | None = field(default=None, compare=False)
-
-    def to_metres(self, value: float) -> float:
-        """A value in this unit, in metres."""
-        return self.scale * value
-
-    def from_metres(self, value: float) -> float:
-        """A value in metres, in this unit."""
-        return value / self.scale
-
-    def reference(self) -> str:
-        """The unit as a persistableReference.
-
-        The payload it was read from, if any. Otherwise a ``USO`` payload in
-        the form the OSDU CRS conversion service writes: for metres, exactly
-        the service's own.
-        """
-        if self.payload is not None:
-            return self.payload
-        stated = {
-            "scaleOffset": {"scale": self.scale, "offset": 0.0},
-            "symbol": self.symbol,
-            "baseMeasurement": {"ancestry": "Length", "type": "UM"},
-            "type": "USO",
-        }
-        return json.dumps(stated, separators=(",", ":"))
-
-
-METRE: Final = LengthUnit("m", 1.0)
-
-
-def length_unit(value: object) -> LengthUnit:
-    """Read a length unit.
-
-    Args:
-        value: A symbol or name such as ``"ft"``, an OSDU ``UnitOfMeasure``
-            record id, or an OSDU unit persistableReference. Symbols and ids are
-            read as :func:`~geodetic_engine.welltrajectory.length_factor` reads
-            them.
-
-    Raises:
-        ValueError: If ``value`` is none of these, not a length unit, or a
-            payload converting with an offset, which no length unit has.
-    """
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"a unit is a non-empty string, not {value!r}")
-    text = value.strip()
-    if not looks_like_reference(text):
-        try:
-            return LengthUnit(_symbol(text), length_factor(text))
-        except UnitError as error:
-            raise ValueError(str(error)) from error
-    try:
-        reference = parse_persistable_reference(text)
-        if not isinstance(reference, UnitReference):
-            raise ValueError("the persistableReference given as a unit is not a unit")
-        scale, offset = reference.scale, reference.offset
-    except PersistableReferenceError as error:
-        raise ValueError(f"cannot read the unit: {error}") from error
-    if reference.measurement != "length":
-        raise ValueError(
-            f"{reference.symbol!r} ({reference.measurement or 'no measurement'}) "
-            "is not a length unit"
-        )
-    if not (math.isfinite(scale) and scale > 0):
-        raise ValueError(f"{reference.symbol!r} converts by a scale of {scale!r}")
-    if offset != 0.0:
-        raise ValueError(
-            f"{reference.symbol!r} converts with an offset of {offset!r}, which no "
-            "length unit has"
-        )
-    return LengthUnit(reference.symbol or text, scale, payload=text)
+METRE: Final = Unit("m", "length", 1.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,7 +99,7 @@ class Source:
     """
 
     crs: CoordinateReferenceSystem | None
-    z_unit: LengthUnit | None
+    z_unit: Unit | None
     stated_by: str
 
     def crs_for(self, dimension: int) -> CoordinateReferenceSystem:
@@ -287,7 +195,7 @@ class Target:
 
     crs: CoordinateReferenceSystem
     flavour: Flavour
-    z_unit: LengthUnit | None
+    z_unit: Unit | None
     record_id: str | None
     given: Any = field(compare=False, repr=False)
 
@@ -317,7 +225,7 @@ def read_target(
     *,
     source: Flavour,
     output: Output = "auto",
-    target_unit_z: object = None,
+    target_unit_z: str | None = None,
 ) -> Target:
     """Where a document's positions are to go, and what it is written as.
 
@@ -332,8 +240,9 @@ def read_target(
             accepts.
         source: The flavour of the document being converted.
         output: ``"auto"``, ``"geojson"`` or ``"anycrs"``.
-        target_unit_z: The unit to write heights in, as :func:`length_unit`
-            reads it, or None. Plain GeoJSON heights are in metres.
+        target_unit_z: The unit to write heights in, as
+            :func:`~geodetic_engine.units.length_unit` reads it, or None. Plain
+            GeoJSON heights are in metres.
 
     Raises:
         ValueError: If ``output`` is not one of the above, cannot be written
@@ -365,8 +274,8 @@ def read_target(
     if target_unit_z is not None:
         try:
             z_unit = length_unit(target_unit_z)
-        except ValueError as error:
-            raise ValueError(f"target_unit_z: {error}") from error
+        except UnitError as error:
+            raise UnitError(f"target_unit_z: {error}") from error
     if flavour is Flavour.GEOJSON:
         if z_unit is not None and z_unit.scale != 1.0:
             raise ValueError(
@@ -518,19 +427,11 @@ def _resolve(text: str, path: str) -> CoordinateReferenceSystem:
         raise UnresolvableCRSError(f"{path}: {error}") from error
 
 
-def _document_unit(text: str, path: str) -> LengthUnit:
+def _document_unit(text: str, path: str) -> Unit:
     try:
         return length_unit(text)
-    except ValueError as error:
+    except UnitError as error:
         raise InvalidGeoJsonError(path, str(error)) from error
-
-
-def _symbol(text: str) -> str:
-    """The symbol a unit symbol or ``UnitOfMeasure`` record id names."""
-    text = unquote(text)
-    if _UNIT_OF_MEASURE in text:
-        return text.split(_UNIT_OF_MEASURE, 1)[1].split(":", 1)[0]
-    return text
 
 
 def _same_crs(

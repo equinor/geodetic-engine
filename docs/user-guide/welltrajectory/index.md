@@ -50,7 +50,7 @@ flowchart LR
 | Run minimum curvature without a CRS | {class}`~geodetic_engine.welltrajectory.MinimumCurvature` |
 | Choose how the offsets are georeferenced in the CRS | {class}`~geodetic_engine.welltrajectory.Method` |
 | Look at the wells in 3D | {func}`~geodetic_engine.welltrajectory.plot_trajectory`, {func}`~geodetic_engine.welltrajectory.open_in_browser` |
-| Convert a unit name into metres or radians | {func}`~geodetic_engine.welltrajectory.length_factor`, {func}`~geodetic_engine.welltrajectory.angle_factor` |
+| Convert a unit name into metres or radians | {func}`~geodetic_engine.welltrajectory.length_factor`, {func}`~geodetic_engine.welltrajectory.angle_factor`, or {func}`~geodetic_engine.units.length_unit` and {func}`~geodetic_engine.units.angle_unit` for the whole unit |
 
 ## Conventions
 
