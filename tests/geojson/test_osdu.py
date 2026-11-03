@@ -4,20 +4,86 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import pyproj
 import pytest
 
 from geodetic_engine.geodesy import AmbiguousOperationError, CoordinateReferenceSystem
 from geodetic_engine.geojson import convert_geojson_request
 from geodetic_engine.geojson._scope import is_wgs84_lonlat
+from geodetic_engine.osdudb.build import build
+from geodetic_engine.osdudb.config import OsduBuildConfig
+from tests.support import installed_proj_db
 
 DATA = Path(__file__).parent / "data"
 EXAMPLES = sorted((DATA / "osdu").glob("*.json"))
+CATALOG = (
+    Path(__file__).parents[2]
+    / "catalogs"
+    / "osdu"
+    / "CRS_CT_osdu_official_crs_catalog.json"
+)
+# A CRS or transformation record id, without its partition and version.
+RECORD = re.compile(
+    r"reference-data--(?:CoordinateReferenceSystem:\w+|CoordinateTransformation)"
+    r":\w+::[\w.]+(?:::[\w.]+)?"
+)
 # A datum change without a named operation, which the service settles by its
 # own choice and this package refuses to.
 NEEDS_AN_OPERATION = {"05_point_2D_SAD69_to_WGS84", "14_geometry_collection"}
+
+
+@pytest.fixture(scope="session")
+def osdu_database(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A proj.db built from the official catalogue records the examples name.
+
+    The examples name CRSs by OSDU record id, which only a database built from
+    an OSDU catalogue records, and the suite otherwise reads the stock one.
+    """
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+    records = {
+        record["id"].split(":", 1)[1]: record for record in catalog["ReferenceData"]
+    }
+    wanted = [
+        key
+        for path in EXAMPLES
+        for key in RECORD.findall(path.read_text(encoding="utf-8"))
+    ]
+    chosen: dict[str, Any] = {}
+    while wanted:
+        key = wanted.pop()
+        if key not in chosen and key in records:
+            chosen[key] = records[key]
+            wanted += RECORD.findall(json.dumps(records[key]))
+    subset = tmp_path_factory.mktemp("catalog") / "CRS_CT.json"
+    subset.write_text(
+        json.dumps({**catalog, "ReferenceData": list(chosen.values())}),
+        encoding="utf-8",
+    )
+    directory = tmp_path_factory.mktemp("osdu-proj-data")
+    build(
+        OsduBuildConfig(
+            catalog=subset,
+            base_proj_db=installed_proj_db(),
+            output_db=directory / "proj.db",
+        )
+    )
+    return directory
+
+
+@pytest.fixture(autouse=True)
+def _reading_osdu_ids(osdu_database: Path) -> Iterator[None]:
+    previous = pyproj.datadir.get_data_dir()
+    pyproj.datadir.set_data_dir(f"{osdu_database}{os.pathsep}{previous}")
+    try:
+        yield
+    finally:
+        pyproj.datadir.set_data_dir(previous)
 
 
 def _load(path: Path) -> dict[str, Any]:
