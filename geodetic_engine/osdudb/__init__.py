@@ -15,9 +15,11 @@ The public surface is deliberately small: a configuration object, a build
 function, a validation function, and the errors they raise.
 
 A release wheel also ships the official catalogue already built into PROJ's
-database, and PROJ reads it unless another database was chosen.
-:func:`active_database` reports which database PROJ reads and why, and
-:func:`use_bundled_database` switches the shipped one on or off.
+database, and PROJ reads it unless another database was chosen. An installed
+distribution can provide a database in its place, through the entry point
+group ``geodetic_engine.proj_data``. :func:`active_database` reports which
+database PROJ reads and why, and :func:`use_bundled_database` switches the
+bundled one on or off.
 """
 
 from geodetic_engine._bundled_database import (

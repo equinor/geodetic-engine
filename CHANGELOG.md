@@ -3,6 +3,34 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- An installed distribution can provide the database PROJ reads in place of
+  the shipped OSDU one, by naming a directory that holds a `proj.db` under the
+  entry point group `geodetic_engine.proj_data`. The import's rules,
+  `use_bundled_database()` and `active_database()` treat it as the bundled
+  database, and the reason names the distribution. It is passed over, with a
+  warning, if it was built for another PROJ release than pyproj links, if
+  more than one distribution provides one, or if it cannot be loaded. It is
+  found, and its module imported, before the search path lock is taken.
+- `scripts/build_organisation_projdb.py` builds a Georepository register once,
+  as a wheel its users `pip install` from a private package index, with no
+  Georepository URL, authorities or credentials of their own. It builds the
+  register, the official OSDU catalogue and the grid filename patches into
+  the pinned pyproj wheel's own `proj.db`, in a new environment that no
+  variable of the caller's reaches but the two credentials, and refuses a
+  database that does not open read-only, carries other metadata than the
+  wheel's `proj.db`, or holds nothing of an authority it imported. The wheel
+  is versioned as the PROJ release and the minute of the build, so
+  `<name>==<PROJ release>.*` installs the newest build for that release, and
+  holds the database alone in its directory, the build reports, and a
+  manifest naming the PROJ release, EPSG version and database layout it is
+  for. The new page *Sharing a built database* explains why it belongs in a
+  private index and not a public one, how to avoid dependency confusion with
+  uv and pip, and gives a workflow that builds and uploads it.
+
 ## 0.2.0 - 2026-11-04
 
 ### Added

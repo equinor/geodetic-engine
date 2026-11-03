@@ -15,6 +15,7 @@ import sqlite3
 import struct
 import subprocess
 import sys
+import zipfile
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ from geodetic_engine.projdb.schema import (
     IDENTIFIER_DDL,
     IDENTIFIER_TABLE,
 )
+from scripts.build_organisation_projdb import write_wheel
 from tests.support import URI_SYNTAX_DIRECTORIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -181,6 +183,7 @@ def _probe(
     before: str = "",
     after: str = "",
     root: Path | None = None,
+    installed: tuple[Path, ...] = (),
     timeout: float | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     paths = installation.paths()
@@ -190,7 +193,9 @@ def _probe(
         .replace("PIPELINE", repr(PIPELINE), 1)
     )
     environment = _clean_environment(
-        PYTHONPATH=str(root or installation.root),
+        PYTHONPATH=os.pathsep.join(
+            [str(root or installation.root), *map(str, installed)]
+        ),
         **{name: value.format(**paths) for name, value in (variables or {}).items()},
     )
     result = subprocess.run(
@@ -740,6 +745,163 @@ def test_an_installation_without_the_database_changes_nothing(
     [state] = states
     assert state["path"] == str(installation.stock)
     assert "has no bundled OSDU database" in state["reason"]
+
+
+def _installed_wheel(installation: Installation, directory: Path) -> Path:
+    """A wheel scripts/build_organisation_projdb.py writes, as pip installs it."""
+    database = _marked_copy(
+        installation.stock, directory / "built" / "proj.db", "provided"
+    )
+    wheel = write_wheel(
+        directory,
+        name="example-projdb",
+        version=f"{pyproj.proj_version_str}.1",
+        database=database,
+        record={"proj_version": pyproj.proj_version_str, "authorities": {}},
+    )
+    with zipfile.ZipFile(wheel) as archive:
+        archive.extractall(directory / "site")
+    return directory / "site"
+
+
+def _provider(
+    directory: Path, name: str, database: Path | None, value: str | None = None
+) -> Path:
+    """A distribution that names a directory under the entry point group."""
+    module = name.replace("-", "_")
+    (directory / module / "proj_data").mkdir(parents=True)
+    (directory / module / "__init__.py").write_text(
+        "from pathlib import Path\n"
+        "PROJ_DATA = Path(__file__).resolve().parent / 'proj_data'\n"
+    )
+    if database is not None:
+        shutil.copyfile(database, directory / module / "proj_data" / "proj.db")
+    info = directory / f"{module}-1.0.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(
+        f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n"
+    )
+    (info / "entry_points.txt").write_text(
+        f"[geodetic_engine.proj_data]\n{name} = {value or module + ':PROJ_DATA'}\n"
+    )
+    return directory
+
+
+def test_an_installed_database_takes_the_shipped_ones_place(
+    installation: Installation, tmp_path: Path
+) -> None:
+    site = _installed_wheel(installation, tmp_path)
+    provided = (site / "example_projdb" / "proj_data" / "proj.db").resolve()
+    states, log = _probe(
+        installation,
+        installed=(site,),
+        after="record(); use_bundled_database(False); record(); use_bundled_database()",
+    )
+    assert [state["path"] for state in states] == [
+        str(provided),
+        str(installation.stock),
+        str(provided),
+    ]
+    assert [state["bundled"] for state in states] == [True, False, True]
+    assert states[0]["epsg"] == states[2]["epsg"] == "provided"
+    assert states[0]["reason"] == (
+        f"example-projdb {pyproj.proj_version_str}.1 provides it, and nothing "
+        "chose another database"
+    )
+    assert str(installation.stock.parent) in states[0]["search_path"]
+    assert states[0]["provenance"][0] == str(provided)
+    assert "WARNING" not in log
+
+
+@pytest.mark.parametrize(
+    ("variables", "expected"),
+    [
+        pytest.param({"PROJ_DATA": "{user}{sep}{grids}"}, "user", id="PROJ_DATA"),
+        pytest.param(
+            {"GEODETIC_ENGINE_OSDU_DB": "0", "PROJ_DATA": "{stock}{sep}{grids}"},
+            "stock",
+            id="GEODETIC_ENGINE_OSDU_DB=0",
+        ),
+    ],
+)
+def test_a_database_chosen_otherwise_wins_over_an_installed_one(
+    installation: Installation,
+    tmp_path: Path,
+    variables: dict[str, str],
+    expected: str,
+) -> None:
+    [state], _ = _probe(
+        installation,
+        installed=(_installed_wheel(installation, tmp_path),),
+        variables=variables,
+    )
+    assert state["path"] == str(getattr(installation, expected))
+    assert not state["bundled"]
+
+
+def _other_release(installation: Installation, directory: Path) -> list[Path]:
+    database = _marked_copy(installation.stock, directory / "db" / "proj.db", "other")
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute(
+            "UPDATE metadata SET value = '0.0.0' WHERE key = 'PROJ.VERSION'"
+        )
+    return [_provider(directory / "site", "example-projdb", database)]
+
+
+def _two(installation: Installation, directory: Path) -> list[Path]:
+    return [
+        _provider(directory / "one", "one-projdb", installation.stock),
+        _provider(directory / "two", "two-projdb", installation.stock),
+    ]
+
+
+def _unloadable(installation: Installation, directory: Path) -> list[Path]:
+    site = directory / "site"
+    return [_provider(site, "example-projdb", installation.stock, "missing:PROJ_DATA")]
+
+
+def _empty(installation: Installation, directory: Path) -> list[Path]:
+    return [_provider(directory / "site", "example-projdb", None)]
+
+
+@pytest.mark.parametrize(
+    ("providers", "warning"),
+    [
+        pytest.param(
+            _other_release,
+            "example-projdb 1.0 provides a proj.db for PROJ 0.0.0, not the PROJ "
+            f"{pyproj.proj_version_str} pyproj links, so it is not read",
+            id="another PROJ release",
+        ),
+        pytest.param(
+            _two,
+            "one-projdb 1.0, two-projdb 1.0 each provide a proj.db under "
+            "geodetic_engine.proj_data, so none of them is read",
+            id="two distributions",
+        ),
+        pytest.param(
+            _unloadable,
+            "example-projdb 1.0 provides no proj.db that can be read: loading "
+            "missing:PROJ_DATA raised ModuleNotFoundError",
+            id="cannot be loaded",
+        ),
+        pytest.param(
+            _empty,
+            "example-projdb 1.0 provides no proj.db at ",
+            id="no proj.db",
+        ),
+    ],
+)
+def test_an_installed_database_that_cannot_be_read_leaves_the_shipped_one(
+    installation: Installation, tmp_path: Path, providers: Any, warning: str
+) -> None:
+    [state], log = _probe(
+        installation, installed=tuple(providers(installation, tmp_path))
+    )
+    assert state["path"] == str(installation.bundled)
+    assert state["epsg"] == "bundled"
+    assert state["reason"] == "it is the default, and nothing chose another database"
+    assert f"WARNING geodetic_engine._bundled_database: {warning}" in log
 
 
 @pytest.mark.parametrize(

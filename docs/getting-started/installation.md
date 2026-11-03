@@ -86,6 +86,15 @@ when the shipped database is not used, for example
 `PROJ_LIB=C:\OSGeo4W\share\proj holds a proj.db`. Configure logging before
 the import to see it.
 
+An installed distribution can provide a database in place of the shipped one:
+your organisation's register built into a wheel, for example
+({doc}`/user-guide/sharing`). It names a directory that holds a `proj.db`
+under the entry point group `geodetic_engine.proj_data`. The rules above,
+`use_bundled_database()` and `active_database()` then treat its database as
+the shipped one, and the reason names the distribution. It is passed over,
+with a warning, if it was built for another PROJ release than pyproj links, if
+more than one distribution provides one, or if it cannot be loaded.
+
 To see which database PROJ reads, and why:
 
 ```python

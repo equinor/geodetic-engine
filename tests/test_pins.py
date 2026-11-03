@@ -103,6 +103,7 @@ def _print_pins(**overrides: str) -> dict[str, str]:
         ".github/workflows/tests.yml",
         ".github/workflows/pypi_release.yml",
         ".github/workflows/pyproj-wheels.yml",
+        "scripts/build_organisation_projdb.py",
     ],
 )
 def test_no_build_input_states_a_pin_of_its_own(relative: str) -> None:

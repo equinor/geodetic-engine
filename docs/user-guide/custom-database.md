@@ -18,6 +18,7 @@ package and in anything else built on PROJ that reads the same file.
 | Only EPSG codes | Nothing: the official `proj.db` already has them |
 | Records carry a full OSDU `persistableReference` | Nothing: {doc}`/persistable-reference/usage` transforms with the payload directly |
 | CRSs and transformations in a Georepository register | {doc}`projdb` |
+| A register's CRSs and transformations, without Georepository credentials | A database someone built once and shared: {doc}`sharing` |
 | Data that names CRSs by OSDU code, such as `OSDU:23032023` | {doc}`osdudb` |
 | Data that names CRSs and transformations by OSDU record id | {doc}`osdudb` ({ref}`osdu-record-ids`) |
 | An OSDU catalogue newer than the EPSG dataset PROJ ships | {doc}`osdudb`, with `EPSG` among the authorities |
@@ -103,4 +104,5 @@ build that defined it. {doc}`combining` has the details.
 From Georepository <projdb>
 From OSDU <osdudb>
 Combining sources and using the result <combining>
+Sharing a built database <sharing>
 ```

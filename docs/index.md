@@ -150,6 +150,7 @@ each workaround can be removed.
 | Read or write an OSDU `persistableReference` | {doc}`persistable-reference/usage` |
 | Understand what a `persistableReference` is, or look up the one a catalogue publishes | {doc}`persistable-reference/index`, {doc}`persistable-reference/catalog` |
 | Add my organisation's CRSs and transformations to PROJ | {doc}`user-guide/custom-database` |
+| Use my organisation's CRSs without Georepository credentials | {doc}`user-guide/sharing` |
 | Know what the package does differently from plain pyproj | {doc}`background/guarantees` |
 | Look up a term such as *bound CRS* or *ballpark* | {doc}`glossary` |
 
