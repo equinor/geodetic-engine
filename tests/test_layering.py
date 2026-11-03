@@ -24,9 +24,11 @@ for name in sorted(sys.modules):
     ("package", "forbidden"),
     [
         ("geodetic_engine.geojson", ["geodetic_engine.welltrajectory"]),
+        ("geodetic_engine.persistablereference", ["geodetic_engine.geodesy"]),
         (
             "geodetic_engine.units",
             [
+                "geodetic_engine.geodesy",
                 "geodetic_engine.welltrajectory",
                 "geodetic_engine.geojson",
                 "geodetic_engine.bingrid",

@@ -148,3 +148,17 @@ modules = [
     "geodetic_engine.bingrid",
     "geodetic_engine.geojson",
 ]
+
+[[tool.importlinter.contracts]]
+name = "units reads units without the transformation API or a domain package"
+type = "forbidden"
+source_modules = ["geodetic_engine.units"]
+forbidden_modules = [
+    "geodetic_engine.geodesy",
+    "geodetic_engine.welltrajectory",
+    "geodetic_engine.bingrid",
+    "geodetic_engine.geojson",
+    "geodetic_engine.osdudb",
+    "geodetic_engine.projdb",
+    "geodetic_engine.georepository",
+]

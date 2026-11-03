@@ -274,6 +274,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `geodesy` and `persistablereference` no longer import each other (#29).
+  proj.db access, OSDU record ids, the PROJJSON inspection payloads need, the
+  `xy` axis-order model, the Helmert algebra, and `GeodesyError`,
+  `UnembeddableOperationError` and `NotCollapsibleError` moved to a private
+  lower layer, `geodetic_engine._referencing`. Every public import path still
+  works, re-exporting the same objects, so `except` clauses match as before;
+  only `geodetic_engine.geodesy.utils.helmert` and `.abridged`, never
+  documented, are gone, with their names still in `geodesy.utils`. A traceback
+  names the three moved exceptions by their new module. Importing
+  `persistablereference` no longer loads `geodesy`, and importing `geodesy`
+  now loads `persistablereference` up front, about 20 ms of a 1.2 s import.
+  `persistable_reference_from_catalog` and `missing_reference_reason` accept
+  any `ResolvedCrs`, an object with the `definition` it was resolved from and
+  its pyproj `crs`, as a `CoordinateReferenceSystem` is. `lint-imports`
+  ([import-linter](https://import-linter.readthedocs.io/)) now runs in the
+  lint workflow and enforces the layering, that `welltrajectory`, `bingrid`
+  and `geojson` do not import each other, and that `units` imports neither
+  `geodesy` nor a domain package.
+
 - `welltrajectory.UnitError` is also a `units.UnitError`, and so a
   `ValueError`; it is still a `WellTrajectoryError`. Some of its messages for a
   unit persistableReference are worded differently, and a unit that is not a

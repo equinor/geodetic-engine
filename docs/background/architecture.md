@@ -62,6 +62,7 @@ straight from it.
 | {mod}`geodetic_engine.geodesy.utils` | Helmert composition and collapse, abridged-transformation unit fixes |
 | {mod}`geodetic_engine.welltrajectory` | Directional surveys, minimum curvature, georeferencing in a CRS through `geodesy`, 3D plots |
 | {mod}`geodetic_engine.persistablereference` | OSDU `persistableReference` and ESRI WKT reading and writing |
+| {mod}`geodetic_engine.units` | Length and angle units, read from symbols, OSDU unit ids and unit `persistableReference`s |
 | {mod}`geodetic_engine.georepository` | Authentication, HTTP requests, pagination, response caching |
 | {mod}`geodetic_engine.projdb` | Georepository import, and the shared database writer, schema check, validation and build report |
 | {mod}`geodetic_engine.osdudb` | OSDU catalogue parsing and definition recovery, on the shared database infrastructure |
@@ -74,7 +75,18 @@ straight from it.
 these contracts in CI, configured in `pyproject.toml`. Imports inside functions
 and under `TYPE_CHECKING` count as imports.
 
-- `geodesy` reads payloads through `persistablereference`, and
-  `persistablereference` never imports `geodesy`. The imports that still run
-  the other way are listed in the contract, until issue #29 removes them.
+- Three layers, each importing only from those below it:
+
+  | Layer | Holds |
+  | --- | --- |
+  | `geodesy` | The public transformation API: resolving any input, operation policy, transforming, results |
+  | `persistablereference` | OSDU payloads and ESRI WKT, read into and written from pyproj objects |
+  | `_referencing` | Private: proj.db access, OSDU record ids, PROJJSON inspection, the `xy` axis-order model, the Helmert algebra, and the exceptions they raise |
+
+  `geodesy` accepts a payload wherever it accepts a CRS or an operation, so it
+  reads payloads through `persistablereference`; `persistablereference` never
+  imports `geodesy`. What is public in `_referencing` is re-exported, and
+  documented, where it was before: `geodesy`, `geodesy.utils`,
+  `geodesy.errors`, `geodesy.database` and `geodesy.osdu_id`.
 - `welltrajectory`, `bingrid` and `geojson` do not import each other.
+- `units` imports neither `geodesy` nor any domain package.
