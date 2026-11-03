@@ -41,7 +41,8 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "import-linter>=2.1",
-    "ipykernel>=6.29",
+    # 7.x hangs cell execution in the VS Code Jupyter extension (microsoft/vscode-jupyter#17228)
+    "ipykernel>=6.29,<7",
     "pandas-stubs>=2.0",
     "types-shapely>=2.1",
     "plotly>=6.1",
