@@ -7,18 +7,24 @@ the converted document is written as.
 An RFC 7946 document is in WGS 84 longitude and latitude, OGC:CRS84, and a
 third value is a height in metres above the ellipsoid, OGC:CRS84h. Another CRS
 can be agreed with whoever wrote it, which is what ``source_crs`` gives. A
-GeoJSON 2008 ``crs`` member is read only when it names CRS84, as GDAL writes
-it: any other CRS is refused for now, since reading it needs the axis-order
-rules RFC 7946 dropped it over.
+GeoJSON 2008 ``crs`` member names the CRS by URN or URL; its positions are
+read ``xy``, as GDAL and others wrote them, whatever the CRS declares.
+
+An OGC JSON-FG document states the CRS of each ``place`` in the nearest
+``coordRefSys``, with an optional coordinate epoch, and writes positions in
+that CRS's declared axis order. A feature's ``geometry`` is always CRS84 or
+CRS84h.
 
 An OSDU AnyCrs document states its CRS on its collection, by record id in
 ``CoordinateReferenceSystemID`` or in full in ``persistableReferenceCrs``. The
 record id takes precedence, as in the OSDU CRS conversion service, but gives
 way to the persistableReference when the proj.db in use does not record it.
 Heights are in ``VerticalUnitID``'s unit, or else
-``persistableReferenceUnitZ``'s. A vertical CRS stated for them is refused
-for now: the service ignores it and only scales the heights, which is not a
-conversion between vertical CRSs.
+``persistableReferenceUnitZ``'s. A vertical CRS stated for them, in
+``VerticalCoordinateReferenceSystemID`` or
+``persistableReferenceVerticalCrs``, makes positions with heights compound:
+the heights are transformed between vertical datums, where the service only
+scales them.
 """
 
 from __future__ import annotations
@@ -28,16 +34,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
-from pyproj import CRS
-from pyproj.exceptions import CRSError
-
 from geodetic_engine._referencing.osdu_id import parse_osdu_id
 from geodetic_engine.geodesy import CoordinateReferenceSystem, UnresolvableCRSError
+from geodetic_engine.geodesy._crs_tools import compound, same_crs
+from geodetic_engine.geodesy.errors import UnsupportedCRSError
+from geodetic_engine.geojson._jsonfg import coord_ref_sys, crs_name, read_coord_ref_sys
 from geodetic_engine.geojson._model import (
     ANYCRS_MEMBERS,
     LEGACY_CRS,
     Document,
     Flavour,
+    Geometry,
 )
 from geodetic_engine.geojson.errors import (
     GeoJsonCrsError,
@@ -50,27 +57,15 @@ from geodetic_engine.persistablereference import (
 )
 from geodetic_engine.units import Unit, UnitError, length_unit
 
-type Output = Literal["auto", "geojson", "anycrs"]
+type Output = Literal["auto", "geojson", "anycrs", "jsonfg", "jsonfg-plus"]
+type AxisOrder = Literal["xy", "crs"]
 
 CRS84: Final = "OGC:CRS84"
 CRS84H: Final = "OGC:CRS84h"
-OUTPUTS: Final = ("auto", "geojson", "anycrs")
+OUTPUTS: Final = ("auto", "geojson", "anycrs", "jsonfg", "jsonfg-plus")
 
-# Names GDAL and others write a GeoJSON 2008 crs member with for CRS84, which
-# RFC 7946 assumes anyway.
-_CRS84_NAMES: Final = frozenset(
-    {
-        "urn:ogc:def:crs:OGC:1.3:CRS84",
-        "urn:ogc:def:crs:OGC::CRS84",
-        "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
-        "https://www.opengis.net/def/crs/OGC/1.3/CRS84",
-        "OGC:CRS84",
-    }
-)
-_VERTICAL_CRS: Final = (
-    "VerticalCoordinateReferenceSystemID",
-    "persistableReferenceVerticalCrs",
-)
+_VERTICAL_RECORD_ID: Final = "VerticalCoordinateReferenceSystemID"
+_VERTICAL_PAYLOAD: Final = "persistableReferenceVerticalCrs"
 _RECORD_ID: Final = "CoordinateReferenceSystemID"
 _PAYLOAD: Final = "persistableReferenceCrs"
 # WGS 84's ellipsoid: semi-major axis in metres and inverse flattening.
@@ -87,68 +82,118 @@ class Source:
     """Where a document's positions are.
 
     Attributes:
-        crs: The CRS the document states or the caller gave. None for an RFC
-            7946 document, whose CRS depends on whether a position has a
+        crs: The CRS the document states or the caller gave. None for
+            positions in WGS 84, whose CRS depends on whether a position has a
             height: see :meth:`crs_for`. A ``source_crs`` repeating CRS84 or
             CRS84h leaves it None.
-        z_unit: The unit of a third value that a transformation carries
-            through rather than converts, or None when the document does not
+        z_unit: The unit of a third value, or None when the document does not
             say.
         stated_by: Where the CRS comes from, for messages: a JSON path,
             ``"source_crs"`` or ``"RFC 7946"``.
+        axis_order: ``"xy"``, or ``"crs"`` for positions in the CRS's
+            declared order, as JSON-FG writes them.
+        epoch: The coordinate epoch stated with the CRS, or None.
+        vertical: The vertical CRS of a third value, which positions with
+            heights are in together with :attr:`crs`, or None.
     """
 
     crs: CoordinateReferenceSystem | None
     z_unit: Unit | None
     stated_by: str
+    axis_order: AxisOrder = "xy"
+    epoch: float | None = None
+    vertical: CoordinateReferenceSystem | None = None
 
     def crs_for(self, dimension: int) -> CoordinateReferenceSystem:
         """The CRS of positions with ``dimension`` values."""
-        if self.crs is not None:
-            return self.crs
-        return CoordinateReferenceSystem.from_user_input(
-            CRS84H if dimension == 3 else CRS84
-        )
+        if self.crs is None:
+            return CoordinateReferenceSystem.from_user_input(
+                CRS84H if dimension == 3 else CRS84
+            )
+        if dimension == 3 and self.vertical is not None:
+            try:
+                return compound(self.crs, self.vertical)
+            except UnsupportedCRSError as error:
+                raise GeoJsonCrsError(self.stated_by, str(error)) from error
+        return self.crs
+
+
+def read_sources(document: Document, source_crs: object = None) -> tuple[Source, ...]:
+    """Where each of a document's geometries is, in document order.
+
+    One source for every geometry of an RFC 7946 or AnyCrs document. In a
+    JSON-FG document, a ``place`` is in the CRS of its nearest
+    ``coordRefSys``, or CRS84 without one, and a ``geometry`` in CRS84.
+
+    Raises:
+        As :func:`read_source`, and, for JSON-FG, :class:`GeoJsonCrsError` if
+        ``source_crs`` differs from a ``coordRefSys``.
+    """
+    if document.flavour is not Flavour.JSONFG:
+        source = read_source(document, source_crs)
+        return (source,) * len(document.geometries)
+    given = _given(source_crs)
+    _refuse_members(document.root, Flavour.JSONFG)
+    wgs84 = Source(None, METRE, "RFC 7946")
+    unscoped = _unscoped(given)
+    scopes: dict[str, Source] = {}
+    sources: list[Source] = []
+    for geometry in document.geometries:
+        if not geometry.placed:
+            sources.append(wgs84)
+        elif geometry.scope is None:
+            sources.append(unscoped)
+        else:
+            path = geometry.scope[0]
+            if path not in scopes:
+                scopes[path] = _scoped(geometry, given)
+            sources.append(scopes[path])
+    return tuple(sources)
 
 
 def read_source(document: Document, source_crs: object = None) -> Source:
     """Where a document's positions are.
 
+    For a JSON-FG document, where the positions of its root are: see
+    :func:`read_sources` for each geometry's.
+
     Args:
         document: The document.
         source_crs: A CRS agreed with whoever wrote the document, or None. For
-            an AnyCrs document that states one, it must be the same. For plain
+            a document that states one, it must be the same. For plain
             GeoJSON, CRS84 or CRS84h changes nothing: RFC 7946 already says
             so, heights included.
 
     Raises:
         InvalidGeoJsonError: If a CRS or unit member is not a string, a unit
-            cannot be read, or a plain document states an AnyCrs member.
-        UnsupportedGeoJsonError: If a GeoJSON 2008 ``crs`` member names a CRS
-            other than CRS84, or an AnyCrs document with heights states a
-            vertical CRS.
+            cannot be read, a plain document states an AnyCrs member, or a
+            vertical CRS member names no vertical CRS.
+        UnsupportedGeoJsonError: If a GeoJSON 2008 ``crs`` member is not a
+            ``name``.
         GeoJsonCrsError: If an AnyCrs document states no CRS and none is
             given, or the one given differs from the one stated.
         UnresolvableCRSError: If a CRS stated or given cannot be resolved.
     """
     root = document.root
-    given = (
-        None
-        if source_crs is None
-        else CoordinateReferenceSystem.from_user_input(source_crs)
-    )
+    given = _given(source_crs)
     if document.flavour is Flavour.GEOJSON:
         return _plain_source(root, given)
+    if document.flavour is Flavour.JSONFG:
+        _refuse_members(root, Flavour.JSONFG)
+        scope = root.get("coordRefSys")
+        if scope is None:
+            return _unscoped(given)
+        return _stated_scope("$.coordRefSys", scope, given)
     if LEGACY_CRS in root and root[LEGACY_CRS] is not None:
         raise UnsupportedGeoJsonError(
             f"$.{LEGACY_CRS}",
             "an AnyCrs document states its CRS in CoordinateReferenceSystemID or "
             "persistableReferenceCrs, not in a GeoJSON 2008 crs member",
         )
-    stated = _stated_crs(root)
+    stated = _stated_crs(root, _RECORD_ID, _PAYLOAD)
     if stated is not None:
         crs, stated_by = stated
-        if given is not None and not _same_crs(crs, given):
+        if given is not None and not same_crs(crs, given):
             raise GeoJsonCrsError(
                 stated_by,
                 f"the document's CRS, {_label(crs)}, is not source_crs, "
@@ -163,21 +208,17 @@ def read_source(document: Document, source_crs: object = None) -> Source:
             "persistableReferenceCrs, and this one states neither; give "
             "source_crs if it was agreed",
         )
-    if 3 in document.dimensions:
-        for key in _VERTICAL_CRS:
-            if _text(root, key) is not None:
-                raise UnsupportedGeoJsonError(
-                    f"$.{key}",
-                    "heights in a vertical CRS are not supported yet: converting "
-                    "them only by their unit would leave them in a vertical "
-                    "datum the target does not state",
-                )
+    vertical = None
+    if (found := _stated_crs(root, _VERTICAL_RECORD_ID, _VERTICAL_PAYLOAD)) is not None:
+        vertical, path = found
+        if not vertical.crs.is_vertical:
+            raise InvalidGeoJsonError(path, f"{_label(vertical)} is not a vertical CRS")
     z_unit = None
     for key in ("VerticalUnitID", "persistableReferenceUnitZ"):
         if (text := _text(root, key)) is not None:
             z_unit = _document_unit(text, f"$.{key}")
             break
-    return Source(crs, z_unit, stated_by)
+    return Source(crs, z_unit, stated_by, vertical=vertical)
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,10 +228,12 @@ class Target:
     Attributes:
         crs: The target CRS.
         flavour: What the converted document is written as.
-        z_unit: The unit to write heights in that a transformation carries
-            through, or None to keep the document's.
+        z_unit: The unit to write heights in, or None to keep the unit they
+            come out of the transformation in.
         record_id: The OSDU record id the target was named by, if it was.
         given: The target as given, to write a payload back unchanged.
+        plus: For JSON-FG, whether every feature with a ``place`` also gets a
+            ``geometry`` in WGS 84, for readers that only know GeoJSON.
     """
 
     crs: CoordinateReferenceSystem
@@ -198,13 +241,33 @@ class Target:
     z_unit: Unit | None
     record_id: str | None
     given: Any = field(compare=False, repr=False)
+    plus: bool = False
+
+    @property
+    def lonlat(self) -> bool:
+        """Whether the target is what RFC 7946 calls WGS 84."""
+        return is_wgs84_lonlat(self.crs)
+
+    def parts(
+        self,
+    ) -> tuple[CoordinateReferenceSystem, CoordinateReferenceSystem | None]:
+        """The horizontal CRS, and the vertical CRS of a compound target."""
+        definition = self.crs.crs
+        if definition.is_compound and len(definition.sub_crs_list) == 2:
+            horizontal, vertical = definition.sub_crs_list
+            return (
+                CoordinateReferenceSystem(horizontal, horizontal.name),
+                CoordinateReferenceSystem(vertical, vertical.name),
+            )
+        return self.crs, None
 
     def crs_reference(self) -> str:
         """The target CRS as a persistableReference, for an AnyCrs document.
 
         The payload the target was given as, if it was given as one; else the
         one the catalogue in proj.db publishes for it; else one written from
-        its definition, with no authority code claimed for it.
+        its definition, with no authority code claimed for it. For a compound
+        target, that of its horizontal part.
 
         Raises:
             AmbiguousCatalogReferenceError: If catalogue records publishing
@@ -214,10 +277,16 @@ class Target:
         """
         if isinstance(self.given, str) and looks_like_reference(self.given.strip()):
             return self.given.strip()
-        stored = self.crs.persistable_reference_from_catalog()
-        if stored is not None:
-            return stored.payload
-        return to_persistable_reference(self.crs.crs)
+        return _reference(self.parts()[0])
+
+    def vertical_reference(self) -> str | None:
+        """The vertical part of a compound target as a persistableReference."""
+        vertical = self.parts()[1]
+        return None if vertical is None else _reference(vertical)
+
+    def coord_ref_sys(self, epoch: float | None) -> Any:
+        """The target's JSON-FG ``coordRefSys``."""
+        return coord_ref_sys(self.crs, epoch)
 
 
 def read_target(
@@ -229,25 +298,26 @@ def read_target(
 ) -> Target:
     """Where a document's positions are to go, and what it is written as.
 
-    ``output="auto"`` keeps the document's flavour: AnyCrs stays AnyCrs, and
-    plain GeoJSON stays plain when the target is WGS 84 longitude and latitude.
-    Plain GeoJSON in another CRS would be JSON-FG, which is not written yet,
-    so that is refused rather than written as something else.
+    ``output="auto"`` keeps the document's family: AnyCrs stays AnyCrs, and
+    plain GeoJSON stays plain when the target is WGS 84 longitude and latitude
+    and is written as JSON-FG otherwise, the open standard for other CRSs.
+    JSON-FG stays JSON-FG.
 
     Args:
         target_crs: The CRS to convert to, as anything
             :meth:`~geodetic_engine.geodesy.CoordinateReferenceSystem.from_user_input`
             accepts.
         source: The flavour of the document being converted.
-        output: ``"auto"``, ``"geojson"`` or ``"anycrs"``.
+        output: ``"auto"``, ``"geojson"``, ``"anycrs"``, ``"jsonfg"`` or
+            ``"jsonfg-plus"``.
         target_unit_z: The unit to write heights in, as
             :func:`~geodetic_engine.units.length_unit` reads it, or None. Plain
-            GeoJSON heights are in metres.
+            GeoJSON heights are in metres, and JSON-FG's in the target CRS's.
 
     Raises:
         ValueError: If ``output`` is not one of the above, cannot be written
             in the target CRS, or ``target_unit_z`` is not a length unit, or
-            is not metres for plain GeoJSON.
+            not one the output can state.
         UnresolvableCRSError: If the target cannot be resolved.
     """
     if output not in OUTPUTS:
@@ -258,28 +328,38 @@ def read_target(
         raise ValueError(
             f"output='geojson' writes RFC 7946 GeoJSON, whose positions are WGS 84 "
             f"longitude and latitude in degrees, which {_label(crs)} is not; "
-            "write output='anycrs'"
-        )
-    if output == "auto" and source is Flavour.GEOJSON and not lonlat:
-        raise ValueError(
-            f"plain GeoJSON converted to {_label(crs)}, which is not WGS 84 "
-            "longitude and latitude, would be written as JSON-FG, which is not "
-            "supported yet; pass output='anycrs' for OSDU AnyCrs GeoJSON"
+            "write output='jsonfg' or output='anycrs'"
         )
     if output == "anycrs" or (output == "auto" and source is Flavour.ANYCRS):
         flavour = Flavour.ANYCRS
+    elif output in ("jsonfg", "jsonfg-plus") or (
+        output == "auto" and (source is Flavour.JSONFG or not lonlat)
+    ):
+        flavour = Flavour.JSONFG
     else:
         flavour = Flavour.GEOJSON
+    if flavour is Flavour.JSONFG and not lonlat and coord_ref_sys(crs, None) is None:
+        raise ValueError(
+            f"JSON-FG states a CRS by its OGC URI, and {_label(crs)} has none: "
+            "only EPSG and OGC CRSs do; write output='anycrs' to state it as an "
+            "OSDU persistableReference"
+        )
     z_unit = None
     if target_unit_z is not None:
         try:
             z_unit = length_unit(target_unit_z)
         except UnitError as error:
             raise UnitError(f"target_unit_z: {error}") from error
-    if flavour is Flavour.GEOJSON:
+    if flavour is Flavour.JSONFG and not lonlat and z_unit is not None:
+        raise ValueError(
+            "JSON-FG heights are in the unit of the target CRS's height axis, "
+            "which target_unit_z cannot change; give a target CRS with heights "
+            "in that unit, or write output='anycrs'"
+        )
+    if flavour is Flavour.GEOJSON or (flavour is Flavour.JSONFG and lonlat):
         if z_unit is not None and z_unit.scale != 1.0:
             raise ValueError(
-                f"plain GeoJSON heights are in metres, not {z_unit.symbol!r} "
+                f"WGS 84 heights in GeoJSON are in metres, not {z_unit.symbol!r} "
                 "(RFC 7946, section 4); write output='anycrs' for other units"
             )
         z_unit = METRE
@@ -288,7 +368,9 @@ def read_target(
         osdu = parse_osdu_id(target_crs.strip())
         if osdu is not None and osdu.is_crs:
             record_id = target_crs.strip()
-    return Target(crs, flavour, z_unit, record_id, target_crs)
+    return Target(
+        crs, flavour, z_unit, record_id, target_crs, plus=output == "jsonfg-plus"
+    )
 
 
 def is_wgs84_lonlat(crs: CoordinateReferenceSystem) -> bool:
@@ -339,6 +421,43 @@ def is_wgs84_lonlat(crs: CoordinateReferenceSystem) -> bool:
 def _plain_source(
     root: Mapping[str, Any], given: CoordinateReferenceSystem | None
 ) -> Source:
+    _refuse_members(root, Flavour.GEOJSON)
+    legacy = root.get(LEGACY_CRS)
+    if legacy is None:
+        if given is None:
+            return Source(None, METRE, "RFC 7946")
+        if _is_rfc_7946(given):
+            return Source(None, METRE, "source_crs")
+        return Source(given, METRE, "source_crs")
+    path = f"$.{LEGACY_CRS}"
+    name = _legacy_name(legacy)
+    if name is None:
+        raise UnsupportedGeoJsonError(
+            path,
+            "a GeoJSON 2008 crs member is read when it names the CRS, as "
+            '{"type": "name", "properties": {"name": ...}}, not '
+            f"{_shown(legacy)}",
+        )
+    code = crs_name(name)
+    if code is None:
+        raise InvalidGeoJsonError(path, f"{name!r} is not a CRS URN or URL")
+    crs = _resolve(code, path)
+    rfc_7946 = _is_rfc_7946(crs)
+    if given is not None and not (
+        same_crs(crs, given) or (rfc_7946 and _is_rfc_7946(given))
+    ):
+        raise GeoJsonCrsError(
+            path,
+            f"the document's crs member names {'CRS84' if rfc_7946 else _label(crs)}"
+            f", not source_crs, {_label(given)}",
+        )
+    if rfc_7946:
+        return Source(None, METRE, path)
+    return Source(crs, None, path)
+
+
+def _refuse_members(root: Mapping[str, Any], flavour: Flavour) -> None:
+    """Refuse AnyCrs members, and a legacy crs member in JSON-FG."""
     for key in ANYCRS_MEMBERS:
         if _text(root, key) is not None:
             raise InvalidGeoJsonError(
@@ -346,36 +465,58 @@ def _plain_source(
                 "plain GeoJSON is in WGS 84 by RFC 7946 and states no CRS; a "
                 "document stating one in AnyCrs members has AnyCrs types",
             )
-    legacy = root.get(LEGACY_CRS)
-    if legacy is None:
-        if given is None:
-            return Source(None, METRE, "RFC 7946")
-        return Source(None if _is_rfc_7946(given) else given, METRE, "source_crs")
-    name = _legacy_name(legacy)
-    if name not in _CRS84_NAMES:
-        raise UnsupportedGeoJsonError(
+    if flavour is Flavour.JSONFG and root.get(LEGACY_CRS) is not None:
+        raise InvalidGeoJsonError(
             f"$.{LEGACY_CRS}",
-            f"a GeoJSON 2008 crs member naming {name or _shown(legacy)} is not "
-            "supported yet; only CRS84, which RFC 7946 assumes, is read",
+            "a JSON-FG document states its CRS in coordRefSys, not in a GeoJSON "
+            "2008 crs member",
         )
-    if given is not None and not _is_rfc_7946(given):
+
+
+def _given(source_crs: object) -> CoordinateReferenceSystem | None:
+    if source_crs is None:
+        return None
+    return CoordinateReferenceSystem.from_user_input(source_crs)
+
+
+def _unscoped(given: CoordinateReferenceSystem | None) -> Source:
+    """Where a JSON-FG place without a coordRefSys is: CRS84, or as agreed."""
+    if given is None or _is_rfc_7946(given):
+        return Source(None, METRE, "JSON-FG", axis_order="crs")
+    return Source(given, None, "source_crs", axis_order="crs")
+
+
+def _scoped(geometry: Geometry, given: CoordinateReferenceSystem | None) -> Source:
+    assert geometry.scope is not None
+    return _stated_scope(geometry.scope[0], geometry.scope[1], given)
+
+
+def _stated_scope(
+    path: str, value: object, given: CoordinateReferenceSystem | None
+) -> Source:
+    """Where the places a ``coordRefSys`` applies to are."""
+    crs, epoch = read_coord_ref_sys(value, path)
+    if given is not None and not same_crs(crs, given):
         raise GeoJsonCrsError(
-            f"$.{LEGACY_CRS}",
-            f"the document's crs member names CRS84, not source_crs, {_label(given)}",
+            path,
+            f"the document's CRS, {_label(crs)}, is not source_crs, {_label(given)}",
         )
-    return Source(None, METRE, f"$.{LEGACY_CRS}")
+    # CRS84 or CRS84h as declared; EPSG:4326 keeps its own, latitude first.
+    if _is_rfc_7946(crs) and crs.value_axis_order == tuple(range(crs.dimension)):
+        return Source(None, METRE, path, axis_order="crs", epoch=epoch)
+    return Source(crs, None, path, axis_order="crs", epoch=epoch)
 
 
 def _is_rfc_7946(crs: CoordinateReferenceSystem) -> bool:
     """Whether ``crs`` is the one RFC 7946 puts positions in, CRS84 or CRS84h."""
     return any(
-        _same_crs(crs, CoordinateReferenceSystem.from_user_input(name))
+        same_crs(crs, CoordinateReferenceSystem.from_user_input(name))
         for name in (CRS84, CRS84H)
     )
 
 
 def _stated_crs(
-    root: Mapping[str, Any],
+    root: Mapping[str, Any], record_key: str, payload_key: str
 ) -> tuple[CoordinateReferenceSystem, str] | None:
     """The CRS an AnyCrs document states, and the path of the member stating it.
 
@@ -384,21 +525,28 @@ def _stated_crs(
     it, so an id that does not resolve gives way to the persistableReference
     beside it, which is self-contained.
     """
-    record = _text(root, _RECORD_ID)
-    payload = _text(root, _PAYLOAD)
+    record = _text(root, record_key)
+    payload = _text(root, payload_key)
     if record is not None:
         try:
-            return _resolve(record, f"$.{_RECORD_ID}"), f"$.{_RECORD_ID}"
+            return _resolve(record, f"$.{record_key}"), f"$.{record_key}"
         except UnresolvableCRSError as unresolved:
             if payload is None:
                 raise
             try:
-                return _resolve(payload, f"$.{_PAYLOAD}"), f"$.{_PAYLOAD}"
+                return _resolve(payload, f"$.{payload_key}"), f"$.{payload_key}"
             except UnresolvableCRSError as error:
                 raise UnresolvableCRSError(f"{unresolved}; {error}") from error
     if payload is not None:
-        return _resolve(payload, f"$.{_PAYLOAD}"), f"$.{_PAYLOAD}"
+        return _resolve(payload, f"$.{payload_key}"), f"$.{payload_key}"
     return None
+
+
+def _reference(crs: CoordinateReferenceSystem) -> str:
+    stored = crs.persistable_reference_from_catalog()
+    if stored is not None:
+        return stored.payload
+    return to_persistable_reference(crs.crs)
 
 
 def _legacy_name(member: object) -> str | None:
@@ -432,78 +580,6 @@ def _document_unit(text: str, path: str) -> Unit:
         return length_unit(text)
     except UnitError as error:
         raise InvalidGeoJsonError(path, str(error)) from error
-
-
-def _same_crs(
-    first: CoordinateReferenceSystem, second: CoordinateReferenceSystem
-) -> bool:
-    """Whether a CRS repeats another: the same positions at the same values.
-
-    Equivalent by PROJ once both declare their axes in the order this package
-    gives values in: longitude or easting first, then latitude or northing,
-    then any height. So EPSG:4326 repeats OGC:CRS84, and EPSG:2193, declared
-    northing first, repeats an OSDU persistableReference for it, declared
-    easting first. PROJ's own ``ignore_axis_order`` reaches geographic CRSs
-    only.
-
-    Everything else counts: axis directions, units, the number of axes, and a
-    transformation a CRS is bound with. A CRS counting longitude west does not
-    repeat CRS84, and neither does a CRS that only states the same authority
-    code: a persistableReference is defined by its parameters, not its code.
-    """
-    return _in_value_order(first.crs).equals(
-        _in_value_order(second.crs), ignore_axis_order=True
-    )
-
-
-def _in_value_order(crs: CRS) -> CRS:
-    """``crs`` with every coordinate system in it declared in value order."""
-    definition = crs.to_json_dict()
-    if not _declare_in_value_order(definition):
-        return crs
-    try:
-        return CRS.from_json_dict(definition)
-    except CRSError:
-        return crs
-
-
-def _declare_in_value_order(node: object) -> bool:
-    """Reorder each CRS's axes in a PROJJSON node into value order, in place.
-
-    Every node is visited, whatever an earlier one did.
-
-    Returns:
-        Whether any axis moved.
-    """
-    moved = False
-    if isinstance(node, list):
-        for item in node:
-            moved = _declare_in_value_order(item) or moved
-        return moved
-    if not isinstance(node, dict):
-        return False
-    system = node.get("coordinate_system")
-    if isinstance(system, dict) and isinstance(system.get("axis"), list):
-        order = _value_order(node)
-        if order is not None and order != tuple(range(len(order))):
-            axes = system["axis"]
-            system["axis"] = [axes[index] for index in order]
-            # An identifier would claim the authority's own axis order.
-            node.pop("id", None)
-            node.pop("ids", None)
-            moved = True
-    for key, child in node.items():
-        if key != "coordinate_system":
-            moved = _declare_in_value_order(child) or moved
-    return moved
-
-
-def _value_order(node: dict[str, Any]) -> tuple[int, ...] | None:
-    try:
-        crs = CRS.from_json_dict(node)
-    except CRSError:
-        return None
-    return CoordinateReferenceSystem(crs, crs.name).value_axis_order
 
 
 def _label(crs: CoordinateReferenceSystem) -> str:

@@ -1,9 +1,10 @@
-"""Find the positions a transformation fails for, with only the public API.
+"""Find the points a transformation fails for, with only the public API.
 
-Private to :mod:`geodetic_engine.geojson`.
+Private to the package, shared by :mod:`geodetic_engine.geodesy.geometry` and
+:mod:`geodetic_engine.geojson`.
 :meth:`~geodetic_engine.geodesy.Transformation.transform_arrays` refuses a
 whole batch when any one point fails, and does not always say which. This
-module finds out, without a change to :mod:`geodetic_engine.geodesy`, by
+module finds out, without a change to the transformation itself, by
 transforming parts of the batch.
 
 That rests on two properties of ``transform_arrays``, which the tests check:
@@ -34,11 +35,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from geodetic_engine.errors import GeodeticEngineError
-from geodetic_engine.geodesy import (
-    ArrayTransformationResult,
-    Transformation,
-    TransformationFailedError,
-)
+from geodetic_engine.geodesy.errors import TransformationFailedError
+from geodetic_engine.geodesy.result import ArrayTransformationResult
+from geodetic_engine.geodesy.transformation import Transformation
 
 type FloatArray = NDArray[np.float64]
 

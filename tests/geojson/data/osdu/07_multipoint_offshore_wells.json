@@ -1,0 +1,29 @@
+{
+    "summary": "MultiPoint representing offshore well locations",
+    "description": "Converts multiple well locations from WGS84 geographic to UTM Zone 31N. Demonstrates AnyCrsMultiPoint geometry type with OSDU CRS ID format.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::32631:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Offshore Well Cluster",
+                        "wellCount": 4
+                    },
+                    "geometry": {
+                        "type": "AnyCrsMultiPoint",
+                        "coordinates": [
+                            [2.5, 58.5],
+                            [2.6, 58.6],
+                            [2.55, 58.55],
+                            [2.45, 58.45]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

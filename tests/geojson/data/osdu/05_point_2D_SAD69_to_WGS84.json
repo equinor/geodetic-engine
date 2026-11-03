@@ -1,0 +1,23 @@
+{
+    "summary": "2D Point conversion from SAD69 to WGS84",
+    "description": "Converts a 2D AnyCrsPoint from SAD69 UTM Zone 22S (EPSG:29192) to WGS84 geographic (EPSG:4326) using OSDU CRS IDs. This is a simple 2D point conversion without vertical component.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::29192:",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Offshore Platform Alpha"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPoint",
+                        "coordinates": [500000.0, 7500000.0]
+                    }
+                }
+            ]
+        }
+    }
+}

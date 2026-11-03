@@ -108,3 +108,22 @@ class CoordinateOutOfRangeError(TransformationFailedError):
     A subclass of :class:`TransformationFailedError`, so code that already
     catches that keeps working.
     """
+
+
+class GeometryError(GeodesyError, ValueError):
+    """A geometry could not be read or written in the encoding asked for.
+
+    For example WKT that does not parse, a curved geometry, which this package
+    cannot transform, an SRID that names a different CRS than the one the
+    geometry is transformed from, or EWKB asked for in a CRS without an
+    integer code to write as its SRID. Failures transforming the coordinates
+    themselves are :class:`TransformationFailedError`.
+    """
+
+
+class GeometryValidityWarning(UserWarning):
+    """Rounding left a geometry invalid, for example a ring that collapsed.
+
+    Rounding each coordinate keeps every vertex, so it can make a polygon
+    self-intersect. Snapping to a grid with ``grid_size`` keeps it valid.
+    """

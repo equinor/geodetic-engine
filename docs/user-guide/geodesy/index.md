@@ -21,6 +21,8 @@ refuses to do that. See {doc}`/background/guarantees`.
 | See every operation PROJ offers between two CRSs | {func}`~geodetic_engine.geodesy.available_operations` |
 | Inspect a CRS's axes, units, dimension, dynamism | {class}`~geodetic_engine.geodesy.CoordinateReferenceSystem` |
 | Read coordinates and provenance from a result | {class}`~geodetic_engine.geodesy.TransformationResult` |
+| Transform geometries as WKT, WKB, EWKB, GeoJSON or Esri JSON | {meth}`Transformation.transform_geometry <geodetic_engine.geodesy.Transformation.transform_geometry>` |
+| Read, write or round geometries without a CRS change | {mod}`geodetic_engine.geodesy.geometry` |
 | Compose or collapse Helmert transformations | {mod}`geodetic_engine.geodesy.utils` |
 | Get the grid convergence and scale factor at points | {func}`~geodetic_engine.geodesy.projection_factors` |
 | Turn azimuths between true and grid north | {class}`~geodetic_engine.geodesy.ProjectionFactors` |
@@ -51,6 +53,7 @@ transformations
 choosing-operations
 input-and-output
 results
+geometries
 errors
 helmert
 projection-factors

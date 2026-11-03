@@ -1,0 +1,53 @@
+{
+    "summary": "ED50 geographic to WGS84 geographic MultiPolygon example for the North Sea",
+    "description": "Converts a MultiPolygon representing North Sea license blocks from ED50 (EPSG:4230) to WGS84 (EPSG:4326). The transformation parameter specifies EPSG:1133 (ED_1950_To_WGS_1984_18, 7-parameter Position Vector for North Sea area). Since the target CRS is WGS84 (EPSG:4326), the response uses standard GeoJSON types (no AnyCrs prefix).",
+    "value": {
+        "toCRS": "EPSG:4326",
+        "transformation": "EPSG:1133",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "persistableReferenceCrs": "EPSG:4230",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Multipolygon for North Sea",
+                        "area": "Test MultiPolygon Area"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsMultiPolygon",
+                        "coordinates": [
+                            [
+                                [
+                                    [2.0, 56.0],
+                                    [2.5, 56.0],
+                                    [2.5, 56.5],
+                                    [2.0, 56.5],
+                                    [2.0, 56.0]
+                                ]
+                            ],
+                            [
+                                [
+                                    [3.0, 57.0],
+                                    [3.5, 57.0],
+                                    [3.5, 57.5],
+                                    [3.0, 57.5],
+                                    [3.0, 57.0]
+                                ]
+                            ],
+                            [
+                                [
+                                    [4.0, 58.0],
+                                    [4.5, 58.0],
+                                    [4.5, 58.5],
+                                    [4.0, 58.5],
+                                    [4.0, 58.0]
+                                ]
+                            ]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

@@ -7,6 +7,48 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Geometries (#23). `Transformation.transform_geometry()` and
+  `transform_geometries()` transform vector geometries read from WKT, WKB and
+  hex WKB, PostGIS EWKT and EWKB, GeoJSON geometry objects, Esri JSON
+  geometries, Shapely geometries and anything with a `__geo_interface__`; a
+  batch may be a sequence, a numpy array, a pandas Series or a GeoPandas
+  GeoSeries, and its encodings come back in the same container. Every
+  coordinate goes through `transform_arrays()` in one call per number of
+  values per position, so the operation, grids, epoch and range checks are
+  those of points, and the coordinates are bit for bit the same. A position
+  that fails fails the batch, naming its geometry, part, ring and vertex. Z is
+  transformed where the CRSs have a height and carried through otherwise; M
+  is carried through. An SRID or Esri `spatialReference` must state the
+  source CRS; `srid_authority` says which authority an SRID is a code of.
+  `axis_order="crs"` reads and writes a CRS's declared order, `densify`
+  inserts vertices before transforming, and `orient` winds rings, which are
+  otherwise kept as transformed. The new module `geodesy.geometry` has
+  `read_geometry`, `write_geometry` and `round_geometry`: `decimals` rounds
+  half up by each value's shortest decimal form (`2.675` is `2.68`, `-0.125`
+  is `-0.13`), before encoding, so every encoding holds the same numbers, and
+  reports a polygon it made invalid with `GeometryValidityWarning`;
+  `grid_size` snaps to a grid instead. WKB is written ISO, EWKB extended, and
+  WKT with the shortest form of each number that reads back the same.
+  `geodesy.GeometryError` is raised for geometries that cannot be read or
+  written. Shapely 2.2 is a new dependency; `import geodetic_engine.geodesy`
+  does not load it.
+- `geodetic_engine.geojson.convert_geojson` (#21) converts RFC 7946 GeoJSON,
+  OGC JSON-FG 1.0 and OSDU AnyCrs GeoJSON documents, with a
+  `FeatureCollection`, a `Feature` or a geometry at the root, to another CRS,
+  keeping structure, `id`, `properties`, foreign members and key order, and
+  computing every `bbox` again. JSON-FG `place` is read in the nearest
+  `coordRefSys`, in its declared axis order and with its epoch, and an ad hoc
+  compound `coordRefSys` transforms heights between vertical datums; a
+  GeoJSON 2008 `crs` member is read too. Plain GeoJSON in a CRS other than WGS
+  84 is written as JSON-FG (`output="auto"`), and `"geojson"`, `"anycrs"`,
+  `"jsonfg"` and `"jsonfg-plus"` choose the flavour. An AnyCrs vertical CRS
+  makes heights compound rather than only scaled; `target_unit_z` converts
+  heights, and `persistableReferenceUnitZ` is always written for them.
+  `on_error` raises naming the position's JSON path, withdraws the feature's
+  geometry, or writes NaN as the OSDU service does. `decimals` and `orient`
+  round and wind as for geometries. `convert_geojson_request` takes and
+  returns the OSDU service's `convertGeoJson` request and response.
+
 - `geodetic_engine.units`: one reader for the length and angle units the
   package takes, from a symbol or name, an OSDU `UnitOfMeasure` record id,
   URL-encoded or not, or an OSDU unit persistableReference, `USO` or a `UAD`

@@ -1,0 +1,133 @@
+"""Comparing CRSs, combining them, and reading their integer codes.
+
+Private to the package, shared by :mod:`geodetic_engine.geodesy.geometry` and
+:mod:`geodetic_engine.geojson`, which both check a CRS stated in data against
+the one a caller gives, and both write a CRS back by its code.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pyproj import CRS
+from pyproj.crs import CompoundCRS
+from pyproj.exceptions import CRSError
+
+from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
+from geodetic_engine.geodesy.errors import UnsupportedCRSError
+
+
+def same_crs(
+    first: CoordinateReferenceSystem, second: CoordinateReferenceSystem
+) -> bool:
+    """Whether a CRS repeats another: the same positions at the same values.
+
+    Equivalent by PROJ once both declare their axes in the order this package
+    gives values in: longitude or easting first, then latitude or northing,
+    then any height. So EPSG:4326 repeats OGC:CRS84, and EPSG:2193, declared
+    northing first, repeats an OSDU persistableReference for it, declared
+    easting first. PROJ's own ``ignore_axis_order`` reaches geographic CRSs
+    only.
+
+    Everything else counts: axis directions, units, the number of axes, and a
+    transformation a CRS is bound with. A CRS counting longitude west does not
+    repeat CRS84, and neither does a CRS that only states the same authority
+    code: a persistableReference is defined by its parameters, not its code.
+    """
+    return _in_value_order(first.crs).equals(
+        _in_value_order(second.crs), ignore_axis_order=True
+    )
+
+
+def compound(
+    horizontal: CoordinateReferenceSystem, vertical: CoordinateReferenceSystem
+) -> CoordinateReferenceSystem:
+    """The compound CRS of a horizontal CRS and a vertical one.
+
+    Raises:
+        UnsupportedCRSError: If ``vertical`` is not a vertical CRS, or
+            ``horizontal`` is not two-dimensional.
+    """
+    if not vertical.crs.is_vertical:
+        raise UnsupportedCRSError(f"{_label(vertical)} is not a vertical CRS")
+    if horizontal.dimension != 2:
+        raise UnsupportedCRSError(
+            f"{_label(horizontal)} has {horizontal.dimension} axes; a compound "
+            "CRS joins a two-dimensional horizontal CRS to a vertical one"
+        )
+    name = f"{horizontal.name} + {vertical.name}"
+    try:
+        joined = CompoundCRS(name=name, components=[horizontal.crs, vertical.crs])
+    except CRSError as error:
+        raise UnsupportedCRSError(f"cannot join {name!r}: {error}") from error
+    return CoordinateReferenceSystem(joined, name)
+
+
+def integer_code(crs: CoordinateReferenceSystem) -> tuple[str, int] | None:
+    """The authority and integer code that identify ``crs``, if it has them.
+
+    Only a code PROJ is certain of counts: a CRS defined by WKT that merely
+    resembles a registered one has none, since writing that code would claim
+    a definition the data does not have.
+    """
+    identity = crs.crs.to_authority(min_confidence=100)
+    if identity is None:
+        return None
+    authority, code = identity
+    if not code.isdigit():
+        return None
+    return authority, int(code)
+
+
+def _in_value_order(crs: CRS) -> CRS:
+    """``crs`` with every coordinate system in it declared in value order."""
+    definition = crs.to_json_dict()
+    if not _declare_in_value_order(definition):
+        return crs
+    try:
+        return CRS.from_json_dict(definition)
+    except CRSError:
+        return crs
+
+
+def _declare_in_value_order(node: object) -> bool:
+    """Reorder each CRS's axes in a PROJJSON node into value order, in place.
+
+    Every node is visited, whatever an earlier one did.
+
+    Returns:
+        Whether any axis moved.
+    """
+    moved = False
+    if isinstance(node, list):
+        for item in node:
+            moved = _declare_in_value_order(item) or moved
+        return moved
+    if not isinstance(node, dict):
+        return False
+    system = node.get("coordinate_system")
+    if isinstance(system, dict) and isinstance(system.get("axis"), list):
+        order = _value_order(node)
+        if order is not None and order != tuple(range(len(order))):
+            axes = system["axis"]
+            system["axis"] = [axes[index] for index in order]
+            # An identifier would claim the authority's own axis order.
+            node.pop("id", None)
+            node.pop("ids", None)
+            moved = True
+    for key, child in node.items():
+        if key != "coordinate_system":
+            moved = _declare_in_value_order(child) or moved
+    return moved
+
+
+def _value_order(node: dict[str, Any]) -> tuple[int, ...] | None:
+    try:
+        crs = CRS.from_json_dict(node)
+    except CRSError:
+        return None
+    return CoordinateReferenceSystem(crs, crs.name).value_axis_order
+
+
+def _label(crs: CoordinateReferenceSystem) -> str:
+    return crs.authority_code or repr(crs.name)

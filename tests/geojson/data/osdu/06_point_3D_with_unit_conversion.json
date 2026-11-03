@@ -1,0 +1,26 @@
+{
+    "summary": "3D Point with vertical unit conversion meters to feet",
+    "description": "Converts a 3D AnyCrsPoint from SAD69 UTM Zone 23S to WGS84 geographic, converting vertical units from meters to feet. Uses bound CRS with explicit transformation.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+        "toUnitZ": "data:reference-data--UnitOfMeasure:ft:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:BoundProjected:EPSG::29193_EPSG::1867:",
+            "persistableReferenceUnitZ": "data:reference-data--UnitOfMeasure:m:",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "wellId": "WELL-001",
+                        "depth": "Surface location"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPoint",
+                        "coordinates": [697339.525, 7239989.403, 100.5]
+                    }
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,34 @@
+{
+    "summary": "MultiPolygon representing multiple field areas",
+    "description": "Converts multiple non-contiguous field area polygons from WGS84 geographic to ED50 UTM Zone 32N. Uses EPSG:1612 transformation for North Sea accuracy.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:BoundProjected:EPSG::23032_EPSG::1612:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "persistableReferenceCrs": "EPSG:4326",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "fieldName": "Troll Field Complex",
+                        "areaCount": 3
+                    },
+                    "geometry": {
+                        "type": "AnyCrsMultiPolygon",
+                        "coordinates": [
+                            [
+                                [[3.5, 60.5], [3.7, 60.5], [3.7, 60.7], [3.5, 60.7], [3.5, 60.5]]
+                            ],
+                            [
+                                [[3.8, 60.6], [4.0, 60.6], [4.0, 60.8], [3.8, 60.8], [3.8, 60.6]]
+                            ],
+                            [
+                                [[3.6, 60.8], [3.8, 60.8], [3.8, 61.0], [3.6, 61.0], [3.6, 60.8]]
+                            ]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

@@ -34,6 +34,16 @@ SUBPACKAGES: tuple[tuple[str, str], ...] = (
         "Helmert algebra and abridged-Molodensky helpers.",
     ),
     (
+        "geodetic_engine.geodesy.geometry",
+        "Read, write, round and transform geometries: WKT, WKB, EWKB, GeoJSON "
+        "and Esri JSON.",
+    ),
+    (
+        "geodetic_engine.geojson",
+        "Convert GeoJSON, OGC JSON-FG and OSDU AnyCrs GeoJSON documents to "
+        "another CRS.",
+    ),
+    (
         "geodetic_engine.welltrajectory",
         "Well trajectories from directional surveys: minimum curvature, "
         "georeferencing in a CRS, 3D plots.",

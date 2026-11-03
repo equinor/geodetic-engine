@@ -1,0 +1,49 @@
+{
+    "summary": "GeometryCollection with mixed geometry types",
+    "description": "Converts a GeometryCollection containing Point, LineString, and Polygon geometries from ETRS89 UTM Zone 32N to WGS84 geographic. Demonstrates mixed geometry handling in a single feature.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::25832:",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Platform Complex with Infrastructure",
+                        "components": ["platform", "pipeline", "safety-zone"]
+                    },
+                    "geometry": {
+                        "type": "AnyCrsGeometryCollection",
+                        "geometries": [
+                            {
+                                "type": "AnyCrsPoint",
+                                "coordinates": [500000.0, 6500000.0]
+                            },
+                            {
+                                "type": "AnyCrsLineString",
+                                "coordinates": [
+                                    [500000.0, 6500000.0],
+                                    [510000.0, 6510000.0],
+                                    [520000.0, 6505000.0]
+                                ]
+                            },
+                            {
+                                "type": "AnyCrsPolygon",
+                                "coordinates": [
+                                    [
+                                        [499000.0, 6499000.0],
+                                        [501000.0, 6499000.0],
+                                        [501000.0, 6501000.0],
+                                        [499000.0, 6501000.0],
+                                        [499000.0, 6499000.0]
+                                    ]
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

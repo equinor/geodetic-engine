@@ -23,7 +23,7 @@ for name in sorted(sys.modules):
 @pytest.mark.parametrize(
     ("package", "forbidden"),
     [
-        ("geodetic_engine.geojson", ["geodetic_engine.welltrajectory"]),
+        ("geodetic_engine.geojson", ["geodetic_engine.welltrajectory", "shapely"]),
         ("geodetic_engine.persistablereference", ["geodetic_engine.geodesy"]),
         (
             "geodetic_engine.units",
@@ -48,3 +48,16 @@ def test_a_package_does_not_load_the_domains_it_is_independent_of(
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == []
+
+
+def test_geodesy_loads_shapely_only_for_geometries() -> None:
+    loaded = "import sys, geodetic_engine.geodesy; print('shapely' in sys.modules)"
+    result = subprocess.run(
+        [sys.executable, "-c", loaded],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"

@@ -1,0 +1,25 @@
+{
+    "summary": "Conversion with explicit transformation code",
+    "description": "Converts coordinates using an explicitly specified transformation code (EPSG:1612 - ED50 to WGS84 for Norwegian Continental Shelf). This ensures consistent transformation parameters are used.",
+    "value": {
+        "toCRS": "EPSG:4326",
+        "transformation": "EPSG:1612",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "persistableReferenceCrs": "EPSG:4230",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "North Sea Well",
+                        "transformation": "Using EPSG:1612 for NCS accuracy"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPoint",
+                        "coordinates": [5.0, 62.0]
+                    }
+                }
+            ]
+        }
+    }
+}

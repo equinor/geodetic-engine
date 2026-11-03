@@ -1,0 +1,32 @@
+{
+    "summary": "3D LineString representing wellbore trajectory",
+    "description": "Converts a 3D LineString representing a wellbore trajectory with depth values. Demonstrates 3D coordinate handling with vertical unit conversion from meters to feet.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+        "toUnitZ": "data:reference-data--UnitOfMeasure:ft:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::32632:",
+            "persistableReferenceUnitZ": "data:reference-data--UnitOfMeasure:m:",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "wellId": "WELL-2024-005",
+                        "trajectoryType": "directional"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsLineString",
+                        "coordinates": [
+                            [500000.0, 6500000.0, 0],
+                            [500010.0, 6500005.0, 500],
+                            [500050.0, 6500020.0, 1500],
+                            [500100.0, 6500050.0, 2500],
+                            [500150.0, 6500080.0, 3500]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

@@ -143,6 +143,8 @@ each workaround can be removed.
 | Find out which operations exist between two CRSs | {doc}`user-guide/geodesy/choosing-operations` |
 | Understand why my transformation was refused | {doc}`user-guide/geodesy/errors` |
 | Turn an azimuth between true and grid north, or scale a distance onto the grid | {doc}`user-guide/geodesy/projection-factors` |
+| Transform or round a geometry in WKT, WKB, EWKB, GeoJSON or Esri JSON | {doc}`user-guide/geodesy/geometries` |
+| Convert a GeoJSON, JSON-FG or OSDU AnyCrs GeoJSON document | {doc}`user-guide/geojson` |
 | Position a well from its directional survey | {doc}`user-guide/welltrajectory/input` |
 | Square up a seismic bin grid, or convert it to another CRS | {doc}`user-guide/bingrid` |
 | Read or write an OSDU `persistableReference` | {doc}`persistable-reference/usage` |
@@ -164,6 +166,7 @@ getting-started/index
 :maxdepth: 2
 
 user-guide/geodesy/index
+user-guide/geojson
 user-guide/welltrajectory/index
 user-guide/bingrid
 user-guide/georepository

@@ -1,0 +1,69 @@
+{
+    "summary": "FeatureCollection with multiple features",
+    "description": "Converts a FeatureCollection containing multiple features of different geometry types from WGS84 geographic to UTM Zone 32N. Demonstrates batch conversion of multiple features.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::32632:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Platform A",
+                        "type": "production"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPoint",
+                        "coordinates": [5.0, 60.0]
+                    }
+                },
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Platform B",
+                        "type": "drilling"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPoint",
+                        "coordinates": [5.5, 60.2]
+                    }
+                },
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Pipeline A-B",
+                        "type": "gas"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsLineString",
+                        "coordinates": [
+                            [5.0, 60.0],
+                            [5.25, 60.1],
+                            [5.5, 60.2]
+                        ]
+                    }
+                },
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Safety Zone A",
+                        "radius_m": 500
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPolygon",
+                        "coordinates": [
+                            [
+                                [4.99, 59.99],
+                                [5.01, 59.99],
+                                [5.01, 60.01],
+                                [4.99, 60.01],
+                                [4.99, 59.99]
+                            ]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

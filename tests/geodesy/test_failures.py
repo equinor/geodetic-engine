@@ -14,7 +14,7 @@ from geodetic_engine.geodesy import (
     Transformation,
     TransformationFailedError,
 )
-from geodetic_engine.geojson._failures import (
+from geodetic_engine.geodesy._failures import (
     TooManyFailures,
     first_failure,
     isolate,

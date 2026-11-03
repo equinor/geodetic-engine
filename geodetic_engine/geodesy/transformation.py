@@ -36,7 +36,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -89,6 +89,14 @@ from geodetic_engine.geodesy.result import (
     FloatArray,
     TransformationResult,
 )
+
+if TYPE_CHECKING:
+    from geodetic_engine.geodesy.geometry import (
+        AxisOrder,
+        GeometryResult,
+        GeometryResults,
+        Orientation,
+    )
 
 _VERTICAL_DIRECTIONS = frozenset({"up", "down"})
 
@@ -601,6 +609,115 @@ class Transformation:
             )
             offset += result.count
             yield result
+
+    def transform_geometry(
+        self,
+        value: object,
+        *,
+        coordinate_epoch: float | None = None,
+        axis_order: AxisOrder = "xy",
+        densify: float | None = None,
+        orient: Orientation | None = None,
+        srid_authority: str = "EPSG",
+    ) -> GeometryResult:
+        """Transform a geometry, read from any encoding geometry WKT to Esri JSON.
+
+        Every position goes through :meth:`transform_arrays` in one call, so
+        the operation, grids, epoch and range checks are those of points. A
+        position that fails fails the whole geometry, naming its part and
+        vertex. Z is transformed where the CRSs have a height, and carried
+        through otherwise; M is carried through. None and empty geometries
+        come back as they are.
+
+        Args:
+            value: The geometry: WKT, EWKT, WKB or EWKB as bytes or hex,
+                a GeoJSON or Esri JSON geometry, or a Shapely geometry; see
+                :func:`~geodetic_engine.geodesy.geometry.read_geometry`.
+            coordinate_epoch: As for :meth:`transform`.
+            axis_order: ``"xy"``, or ``"crs"`` when the geometry is in the
+                source CRS's declared order, and is to be written in the
+                target's.
+            densify: Insert vertices first so that no segment is longer than
+                this, in source CRS units: a straight edge in one CRS is not
+                straight in another.
+            orient: None keeps the vertex order as transformed; ``"ccw"``
+                winds exterior rings counterclockwise (the RFC 7946 rule) and
+                ``"cw"`` clockwise (Esri's).
+            srid_authority: The authority an EWKT or EWKB SRID is a code of.
+
+        Returns:
+            The geometry in the target CRS with its provenance, written in any
+            encoding by its ``wkt()``, ``wkb()``, ``ewkb_hex()``, ``geojson()``
+            and like methods, each rounding to ``decimals`` if asked.
+
+        Raises:
+            GeometryError: If the geometry cannot be read, or states a CRS
+                other than :attr:`source_crs`.
+            ValueError: If its positions have a number of values the source
+                CRS does not allow.
+            TransformationFailedError: If a position cannot be transformed.
+
+        Example:
+            >>> tfm = Transformation("EPSG:4230", "EPSG:32631", operation="EPSG:1612")
+            >>> tfm.transform_geometry("LINESTRING (2.5 63.5, 3 64)").wkt(decimals=1)
+            'LINESTRING (475017.6 7041354.6, 499910.8 7096974.1)'
+        """
+        from geodetic_engine.geodesy import geometry
+
+        return cast(
+            "GeometryResult",
+            geometry._transform(
+                self,
+                value,
+                single=True,
+                coordinate_epoch=coordinate_epoch,
+                axis_order=axis_order,
+                densify=densify,
+                orient=orient,
+                srid_authority=srid_authority,
+            ),
+        )
+
+    def transform_geometries(
+        self,
+        values: object,
+        *,
+        coordinate_epoch: float | None = None,
+        axis_order: AxisOrder = "xy",
+        densify: float | None = None,
+        orient: Orientation | None = None,
+        srid_authority: str = "EPSG",
+    ) -> GeometryResults:
+        """Transform many geometries, with one call per number of values per position.
+
+        As :meth:`transform_geometry`, for a sequence, a numpy array, a pandas
+        Series or a GeoPandas GeoSeries, whose CRS must be :attr:`source_crs`.
+        One failing position fails the batch, naming its geometry.
+
+        Returns:
+            The geometries in the target CRS, in the container they came in,
+            with their provenance and encodings.
+
+        Example:
+            >>> tfm = Transformation("EPSG:4230", "EPSG:32631", operation="EPSG:1612")
+            >>> tfm.transform_geometries(["POINT (2.5 63.5)", None]).wkt(decimals=0)
+            ['POINT (475018 7041355)', None]
+        """
+        from geodetic_engine.geodesy import geometry
+
+        return cast(
+            "GeometryResults",
+            geometry._transform(
+                self,
+                values,
+                single=False,
+                coordinate_epoch=coordinate_epoch,
+                axis_order=axis_order,
+                densify=densify,
+                orient=orient,
+                srid_authority=srid_authority,
+            ),
+        )
 
     def _transform_columns(
         self,

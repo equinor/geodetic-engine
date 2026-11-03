@@ -19,6 +19,14 @@ coordinates, read provenance, and get the grid convergence and scale factor.
 The module most users need.
 :::
 
+:::{grid-item-card} GeoJSON documents
+:link: geojson
+:link-type: doc
+
+`geodetic_engine.geojson`: convert RFC 7946 GeoJSON, OGC JSON-FG and OSDU
+AnyCrs GeoJSON documents to another CRS, as the OSDU `convertGeoJson` does.
+:::
+
 :::{grid-item-card} Well trajectories
 :link: welltrajectory/index
 :link-type: doc

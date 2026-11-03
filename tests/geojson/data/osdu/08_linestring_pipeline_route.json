@@ -1,0 +1,32 @@
+{
+    "summary": "LineString representing a pipeline route",
+    "description": "Converts a pipeline route LineString from ED50 UTM Zone 31N to WGS84 geographic. Uses explicit transformation code (EPSG:1311) for accuracy in North Sea area.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+        "transformation": "EPSG:1311",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "persistableReferenceCrs": "EPSG:23031",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Pipeline Alpha",
+                        "pipelineId": "PL-2024-001",
+                        "length_km": 45.5
+                    },
+                    "geometry": {
+                        "type": "AnyCrsLineString",
+                        "coordinates": [
+                            [500000.0, 6400000.0],
+                            [510000.0, 6410000.0],
+                            [520000.0, 6405000.0],
+                            [530000.0, 6420000.0],
+                            [540000.0, 6430000.0]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

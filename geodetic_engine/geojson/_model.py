@@ -9,11 +9,15 @@ and the objects whose ``type`` is renamed between flavours. Every other member
 is copied unchanged and in its place, so ``id``, ``properties`` and foreign
 members survive, and so does key order.
 
-Two flavours are read: RFC 7946 GeoJSON, whose positions are WGS 84 longitude
-and latitude, and OSDU AnyCrs GeoJSON, whose types are prefixed ``AnyCrs`` and
-whose collection states the CRS. A document is one flavour throughout, as the
-OSDU schema requires, because a plain object in an AnyCrs document, or the
-reverse, leaves the CRS of its positions a guess.
+Three flavours are read: RFC 7946 GeoJSON, whose positions are WGS 84
+longitude and latitude; OGC JSON-FG, which is GeoJSON with a ``place`` beside
+the ``geometry`` of a feature, in the CRS its ``coordRefSys`` states; and
+OSDU AnyCrs GeoJSON, whose types are prefixed ``AnyCrs`` and whose
+collection states the CRS. A document is one flavour throughout, as the OSDU
+schema requires, because a plain object in an AnyCrs document, or the
+reverse, leaves the CRS of its positions a guess. A document is JSON-FG when
+its ``conformsTo`` names JSON-FG, or when it has a ``place`` or a
+``coordRefSys``.
 
 The reading is strict where a conversion would otherwise produce something
 wrong without saying so:
@@ -26,8 +30,9 @@ wrong without saying so:
   equal to the first (RFC 7946, section 3.1);
 * all positions of one geometry have as many values;
 * what this package cannot convert yet is refused rather than copied
-  unconverted: JSON-FG ``coordRefSys``, ``place``, ``measures`` and geometry
-  types, positions with a fourth value, and CRS members anywhere but the root.
+  unconverted: JSON-FG ``measures`` and geometry types, positions with a
+  fourth value, CRS members anywhere but the root, and a ``coordRefSys`` in
+  a feature's ``geometry``, which is WGS 84 whatever it says.
 
 It is lenient where nothing is at stake: a feature without ``properties`` or
 ``geometry`` is read as it is, and an empty ``coordinates`` array is an empty
@@ -75,6 +80,10 @@ ANYCRS_MEMBERS: Final = (
 """The members an OSDU AnyCrs feature collection states its CRS and units in."""
 LEGACY_CRS: Final = "crs"
 """The GeoJSON 2008 member that named a CRS, removed by RFC 7946."""
+COORD_REF_SYS: Final = "coordRefSys"
+"""The JSON-FG member that states the CRS of a place and the geometries in it."""
+JSONFG_CORE: Final = "http://www.opengis.net/spec/json-fg-1/1.0/conf/core"
+"""The conformance class every JSON-FG document states in ``conformsTo``."""
 
 _JSONFG_CONFORMANCE: Final = (
     "http://www.opengis.net/spec/json-fg-1/",
@@ -102,6 +111,8 @@ class Flavour(StrEnum):
 
     GEOJSON = "geojson"
     """RFC 7946: ``Point``, ``Feature``, ``FeatureCollection``, ..."""
+    JSONFG = "jsonfg"
+    """OGC JSON-FG: RFC 7946's types, with ``place`` and ``coordRefSys``."""
     ANYCRS = "anycrs"
     """OSDU AnyCrs: ``AnyCrsPoint``, ``AnyCrsFeature``, ..."""
 
@@ -127,6 +138,7 @@ class Kind(StrEnum):
 _GEOMETRIES: Final = frozenset(Kind) - {Kind.FEATURE, Kind.FEATURE_COLLECTION}
 _FLAVOUR_NAMES: Final = {
     Flavour.GEOJSON: "a plain GeoJSON document",
+    Flavour.JSONFG: "a JSON-FG document",
     Flavour.ANYCRS: "an AnyCrs GeoJSON document",
 }
 # Arrays of positions that coordinates nest down to, and what each array is.
@@ -157,6 +169,11 @@ class Geometry:
         feature: Index into :attr:`Document.features` of the feature holding
             it, directly or in a geometry collection. None when the document
             is a geometry.
+        placed: Whether a JSON-FG ``coordRefSys`` applies to it: it is in a
+            feature's ``place``, or is the document's root geometry, rather
+            than in a feature's ``geometry``, which is always WGS 84.
+        scope: The nearest ``coordRefSys`` around it, as the path of the
+            object stating it and its value, or None.
     """
 
     path: str
@@ -165,6 +182,8 @@ class Geometry:
     positions: FloatArray
     shape: Shape
     feature: int | None
+    placed: bool = False
+    scope: tuple[str, Any] | None = None
 
     @property
     def count(self) -> int:
@@ -284,12 +303,15 @@ class Document:
 
         A position cannot be null in GeoJSON, and a geometry without one of its
         positions is another geometry, so the feature loses all of it: RFC 7946
-        allows a feature without a geometry. Its ``bbox`` goes too, as there
+        allows a feature without a geometry. A JSON-FG ``place`` goes too. Its
+        ``bbox`` goes as well, as there
         is nothing left to bound. A ``bbox`` around it is to be computed
         without the geometries :attr:`withdrawn` lists, and one bounding only
         those is not to be written.
         """
         feature.target["geometry"] = None
+        if feature.target.get("place") is not None:
+            feature.target["place"] = None
         feature.target.pop("bbox", None)
         self._withdrawn.update(feature.geometries)
 
@@ -324,6 +346,8 @@ def _read(value: object) -> Document:
         root = reader.feature(data, "$")
     else:
         root = reader.geometry(data, "$", kind)
+    if reader.jsonfg:
+        flavour = Flavour.JSONFG
     return Document(
         root=root,
         kind=kind,
@@ -344,6 +368,12 @@ class _Reader:
         self._owned = owned
         # The feature being read, which holds the geometries read meanwhile.
         self._feature: int | None = None
+        # Whether the geometry being read is in a feature's geometry member.
+        self._in_geometry = False
+        # The coordRefSys members around the object being read, innermost last.
+        self._scopes: list[tuple[str, Any]] = []
+        # Whether a JSON-FG member has been read.
+        self.jsonfg = False
         self.geometries: list[Geometry] = []
         self.features: list[Feature] = []
         self.bounding_boxes: list[BoundingBox] = []
@@ -353,6 +383,7 @@ class _Reader:
         if "features" not in data:
             raise InvalidGeoJsonError(path, "a FeatureCollection has no features")
         first = len(self.geometries)
+        scoped = self._enter(data, path)
         out: dict[str, Any] = {}
         for key, value in data.items():
             if key == "features":
@@ -366,26 +397,30 @@ class _Reader:
                 ]
             else:
                 out[key] = self._member(key, value, path, root=path == "$")
+        self._leave(scoped)
         self._record(out, Kind.FEATURE_COLLECTION, path, first)
         return out
 
     def feature(self, data: Mapping[str, Any], path: str) -> dict[str, Any]:
         first = len(self.geometries)
         self._feature = len(self.features)
+        scoped = self._enter(data, path)
         out: dict[str, Any] = {}
         for key, value in data.items():
             if key == "geometry":
+                self._in_geometry = True
                 out[key] = (
                     None
                     if value is None
                     else self._geometry_in(value, f"{path}.geometry")
                 )
+                self._in_geometry = False
             elif key == "place" and value is not None:
-                raise UnsupportedGeoJsonError(
-                    f"{path}.place", "JSON-FG place is not supported yet"
-                )
+                self._jsonfg(f"{path}.place")
+                out[key] = self._geometry_in(value, f"{path}.place")
             else:
                 out[key] = self._member(key, value, path, root=path == "$")
+        self._leave(scoped)
         self._feature = None
         self.features.append(Feature(path, out, range(first, len(self.geometries))))
         self._record(out, Kind.FEATURE, path, first)
@@ -402,6 +437,7 @@ class _Reader:
             data["coordinates"], f"{path}.coordinates", kind
         )
         first = len(self.geometries)
+        scoped = self._enter(data, path)
         out: dict[str, Any] = {}
         for key, value in data.items():
             if key == "coordinates":
@@ -412,7 +448,17 @@ class _Reader:
                 )
             else:
                 out[key] = self._member(key, value, path, root=path == "$")
-        geometry = Geometry(path, kind, out, positions, shape, self._feature)
+        geometry = Geometry(
+            path,
+            kind,
+            out,
+            positions,
+            shape,
+            self._feature,
+            placed=not self._in_geometry,
+            scope=self._scopes[-1] if self._scopes else None,
+        )
+        self._leave(scoped)
         geometry.write(positions.tolist() if geometry.count else [])
         self.geometries.append(geometry)
         self._record(out, kind, path, first)
@@ -424,6 +470,7 @@ class _Reader:
         if "geometries" not in data:
             raise InvalidGeoJsonError(path, "a GeometryCollection has no geometries")
         first = len(self.geometries)
+        scoped = self._enter(data, path)
         out: dict[str, Any] = {}
         for key, value in data.items():
             if key == "geometries":
@@ -437,6 +484,7 @@ class _Reader:
                 ]
             else:
                 out[key] = self._member(key, value, path, root=path == "$")
+        self._leave(scoped)
         self._record(out, Kind.GEOMETRY_COLLECTION, path, first)
         return out
 
@@ -476,23 +524,26 @@ class _Reader:
             return value
         if key == "bbox":
             # Refuses any integer too long to be a float, so any too long to read.
-            return _read_bbox(value, f"{path}.{key}")
+            return None if value is None else _read_bbox(value, f"{path}.{key}")
         if not self._owned:
             _refuse_long_integers({key: value}, path)
         member = f"{path}.{key}"
-        if key == "coordRefSys" and value is not None:
-            raise UnsupportedGeoJsonError(
-                member, "JSON-FG coordRefSys is not supported yet"
-            )
+        if key == COORD_REF_SYS and value is not None:
+            self._jsonfg(member)
+            if self._in_geometry:
+                raise InvalidGeoJsonError(
+                    member,
+                    "a coordRefSys does not apply to a feature's geometry, which "
+                    "is WGS 84 longitude and latitude; JSON-FG states other CRSs "
+                    "for the feature's place",
+                )
         if key == "conformsTo" and _is_array(value):
             conformance = cast("Sequence[object]", value)
             if any(
                 isinstance(uri, str) and uri.startswith(_JSONFG_CONFORMANCE)
                 for uri in conformance
             ):
-                raise UnsupportedGeoJsonError(
-                    member, "JSON-FG documents are not supported yet"
-                )
+                self._jsonfg(member)
         stated = value is not None and value != ""
         if (key in ANYCRS_MEMBERS or key == LEGACY_CRS) and not root and stated:
             raise UnsupportedGeoJsonError(
@@ -504,10 +555,32 @@ class _Reader:
 
     def _record(self, out: dict[str, Any], kind: Kind, path: str, first: int) -> None:
         self.typed.append((out, kind))
-        if "bbox" in out:
+        if out.get("bbox") is not None:
             self.bounding_boxes.append(
                 BoundingBox(path, out, range(first, len(self.geometries)))
             )
+
+    def _jsonfg(self, path: str) -> None:
+        """Note a JSON-FG member, which an AnyCrs document cannot have."""
+        if self._flavour is Flavour.ANYCRS:
+            raise InvalidGeoJsonError(
+                path,
+                "an AnyCrs document states its CRS in its own members, not in "
+                "JSON-FG's",
+            )
+        self.jsonfg = True
+
+    def _enter(self, data: Mapping[str, Any], path: str) -> bool:
+        """Open the scope of an object's coordRefSys, if it has one."""
+        value = data.get(COORD_REF_SYS)
+        if value is None:
+            return False
+        self._scopes.append((f"{path}.{COORD_REF_SYS}", value))
+        return True
+
+    def _leave(self, scoped: bool) -> None:
+        if scoped:
+            self._scopes.pop()
 
 
 def _load(value: object) -> tuple[Mapping[str, Any], bool]:

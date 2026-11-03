@@ -11,6 +11,7 @@ from pyproj import CRS
 from pyproj.crs import BoundCRS, CoordinateOperation
 
 from geodetic_engine.geodesy import CoordinateReferenceSystem, UnresolvableCRSError
+from geodetic_engine.geodesy._crs_tools import same_crs
 from geodetic_engine.geojson import (
     GeoJsonCrsError,
     InvalidGeoJsonError,
@@ -20,7 +21,6 @@ from geodetic_engine.geojson._model import Document, Flavour, read_document
 from geodetic_engine.geojson._scope import (
     METRE,
     Source,
-    _same_crs,
     is_wgs84_lonlat,
     read_source,
     read_target,
@@ -164,14 +164,19 @@ def test_a_legacy_crs_member_naming_crs84_is_read(name: str) -> None:
         read_source(document, LONGITUDE_WEST)
 
 
-@pytest.mark.parametrize(
-    "member",
-    [
-        {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::25832"}},
-        {"type": "link", "properties": {"href": "http://example.com/crs"}},
-    ],
-)
-def test_a_legacy_crs_member_naming_another_crs_is_refused(member: Any) -> None:
+def test_a_legacy_crs_member_naming_another_crs_is_read_xy() -> None:
+    member = {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::25832"}}
+    source = read_source(_document([500000.0, 6600000.0], crs=member))
+    assert source.crs == _crs("EPSG:25832")
+    assert source.axis_order == "xy"
+    assert source.z_unit is None
+    assert source.stated_by == "$.crs"
+    with pytest.raises(GeoJsonCrsError, match="names EPSG:25832"):
+        read_source(_document([500000.0, 6600000.0], crs=member), "EPSG:25833")
+
+
+def test_a_legacy_crs_member_linking_to_a_crs_is_refused() -> None:
+    member = {"type": "link", "properties": {"href": "http://example.com/crs"}}
     with pytest.raises(UnsupportedGeoJsonError, match="GeoJSON 2008") as raised:
         read_source(_document([500000.0, 6600000.0], crs=member))
     assert raised.value.path == "$.crs"
@@ -293,8 +298,8 @@ def test_source_crs_cannot_contradict_the_stated_crs() -> None:
 def test_a_crs_repeats_another_whatever_axis_order_it_declares(
     first: Any, second: Any
 ) -> None:
-    assert _same_crs(_crs(first), _crs(second))
-    assert _same_crs(_crs(second), _crs(first))
+    assert same_crs(_crs(first), _crs(second))
+    assert same_crs(_crs(second), _crs(first))
 
 
 @pytest.mark.parametrize(
@@ -310,8 +315,8 @@ def test_a_crs_repeats_another_whatever_axis_order_it_declares(
     ],
 )
 def test_a_crs_does_not_repeat_one_with_other_values(first: Any, second: Any) -> None:
-    assert not _same_crs(_crs(first), _crs(second))
-    assert not _same_crs(_crs(second), _crs(first))
+    assert not same_crs(_crs(first), _crs(second))
+    assert not same_crs(_crs(second), _crs(first))
 
 
 def test_anycrs_geojson_without_a_crs_needs_source_crs() -> None:
@@ -388,12 +393,21 @@ def test_a_crs_given_as_an_integer_too_long_to_write_out_is_unresolvable() -> No
 @pytest.mark.parametrize(
     "member", ["VerticalCoordinateReferenceSystemID", "persistableReferenceVerticalCrs"]
 )
-def test_a_vertical_crs_is_refused_only_for_heights(member: str) -> None:
-    members = {"persistableReferenceCrs": ED50_UTM31, member: "stated"}
-    with pytest.raises(UnsupportedGeoJsonError, match="vertical CRS") as raised:
+def test_a_vertical_crs_makes_heights_compound(member: str) -> None:
+    members = {"persistableReferenceCrs": ED50_UTM31, member: "EPSG:5941"}
+    source = read_source(_document([1.0, 2.0, 3.0], anycrs=True, **members))
+    assert source.vertical == _crs("EPSG:5941")
+    assert source.crs_for(2) is source.crs
+    compound = source.crs_for(3)
+    assert compound.crs.is_compound
+    assert compound.dimension == 3
+
+
+def test_a_vertical_crs_member_must_name_a_vertical_crs() -> None:
+    members = {"persistableReferenceCrs": ED50_UTM31, "VerticalCoordinateReferenceSystemID": "EPSG:4326"}  # fmt: skip
+    with pytest.raises(InvalidGeoJsonError, match="not a vertical CRS") as raised:
         read_source(_document([1.0, 2.0, 3.0], anycrs=True, **members))
-    assert raised.value.path == f"$.{member}"
-    assert read_source(_document([1.0, 2.0], anycrs=True, **members)).crs is not None
+    assert raised.value.path == "$.VerticalCoordinateReferenceSystemID"
 
 
 def test_anycrs_geojson_cannot_state_a_legacy_crs_member() -> None:
@@ -418,12 +432,23 @@ def test_auto_keeps_plain_geojson_for_wgs84_longitude_and_latitude(target: str) 
     assert resolved.record_id is None
 
 
-def test_auto_refuses_to_write_plain_geojson_in_another_crs() -> None:
-    with pytest.raises(ValueError, match="output='anycrs'"):
-        read_target("EPSG:23031", source=Flavour.GEOJSON)
+def test_auto_writes_plain_geojson_in_another_crs_as_json_fg() -> None:
+    resolved = read_target("EPSG:23031", source=Flavour.GEOJSON)
+    assert resolved.flavour is Flavour.JSONFG
+    assert resolved.coord_ref_sys(None) == "http://www.opengis.net/def/crs/EPSG/0/23031"
     resolved = read_target("EPSG:23031", source=Flavour.GEOJSON, output="anycrs")
     assert resolved.flavour is Flavour.ANYCRS
     assert resolved.z_unit is None
+
+
+def test_json_fg_needs_a_crs_with_an_ogc_uri() -> None:
+    with pytest.raises(ValueError, match="output='anycrs'"):
+        read_target(LONGITUDE_WEST, source=Flavour.GEOJSON, output="jsonfg")
+    plus = read_target("EPSG:23031", source=Flavour.ANYCRS, output="jsonfg-plus")
+    assert plus.flavour is Flavour.JSONFG
+    assert plus.plus
+    with pytest.raises(ValueError, match="target_unit_z"):
+        read_target("EPSG:23031", source=Flavour.JSONFG, target_unit_z="ft")
 
 
 def test_auto_keeps_anycrs_geojson_anycrs() -> None:
@@ -438,7 +463,7 @@ def test_outputs_are_checked() -> None:
     with pytest.raises(ValueError, match="RFC 7946"):
         read_target("EPSG:23031", source=Flavour.ANYCRS, output="geojson")
     with pytest.raises(ValueError, match="output must be one of"):
-        read_target("EPSG:4326", source=Flavour.GEOJSON, output="jsonfg")  # type: ignore[arg-type]
+        read_target("EPSG:4326", source=Flavour.GEOJSON, output="kml")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("target", [LONGITUDE_WEST, LATITUDE_SOUTH])
