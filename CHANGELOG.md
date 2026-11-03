@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `geodetic_engine.units`: one reader for the length and angle units the
+  package takes, from a symbol or name, an OSDU `UnitOfMeasure` record id,
+  URL-encoded or not, or an OSDU unit persistableReference, `USO` or a `UAD`
+  that reduces to a scale. `length_unit` and `angle_unit` return a `Unit`,
+  with its symbol, quantity and scale, `to_si`, `from_si`, and `reference()`,
+  which gives back the payload it was read from or writes one. A unit that
+  cannot be read raises `units.UnitError`, a `ValueError`. The tables of
+  symbols and of the ancestries each quantity accepts now exist only here:
+  `welltrajectory.length_factor` and `angle_factor` read units through it,
+  and the GeoJSON groundwork no longer imports `welltrajectory` (#30).
+
 - The PROJ, proj-data and pyproj releases, their checksums and the pyproj
   wheel index are stated in one file, `.devcontainer/pins.env`, parsed
   strictly and never sourced. `install-proj.sh`, the Dockerfile, the
@@ -263,6 +274,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `welltrajectory.UnitError` is also a `units.UnitError`, and so a
+  `ValueError`; it is still a `WellTrajectoryError`. Some of its messages for a
+  unit persistableReference are worded differently, and a unit that is not a
+  string is refused as one rather than read as its text. A unit payload is
+  URL-decoded as `persistablereference` decodes any payload, at most twice and
+  `+` as a space, so one encoded three times, or with only its quotes encoded,
+  is no longer read.
+
 - `geodetic-osdudb build` logs a bound CRS it cannot import, such as the NTF
   (Paris) ones in the official catalogue, as a warning rather than an error.
   It is still skipped and listed in the build report.
@@ -288,6 +307,11 @@ All notable changes to this project are documented here. The format follows
   a candidate has no `area_of_use`.
 
 ### Fixed
+
+- A unit persistableReference as the OSDU unit catalogue publishes it, a `UAD`
+  whose `baseMeasurement` ancestry is the Energistics dimension, `L` for a
+  length or `A` for an angle, is read. It was refused as not a length or not
+  an angle, so a survey or a height unit given by such a payload failed.
 
 - A `proj.db` whose path holds `#`, `?` or `%`, as one installed under a
   directory such as `C#` does, is read as the file PROJ reads. The package's
