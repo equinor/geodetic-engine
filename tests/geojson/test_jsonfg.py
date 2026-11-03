@@ -113,6 +113,38 @@ def test_json_fg_plus_computes_the_wgs84_geometry_from_another_crs() -> None:
     assert lon == pytest.approx(9.0, abs=1e-9) and 59.9 < lat < 60.1
 
 
+def test_json_fg_plus_from_anycrs_writes_a_geojson_fallback() -> None:
+    point = {"type": "AnyCrsPoint", "coordinates": [3.0, 60.0, 10.0]}
+    point["bbox"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    source = {
+        "type": "AnyCrsFeatureCollection",
+        "CoordinateReferenceSystemID": "EPSG:4326",
+        "VerticalUnitID": "ft",
+        "features": [{"type": "AnyCrsFeature", "properties": {}, "geometry": point}],
+    }
+    result = convert_geojson(source, "EPSG:4978", output="jsonfg-plus")
+    _validate(result.document)
+    feature = result.document["features"][0]
+    fallback, place = feature["geometry"], feature["place"]
+    assert fallback["type"] == place["type"] == "Point"
+    # RFC 7946 heights are metres.
+    assert fallback["coordinates"] == pytest.approx([3.0, 60.0, 3.048])
+    assert fallback["bbox"] == fallback["coordinates"] * 2
+    assert place["bbox"] == place["coordinates"] * 2
+
+
+def test_positions_at_different_epochs_are_refused() -> None:
+    def at(epoch: float, latitude: float) -> dict[str, Any]:
+        reference = {"type": "Reference", "href": URI.format(7912), "epoch": epoch}
+        return _feature(place=_point(latitude, 3.0, 100.0), coordRefSys=reference)
+
+    same = convert_geojson(_collection(at(2010.0, 60.0), at(2010.0, 61.0)), "EPSG:7912")
+    _validate(same.document)
+    assert same.document["coordRefSys"]["epoch"] == 2010.0
+    with pytest.raises(ValueError, match=r"epochs 2010\.0, 2020\.0"):
+        convert_geojson(_collection(at(2010.0, 60.0), at(2020.0, 61.0)), "EPSG:7912")
+
+
 def test_positions_are_in_the_declared_axis_order_of_their_crs() -> None:
     # ETRS89 declares latitude first.
     source = _collection(

@@ -17,6 +17,7 @@ from geodetic_engine.geodesy import (
     GeometryError,
     GeometryValidityWarning,
 )
+from geodetic_engine.geodesy._wkb import replace_coordinates
 from geodetic_engine.geodesy.geometry import (
     FORMATS,
     read_geometry,
@@ -340,6 +341,23 @@ def test_every_encoding_holds_the_same_rounded_values() -> None:
 def test_minus_zero_is_written_as_zero() -> None:
     small = write_geometry(shapely.Point(-0.001, 1), "wkb_hex", decimals=2)
     assert small == write_geometry(shapely.Point(0, 1), "wkb_hex")
+
+
+def test_collection_members_are_rounded_in_their_own_dimensions() -> None:
+    mixed = shapely.from_wkt(
+        "GEOMETRYCOLLECTION (POINT (1.234 2.345), POINT M (1.234 2.345 3.456))"
+    )
+    assert write_geometry(mixed, "wkt", decimals=1) == (
+        "GEOMETRYCOLLECTION M (POINT (1.2 2.3), POINT M (1.2 2.3 3.5))"
+    )
+
+
+def test_wkb_rewriting_never_writes_past_a_position() -> None:
+    mixed = shapely.from_wkt("GEOMETRYCOLLECTION (POINT (1 2), POINT M (3 4 5))")
+    wkb = shapely.to_wkb(mixed, flavor="iso", output_dimension=4)
+    rows = np.array([[10.0, 20.0, 0.0], [30.0, 40.0, 5.0]])
+    with pytest.raises(ValueError, match="differ in z or m"):
+        replace_coordinates(wkb, rows)
 
 
 def test_rounding_reports_a_geometry_it_made_invalid() -> None:

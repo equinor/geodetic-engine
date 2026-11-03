@@ -609,11 +609,12 @@ def _apply(
     coordinate_epoch: float | None,
 ) -> tuple[ObjectArray, ArrayTransformationResult]:
     """Transform every coordinate, one call per number of values per position."""
-    moved = geometries.copy()
+    units, origins = _split(geometries)
+    moved = units.copy()
     provenance: ArrayTransformationResult | None = None
-    for has_z, has_m, members in _groups(geometries):
+    for has_z, has_m, members in _groups(units):
         coordinates, owners = shapely.get_coordinates(
-            geometries[members], include_z=has_z, include_m=has_m, return_index=True
+            units[members], include_z=has_z, include_m=has_m, return_index=True
         )
         if not len(coordinates):
             continue
@@ -622,8 +623,9 @@ def _apply(
             transformation,
             np.ascontiguousarray(coordinates[:, :width]),
             coordinate_epoch,
-            geometries,
+            units,
             members[owners],
+            origins,
         )
         if len(columns) != width:
             raise GeometryError(
@@ -632,7 +634,7 @@ def _apply(
             )
         replaced = coordinates.copy()
         replaced[:, :width] = np.column_stack(columns)
-        moved[members] = _replace(geometries[members], replaced, has_m)
+        moved[members] = _replace(units[members], replaced, has_m)
         provenance = provenance or result
     if provenance is None:
         source = transformation.source_crs
@@ -641,7 +643,7 @@ def _apply(
             3 if source.dimension == 1 else source.dimension,
             coordinate_epoch,
         )
-    return shapely.set_srid(moved, 0), provenance
+    return shapely.set_srid(_join(geometries, moved, origins), 0), provenance
 
 
 def _transform_rows(
@@ -650,6 +652,7 @@ def _transform_rows(
     coordinate_epoch: float | None,
     geometries: ObjectArray,
     owners: NDArray[np.intp],
+    origins: _Origins | None = None,
 ) -> tuple[tuple[FloatArray, ...], ArrayTransformationResult]:
     """Transform positions, naming the geometry, part and vertex that fails."""
     try:
@@ -676,19 +679,32 @@ def _transform_rows(
             if failure is None:
                 raise
             row, failed = failure.index, failure.error
-        raise relocated(failed, _locate(geometries, owners, row)) from error
+        raise relocated(failed, _locate(geometries, owners, row, origins)) from error
     except ValueError as error:
         if isinstance(error, GeodesyError):
             raise
-        raise ValueError(f"geometry {owners[0]}: {error}") from error
+        first = int(owners[0]) if origins is None else origins[int(owners[0])][0]
+        raise ValueError(f"geometry {first}: {error}") from error
 
 
-def _locate(geometries: ObjectArray, owners: NDArray[np.intp], row: int) -> str:
+def _locate(
+    geometries: ObjectArray,
+    owners: NDArray[np.intp],
+    row: int,
+    origins: _Origins | None = None,
+) -> str:
     """Where position ``row`` is: its geometry, part, ring and vertex."""
     owner = int(owners[row])
     local = row - int(np.searchsorted(owners, owner))
     steps = _steps(geometries[owner], local)
-    return ", ".join([f"geometry {owner}", *(f"{name} {n}" for name, n in steps)])
+    index, path = (owner, ()) if origins is None else origins[owner]
+    return ", ".join(
+        [
+            f"geometry {index}",
+            *(f"part {number}" for number in path),
+            *(f"{name} {n}" for name, n in steps),
+        ]
+    )
 
 
 def _steps(geometry: shapely.Geometry, index: int) -> list[tuple[str, int]]:
@@ -744,16 +760,76 @@ def _replace(
 
 def _map_coordinates(geometries: ObjectArray, change: Any) -> ObjectArray:
     """``geometries`` with ``change(coordinates, has_z, has_m)`` applied."""
-    out = geometries.copy()
-    for has_z, has_m, members in _groups(geometries):
+    units, origins = _split(geometries)
+    out = units.copy()
+    for has_z, has_m, members in _groups(units):
         coordinates = shapely.get_coordinates(
-            geometries[members], include_z=has_z, include_m=has_m
+            units[members], include_z=has_z, include_m=has_m
         )
         if len(coordinates):
             out[members] = _replace(
-                geometries[members], change(coordinates, has_z, has_m), has_m
+                units[members], change(coordinates, has_z, has_m), has_m
             )
-    return out
+    return _join(geometries, out, origins)
+
+
+# For each unit _split gives: the geometry it belongs to, and its part path there.
+type _Origins = list[tuple[int, tuple[int, ...]]]
+
+
+def _uniform(geometry: shapely.Geometry | None) -> bool:
+    """Whether every member of a collection has z and m alike, at any depth."""
+    if not isinstance(geometry, BaseMultipartGeometry):
+        return True
+    parts = [part for part in geometry.geoms if not part.is_empty]
+    kinds = {(bool(shapely.has_z(part)), bool(shapely.has_m(part))) for part in parts}
+    return len(kinds) <= 1 and all(_uniform(part) for part in parts)
+
+
+def _units(
+    geometry: shapely.Geometry, path: tuple[int, ...] = ()
+) -> Iterator[tuple[tuple[int, ...], shapely.Geometry]]:
+    if not isinstance(geometry, BaseMultipartGeometry) or _uniform(geometry):
+        yield path, geometry
+        return
+    for number, part in enumerate(geometry.geoms):
+        yield from _units(part, (*path, number))
+
+
+def _split(geometries: ObjectArray) -> tuple[ObjectArray, _Origins | None]:
+    """Geometries whose members differ in z or m, split into members that do not.
+
+    GEOS lets a collection hold, say, a 2D point beside a 3D one, but a
+    geometry's coordinates are read and written with one width throughout.
+    """
+    multipart = np.flatnonzero(shapely.get_type_id(geometries) >= 4)
+    if all(_uniform(geometries[index]) for index in multipart):
+        return geometries, None
+    units: list[shapely.Geometry | None] = []
+    origins: _Origins = []
+    for index, geometry in enumerate(geometries):
+        for path, unit in _units(geometry) if geometry is not None else [((), None)]:
+            units.append(unit)
+            origins.append((index, path))
+    return _objects(units), origins
+
+
+def _join(
+    geometries: ObjectArray, units: ObjectArray, origins: _Origins | None
+) -> ObjectArray:
+    """The geometries :func:`_split` split, rebuilt from their changed units."""
+    if origins is None:
+        return units
+    parts = iter(units)
+
+    def rebuilt(geometry: shapely.Geometry) -> shapely.Geometry:
+        if not isinstance(geometry, BaseMultipartGeometry) or _uniform(geometry):
+            return cast("shapely.Geometry", next(parts))
+        members = [rebuilt(part) for part in geometry.geoms]
+        return cast("shapely.Geometry", type(geometry)(members))  # type: ignore[call-arg]
+
+    out = [None if geometry is None else rebuilt(geometry) for geometry in geometries]
+    return shapely.set_srid(_objects(out), shapely.get_srid(geometries))
 
 
 def _permute(

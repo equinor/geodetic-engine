@@ -267,7 +267,8 @@ class Target:
         The payload the target was given as, if it was given as one; else the
         one the catalogue in proj.db publishes for it; else one written from
         its definition, with no authority code claimed for it. For a compound
-        target, that of its horizontal part.
+        target, that of its horizontal part, unless it was named whole, by a
+        payload or a record id.
 
         Raises:
             AmbiguousCatalogReferenceError: If catalogue records publishing
@@ -275,14 +276,29 @@ class Target:
             PersistableReferenceError: If none is published and the
                 definition cannot be written as one.
         """
-        if isinstance(self.given, str) and looks_like_reference(self.given.strip()):
-            return self.given.strip()
+        if self._given_payload():
+            return str(self.given).strip()
+        if self._named_whole():
+            return _reference(self.crs)
         return _reference(self.parts()[0])
 
     def vertical_reference(self) -> str | None:
-        """The vertical part of a compound target as a persistableReference."""
+        """The vertical part of a compound target as a persistableReference.
+
+        None for a compound target named whole: :meth:`crs_reference` states
+        it all, and stating its vertical part again would make it a compound
+        of a compound.
+        """
         vertical = self.parts()[1]
-        return None if vertical is None else _reference(vertical)
+        if vertical is None or self._named_whole():
+            return None
+        return _reference(vertical)
+
+    def _given_payload(self) -> bool:
+        return isinstance(self.given, str) and looks_like_reference(self.given.strip())
+
+    def _named_whole(self) -> bool:
+        return self._given_payload() or self.record_id is not None
 
     def coord_ref_sys(self, epoch: float | None) -> Any:
         """The target's JSON-FG ``coordRefSys``."""

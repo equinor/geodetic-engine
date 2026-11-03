@@ -30,6 +30,7 @@ from geodetic_engine.geodesy._failures import first_failure, isolate, probe, rel
 from geodetic_engine.geodesy._rounding import Decimals, round_columns
 from geodetic_engine.geojson._model import (
     ANYCRS_MEMBERS,
+    ANYCRS_PREFIX,
     COORD_REF_SYS,
     JSONFG_CORE,
     LEGACY_CRS,
@@ -168,7 +169,9 @@ def convert_geojson(
             is not stated or contradicts ``source_crs``.
         ValueError: If an option is not valid for the document or the
             target, for example heights converted to a unit the output cannot
-            state.
+            state; if heights of no stated unit would become heights of a
+            three-dimensional CRS; or if JSON-FG would state one epoch for
+            positions at different epochs of a dynamic target.
         GeodesyError: If the transformation is refused: an operation must
             be named, a grid is missing, an epoch is needed.
         TransformationFailedError: With ``on_error=\"raise\"``, if a position
@@ -245,12 +248,13 @@ class _Converter:
         self._provenance: list[dict[str, Any]] = []
         self._operations: list[str] = []
         self._failures: list[tuple[str, TransformationFailedError]] = []
-        # Failed positions, by geometry.
-        self._failed: dict[int, int] = {}
+        # Failed positions, by geometry: a position failing in the WGS 84
+        # fallback as well counts once.
+        self._failed: dict[int, set[int]] = {}
         self._written: dict[int, FloatArray] = {}
         self._fallback: dict[int, FloatArray] = {}
         self._z_unit: Unit | None = None
-        self._epochs: set[float] = set()
+        self._epochs: dict[int, float | None] = {}
         self._place = target.flavour is Flavour.JSONFG and not target.lonlat
         self._primary = self._primaries()
 
@@ -275,7 +279,7 @@ class _Converter:
             count = document.geometries[index].count
             total += count
             if index not in withdrawn:
-                success += count - self._failed.get(index, 0)
+                success += count - len(self._failed.get(index, ()))
         return GeoJsonResult(
             document=document.root,
             success_count=success,
@@ -324,10 +328,14 @@ class _Converter:
         """The group's positions in the target CRS, in value order."""
         source, crs = group.source, group.crs
         rows = self._value_order(group.rows, crs, source.axis_order)
-        if group.dimension == 3:
-            rows[:, 2] = _to_axis_unit(rows[:, 2], source.z_unit, crs)
         transformation = self._transformation(crs, group.dimension, fallback=False)
-        columns = self._run(transformation, rows, self._epoch_for(source), group)
+        if group.dimension == 3:
+            rows[:, 2] = _height_input(
+                rows[:, 2], source, crs, transformation.target_crs
+            )
+        epoch = self._epoch_for(source)
+        self._epochs.update(dict.fromkeys(group.members, epoch))
+        columns = self._run(transformation, rows, epoch, group)
         if len(columns) != group.dimension:
             raise ValueError(
                 f"{_label(transformation.target_crs)} gives {len(columns)} values "
@@ -344,7 +352,13 @@ class _Converter:
         rows = self._value_order(group.rows, crs, source.axis_order)
         if source.crs is not None:
             if group.dimension == 3:
-                rows[:, 2] = _to_axis_unit(rows[:, 2], source.z_unit, crs)
+                # RFC 7946 heights are metres, whatever the source CRS carries.
+                rows[:, 2] = _height_input(
+                    rows[:, 2],
+                    source,
+                    crs,
+                    CoordinateReferenceSystem.from_user_input(CRS84H),
+                )
             transformation = self._transformation(crs, group.dimension, fallback=True)
             columns = self._run(transformation, rows, self._epoch_for(source), group)
             rows = np.column_stack(columns)
@@ -406,8 +420,6 @@ class _Converter:
                 f"the document states the coordinate epoch {source.epoch}, not "
                 f"coordinate_epoch, {self._epoch}",
             )
-        if epoch is not None:
-            self._epochs.add(epoch)
         return epoch
 
     def _run(
@@ -439,15 +451,19 @@ class _Converter:
             for failure in isolated.failures:
                 path = self._path(group, failure.index)
                 located = relocated(failure.error, path)
-                index = group.members[int(group.owners[failure.index])]
+                position = int(group.owners[failure.index])
+                index = group.members[position]
                 if (
                     self._on_error == "withdraw"
                     and self._document.geometries[index].feature is None
                 ):
                     # A geometry outside any feature has no feature to withdraw.
                     raise located from failure.error
-                self._failures.append((path, located))
-                self._failed[index] = self._failed.get(index, 0) + 1
+                failed_here = self._failed.setdefault(index, set())
+                local = failure.index - int(group.starts[position])
+                if local not in failed_here:
+                    failed_here.add(local)
+                    self._failures.append((path, located))
         self._record(transformation, provenance, len(rows), failed)
         return columns
 
@@ -493,8 +509,8 @@ class _Converter:
         """Heights in the unit to write them in, noting that unit."""
         produced = transformation.target_crs
         unit: Unit | None
-        if _height_axis(produced) is not None:
-            unit = _axis_unit(produced)
+        if produced.dimension == 3:
+            unit = _third_unit(produced)
         elif _height_axis(crs) is not None:
             unit = _axis_unit(crs)
         else:
@@ -526,9 +542,12 @@ class _Converter:
                 continue
             target = self._document.features[feature].target
             place = target.get("place")
-            objects[feature] = copy.deepcopy(
+            copied = copy.deepcopy(
                 place if place is not None else target.get("geometry")
             )
+            _plain_types(copied)
+            _rebox(copied)
+            objects[feature] = copied
         return objects
 
     def _write(self, group: _Group, rows: FloatArray) -> None:
@@ -575,27 +594,26 @@ class _Converter:
     def _write_bounding_boxes(self) -> None:
         document = self._document
         withdrawn = document.withdrawn
+        # A feature's or collection's bbox; one inside a geometry object
+        # bounds that object's own positions.
+        containers = {id(feature.target) for feature in document.features}
+        if document.kind is Kind.FEATURE_COLLECTION:
+            containers.add(id(document.root))
         for box in document.bounding_boxes:
             if box.target.get("bbox") is None:
                 continue
             indices = [i for i in box.geometries if i not in withdrawn]
-            fallback = [i for i in indices if i in self._fallback or self._kept(i)]
-            chosen = fallback if self._place and fallback else indices
-            rows = [self._bbox_rows(i) for i in chosen]
-            present = [r[np.isfinite(r).all(axis=1)] for r in rows if r is not None]
-            low: list[float] = []
-            high: list[float] = []
-            for axis in range(len(box.target["bbox"]) // 2):
-                values = [r[:, axis] for r in present if r.shape[1] > axis and len(r)]
-                if not values:
-                    break
-                joined = np.concatenate(values)
-                low.append(float(joined.min()))
-                high.append(float(joined.max()))
-            if len(low) < 2:
+            if id(box.target) in containers:
+                fallback = [i for i in indices if i in self._fallback or self._kept(i)]
+                chosen = fallback if self._place and fallback else indices
+                rows = [self._bbox_rows(i) for i in chosen]
+            else:
+                rows = [self._own_rows(i) for i in indices]
+            bounds = _box(rows, len(box.target["bbox"]) // 2)
+            if bounds is None:
                 box.target.pop("bbox", None)
             else:
-                box.target["bbox"] = low + high
+                box.target["bbox"] = bounds
 
     def _kept(self, index: int) -> bool:
         """Whether a geometry is a feature's WGS 84 geometry kept beside its place."""
@@ -604,6 +622,10 @@ class _Converter:
     def _bbox_rows(self, index: int) -> FloatArray | None:
         if index in self._fallback:
             return self._fallback[index]
+        return self._own_rows(index)
+
+    def _own_rows(self, index: int) -> FloatArray | None:
+        """The positions a geometry is written with."""
         if index in self._written:
             return self._written[index]
         if self._place and self._kept(index):
@@ -638,12 +660,29 @@ class _Converter:
             uris.insert(0, JSONFG_CORE)
         _put(root, "conformsTo", uris)
         if self._place:
-            epoch = None
-            if len(self._epochs) == 1 and self._target.crs.is_dynamic:
-                epoch = next(iter(self._epochs))
-            _put(root, COORD_REF_SYS, self._target.coord_ref_sys(epoch))
+            self._write_coord_ref_sys(root)
         else:
             root.pop(COORD_REF_SYS, None)
+
+    def _write_coord_ref_sys(self, root: dict[str, Any]) -> None:
+        """The target's ``coordRefSys``, with the epoch of a dynamic target.
+
+        JSON-FG states one ``coordRefSys`` for a feature collection, on the
+        collection, so positions at different epochs cannot be written in one.
+        """
+        if not self._target.crs.is_dynamic:
+            _put(root, COORD_REF_SYS, self._target.coord_ref_sys(None))
+            return
+        distinct = set(self._epochs.values())
+        if len(distinct) > 1:
+            stated = ", ".join(sorted(str(epoch) for epoch in distinct))
+            raise ValueError(
+                f"JSON-FG states one coordinate epoch for a document, and these "
+                f"positions in the dynamic CRS {_label(self._target.crs)} are at "
+                f"epochs {stated}; convert them separately, or to a static CRS"
+            )
+        epoch = next(iter(distinct), None)
+        _put(root, COORD_REF_SYS, self._target.coord_ref_sys(epoch))
 
     def _write_anycrs(self, root: dict[str, Any]) -> None:
         target = self._target
@@ -747,6 +786,103 @@ def _to_axis_unit(
     if axis.scale == unit.scale:
         return heights
     return heights * (unit.scale / axis.scale)
+
+
+def _height_input(
+    heights: FloatArray,
+    source: Source,
+    crs: CoordinateReferenceSystem,
+    produced: CoordinateReferenceSystem,
+) -> FloatArray:
+    """Third values in the unit of the axis that takes them.
+
+    That of the source CRS when it has three axes. A third value a 2D source
+    CRS lacks is carried through to a 2D target, and read by PROJ as the third
+    axis of a 3D one, so it is put in that axis's unit.
+    """
+    if crs.dimension == 3 or produced.dimension != 3:
+        return _to_axis_unit(heights, source.z_unit, crs)
+    if source.z_unit is None:
+        raise ValueError(
+            f"{source.stated_by} does not state the unit of its heights, so they "
+            f"cannot be written as heights of {_label(produced)}"
+        )
+    unit = _third_unit(produced)
+    if unit.scale == source.z_unit.scale:
+        return heights
+    return heights * (source.z_unit.scale / unit.scale)
+
+
+def _third_unit(crs: CoordinateReferenceSystem) -> Unit:
+    """The unit of a 3D CRS's height axis, or of its third axis without one."""
+    index = _height_axis(crs)
+    axis = crs.axes[2 if index is None else index]
+    if axis.unit_conversion_factor == 1.0:
+        return METRE
+    return Unit(axis.unit_name, "length", axis.unit_conversion_factor)
+
+
+def _box(rows: Sequence[FloatArray | None], axes: int) -> list[float] | None:
+    """The bbox of the finite positions in ``rows``, or None for none."""
+    present = [r[np.isfinite(r).all(axis=1)] for r in rows if r is not None]
+    low: list[float] = []
+    high: list[float] = []
+    for axis in range(axes):
+        values = [r[:, axis] for r in present if r.shape[1] > axis and len(r)]
+        if not values:
+            break
+        joined = np.concatenate(values)
+        low.append(float(joined.min()))
+        high.append(float(joined.max()))
+    return None if len(low) < 2 else low + high
+
+
+def _rebox(value: Any) -> None:
+    """Compute again the ``bbox`` of a geometry object and of its members."""
+    if not isinstance(value, dict):
+        return
+    for member in value.get("geometries") or ():
+        _rebox(member)
+    if value.get("bbox") is None:
+        return
+    bounds = _box(_object_rows(value), len(value["bbox"]) // 2)
+    if bounds is None:
+        value.pop("bbox")
+    else:
+        value["bbox"] = bounds
+
+
+def _object_rows(value: Any) -> list[FloatArray]:
+    """The positions of a geometry object, one array per geometry."""
+    if not isinstance(value, dict):
+        return []
+    if "geometries" in value:
+        return [
+            rows
+            for member in value["geometries"] or ()
+            for rows in _object_rows(member)
+        ]
+    positions = _json_positions(value.get("coordinates"))
+    return [np.array(positions, dtype=np.float64)] if positions else []
+
+
+def _json_positions(value: Any) -> list[list[float]]:
+    if not isinstance(value, list) or not value:
+        return []
+    if isinstance(value[0], int | float):
+        return [value]
+    return [position for item in value for position in _json_positions(item)]
+
+
+def _plain_types(value: Any) -> None:
+    """Name the types of a geometry object and its members as GeoJSON does."""
+    if not isinstance(value, dict):
+        return
+    kind = value.get("type")
+    if isinstance(kind, str):
+        value["type"] = kind.removeprefix(ANYCRS_PREFIX)
+    for member in value.get("geometries") or ():
+        _plain_types(member)
 
 
 def _rounded(rows: FloatArray, decimals: Decimals) -> FloatArray:

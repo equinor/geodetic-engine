@@ -210,6 +210,41 @@ def test_plain_geojson_heights_are_metres() -> None:
         )
 
 
+def test_heights_a_2d_crs_carries_are_in_the_unit_of_a_3d_target() -> None:
+    source = _anycrs(
+        _collection(_feature({"type": "Point", "coordinates": [3.0, 60.0, 10.0]}))
+    )
+    source["CoordinateReferenceSystemID"] = "EPSG:4326"
+    source["VerticalUnitID"] = "ft"
+    result = convert_geojson(source, "EPSG:4979")
+    height = result.document["features"][0]["geometry"]["coordinates"][2]
+    assert height == pytest.approx(3.048)
+    assert json.loads(result.document["persistableReferenceUnitZ"])["symbol"] == "m"
+    del source["VerticalUnitID"]
+    with pytest.raises(ValueError, match="does not state the unit of its heights"):
+        convert_geojson(source, "EPSG:4979")
+
+
+def test_a_compound_target_named_whole_is_written_once() -> None:
+    compound = to_persistable_reference(CRS.from_epsg(5972))
+    source = _anycrs(
+        _collection(
+            _feature({"type": "Point", "coordinates": [500000.0, 6650000.0, 10.0]})
+        )
+    )
+    source["CoordinateReferenceSystemID"] = "EPSG:25832"
+    source["VerticalUnitID"] = "m"
+    result = convert_geojson(source, compound)
+    assert result.document["persistableReferenceCrs"] == compound
+    assert "persistableReferenceVerticalCrs" not in result.document
+    again = convert_geojson(result.document, compound)
+    assert again.document["features"][0]["geometry"]["coordinates"] == [
+        500000.0,
+        6650000.0,
+        10.0,
+    ]
+
+
 def test_a_vertical_crs_converts_heights_between_datums() -> None:
     source = _anycrs(
         _collection(_feature({"type": "Point", "coordinates": [10.0, 60.0, 40.0]}))
@@ -321,6 +356,16 @@ def test_nan_writes_a_failed_position_as_the_service_does() -> None:
     assert (result.success_count, result.total_count) == (3, 4)
     assert "NaN" in json.dumps(result.document)
     assert "1 failed" in result.operations_applied[0]
+
+
+def test_a_position_failing_in_the_wgs84_fallback_too_counts_once() -> None:
+    source = _anycrs(
+        _collection(_feature({"type": "Point", "coordinates": [3.0, 95.0]}))
+    )
+    source["CoordinateReferenceSystemID"] = "EPSG:4326"
+    result = convert_geojson(source, "EPSG:32631", output="jsonfg-plus", on_error="nan")
+    assert (result.success_count, result.total_count) == (0, 1)
+    assert len(result.failures) == 1
 
 
 def test_a_geometry_outside_a_feature_cannot_be_withdrawn() -> None:

@@ -72,7 +72,8 @@ def test_ed50_utm_and_wgs84_there_and_back() -> None:
         "POLYGON ((500000 6650000, 510000 6650000, 510000 6660000, 500000 6650000))"
     )
     returned = back.transform_geometry(there.transform_geometry(polygon).geometry)
-    assert np.allclose(_flat(returned.geometry), _flat(polygon), atol=1e-6)
+    # A Helmert reversed by negating its parameters returns within 0.1 mm.
+    assert np.allclose(_flat(returned.geometry), _flat(polygon), rtol=0, atol=1e-3)
 
 
 def test_an_early_bound_crs_brings_its_operation() -> None:
@@ -180,6 +181,27 @@ def test_a_failure_proj_does_not_place_is_found(ed50_to_utm: Transformation) -> 
         utm.transform_geometry("MULTIPOINT ((3 60), (4 61), (93 0))")
 
 
+def test_collection_members_keep_their_own_dimensions(
+    ed50_to_utm: Transformation,
+) -> None:
+    result = ed50_to_utm.transform_geometry(
+        "GEOMETRYCOLLECTION (POINT (2.5 63.5), POINT M (3 64 7), POINT Z (3 64 10))"
+    )
+    assert result.wkt(decimals=1) == (
+        "GEOMETRYCOLLECTION ZM (POINT (475017.6 7041354.6), "
+        "POINT M (499910.8 7096974.1 7), POINT Z (499910.8 7096974.1 10))"
+    )
+    with pytest.raises(
+        CoordinateOutOfRangeError, match="geometry 1, part 1, vertex 1 "
+    ):
+        ed50_to_utm.transform_geometries(
+            [
+                "POINT (2 60)",
+                "GEOMETRYCOLLECTION (POINT (2 60), LINESTRING Z (2 60 1, 3 95 2))",
+            ]
+        )
+
+
 def test_a_two_dimensional_geometry_in_a_three_dimensional_crs_is_refused() -> None:
     with pytest.raises(ValueError, match="geometry 0"):
         Transformation("EPSG:4979", "EPSG:4978").transform_geometry("POINT (10 60)")
@@ -259,4 +281,4 @@ def test_there_and_back_stays_within_a_millimetre(
     back = Transformation("EPSG:32631", "EPSG:4230", operation="EPSG:1612")
     line = shapely.LineString(points)
     returned = back.transform_geometry(there.transform_geometry(line).geometry).geometry
-    assert np.allclose(_flat(returned), _flat(line), atol=1e-8)
+    assert np.allclose(_flat(returned), _flat(line), rtol=0, atol=1e-8)
