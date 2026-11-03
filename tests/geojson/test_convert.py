@@ -328,6 +328,27 @@ def test_a_vertical_crs_converts_heights_between_datums() -> None:
     assert "VerticalCoordinateReferenceSystemID" not in result.document
 
 
+def test_rfc_7946_heights_from_a_vertical_crs_are_made_ellipsoidal() -> None:
+    # RFC 7946 heights are ellipsoidal: EGM2008 heights written to a 2D WGS 84
+    # target are transformed, not carried through under the wrong meaning.
+    source = _anycrs(
+        _collection(_feature({"type": "Point", "coordinates": [10.0, 60.0, 40.0]}))
+    )
+    source["CoordinateReferenceSystemID"] = "EPSG:4326"
+    source["VerticalCoordinateReferenceSystemID"] = "EPSG:3855"
+    with pytest.raises(AmbiguousOperationError):
+        convert_geojson(source, "EPSG:4326", output="geojson")
+    result = convert_geojson(
+        source, "EPSG:4326", output="geojson", operation="EPSG:3858"
+    )
+    expected = Transformation(
+        "EPSG:9518", "EPSG:4979", operation="EPSG:3858"
+    ).transform((10.0, 60.0, 40.0))
+    assert result.document["features"][0]["geometry"]["coordinates"] == pytest.approx(
+        list(expected.coordinates[0]), abs=1e-9
+    )
+
+
 def test_bounding_boxes_are_computed_again_where_they_were() -> None:
     source = _collection(
         _feature(
@@ -384,7 +405,21 @@ def test_rings_are_wound_as_asked() -> None:
 
 
 def _area(ring: np.ndarray) -> float:
+    ring = ring - ring[0]
     return float(np.dot(ring[:-1, 0], ring[1:, 1]) - np.dot(ring[1:, 0], ring[:-1, 1]))
+
+
+@pytest.mark.parametrize("orient", ["ccw", "cw"])
+def test_small_rings_far_from_the_origin_are_wound_as_asked(orient: str) -> None:
+    # A 1 mm square at UTM coordinates: the shoelace sum on absolute
+    # coordinates cancels to zero there, and the winding came out reversed.
+    x, y, side = 500000.123, 6650000.456, 0.001
+    ring = [[x, y], [x + side, y], [x + side, y + side], [x, y + side], [x, y]]
+    source = _anycrs(_collection(_feature({"type": "Polygon", "coordinates": [ring]})))
+    source["CoordinateReferenceSystemID"] = "EPSG:32631"
+    result = convert_geojson(source, "EPSG:32631", output="anycrs", orient=orient)
+    wound = np.array(result.document["features"][0]["geometry"]["coordinates"][0])
+    assert (_area(wound) > 0) == (orient == "ccw")
 
 
 def _failing() -> dict[str, Any]:

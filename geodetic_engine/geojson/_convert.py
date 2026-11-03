@@ -422,28 +422,38 @@ class _Converter:
                 )
             else:
                 self._transformations[key] = Transformation(
-                    crs, self._target_for(dimension), self._operation
+                    crs, self._target_for(dimension, crs), self._operation
                 )
         return self._transformations[key]
 
-    def _target_for(self, dimension: int) -> CoordinateReferenceSystem:
-        """The target CRS, without its height axis for positions without one."""
-        crs = self._target.crs
-        if dimension == 2 and crs.dimension == 3:
+    def _target_for(
+        self, dimension: int, crs: CoordinateReferenceSystem
+    ) -> CoordinateReferenceSystem:
+        """The target CRS for positions of ``dimension`` values in ``crs``.
+
+        Without its height axis for positions without one. With one for
+        RFC 7946 positions from a 3D CRS, whose heights RFC 7946 states are
+        ellipsoidal, so they are transformed rather than carried through.
+        """
+        target = self._target.crs
+        if dimension == 2 and target.dimension == 3:
             if self._place:
                 raise ValueError(
                     f"JSON-FG positions have as many values as their CRS has axes, "
-                    f"and these have two where {_label(crs)} has three; give a "
+                    f"and these have two where {_label(target)} has three; give a "
                     "two-dimensional target CRS, or write output='anycrs'"
                 )
-            return CoordinateReferenceSystem.from_user_input(crs.crs.to_2d())
-        if dimension == 3 and crs.dimension == 2 and self._place:
+            return CoordinateReferenceSystem.from_user_input(target.crs.to_2d())
+        if dimension == 3 and target.dimension == 2 and self._place:
             raise ValueError(
                 f"JSON-FG positions have as many values as their CRS has axes, and "
-                f"{_label(crs)} has no height; give a three-dimensional target CRS, "
-                "such as a compound one, or write output='anycrs'"
+                f"{_label(target)} has no height; give a three-dimensional target "
+                "CRS, such as a compound one, or write output='anycrs'"
             )
-        return crs
+        rfc_7946 = self._target.flavour is not Flavour.ANYCRS
+        if dimension == 3 and target.dimension == 2 and rfc_7946 and crs.dimension == 3:
+            return CoordinateReferenceSystem.from_user_input(target.crs.to_3d())
+        return target
 
     def _epoch_for(self, source: Source) -> float | None:
         if source.epoch is None:
@@ -985,8 +995,11 @@ def _oriented(geometry: Geometry, rows: FloatArray, orient: Orientation) -> Floa
     for polygon in _ring_sizes(geometry):
         for number, size in enumerate(polygon):
             ring = out[start : start + size]
+            # Relative to a vertex: absolute coordinates cancel at UTM sizes.
+            local = ring[:, :2] - ring[0, :2]
             area = float(
-                np.dot(ring[:-1, 0], ring[1:, 1]) - np.dot(ring[1:, 0], ring[:-1, 1])
+                np.dot(local[:-1, 0], local[1:, 1])
+                - np.dot(local[1:, 0], local[:-1, 1])
             )
             counterclockwise = area > 0
             if counterclockwise != ((number == 0) == (orient == "ccw")):
