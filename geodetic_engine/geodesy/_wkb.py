@@ -3,8 +3,8 @@
 Private to :mod:`geodetic_engine.geodesy.geometry`. Shapely reads and writes
 M values, but :func:`shapely.set_coordinates` and :func:`shapely.transform`
 drop them, so a geometry with M is rewritten here instead: its ISO WKB is
-walked, and each position's x, y and z are overwritten in place while its m
-stays as it was.
+walked, and each position's values are overwritten in place, as many as its
+own dimension has.
 """
 
 from __future__ import annotations
@@ -25,21 +25,29 @@ _COLLECTIONS: Final = frozenset({4, 5, 6, 7})
 _WIDTHS: Final = {0: 2, 1: 3, 2: 3, 3: 4}
 
 
-def replace_coordinates(wkb: bytes, rows: FloatArray) -> bytes:
-    """``wkb`` with each position's leading values replaced by a row of ``rows``.
+def replace_coordinates(
+    wkb: bytes, rows: FloatArray, *, has_z: bool, has_m: bool
+) -> bytes:
+    """``wkb`` with each position's values replaced by a row of ``rows``.
+
+    A position takes the values its own dimension has, so a member of a
+    collection that has no z, say, gets only the x and y of its row.
 
     Args:
         wkb: ISO WKB, as :func:`shapely.to_wkb` writes with ``flavor="iso"``.
         rows: One row per position in document order, skipping empty points,
-            as :func:`shapely.get_coordinates` gives them; as many columns as
-            there are values to replace: x and y, and z if the geometry has it.
+            as :func:`shapely.get_coordinates` gives them with ``include_z``
+            and ``include_m`` set as ``has_z`` and ``has_m`` are.
+        has_z: Whether ``rows`` has a z column, after x and y.
+        has_m: Whether ``rows`` has an m column, last.
 
     Raises:
-        ValueError: If the WKB is not ISO WKB this reads, or holds another
-            number of positions than ``rows``.
+        ValueError: If the WKB is not ISO WKB this reads, holds another
+            number of positions than ``rows``, or has a position with a z or
+            m that ``rows`` lacks.
     """
     buffer = bytearray(wkb)
-    writer = _Writer(buffer, rows)
+    writer = _Writer(buffer, rows, has_z=has_z, has_m=has_m)
     end = writer.geometry(0)
     if end != len(buffer) or writer.row != len(rows):
         raise ValueError(
@@ -50,9 +58,13 @@ def replace_coordinates(wkb: bytes, rows: FloatArray) -> bytes:
 
 
 class _Writer:
-    def __init__(self, buffer: bytearray, rows: FloatArray) -> None:
+    def __init__(
+        self, buffer: bytearray, rows: FloatArray, *, has_z: bool, has_m: bool
+    ) -> None:
         self._buffer = buffer
         self._rows = rows
+        self._z = 2 if has_z else None
+        self._m = (3 if has_z else 2) if has_m else None
         self.row = 0
 
     def geometry(self, offset: int) -> int:
@@ -62,18 +74,17 @@ class _Writer:
         kind, flag = code % 1000, code // 1000
         if flag not in _WIDTHS:
             raise ValueError(f"WKB geometry type {code} is not ISO WKB")
-        width = _WIDTHS[flag]
         if kind == _POINT:
-            return self._positions(offset, order, width, 1, point=True)
+            return self._positions(offset, order, flag, 1, point=True)
         if kind == _LINE_STRING:
             (count,) = struct.unpack_from(f"{order}I", self._buffer, offset)
-            return self._positions(offset + 4, order, width, count)
+            return self._positions(offset + 4, order, flag, count)
         if kind == _POLYGON:
             (rings,) = struct.unpack_from(f"{order}I", self._buffer, offset)
             offset += 4
             for _ in range(rings):
                 (count,) = struct.unpack_from(f"{order}I", self._buffer, offset)
-                offset = self._positions(offset + 4, order, width, count)
+                offset = self._positions(offset + 4, order, flag, count)
             return offset
         if kind in _COLLECTIONS:
             (parts,) = struct.unpack_from(f"{order}I", self._buffer, offset)
@@ -84,25 +95,30 @@ class _Writer:
         raise ValueError(f"WKB geometry type {code} is not a linear geometry")
 
     def _positions(
-        self, offset: int, order: str, width: int, count: int, *, point: bool = False
+        self, offset: int, order: str, flag: int, count: int, *, point: bool = False
     ) -> int:
+        width = _WIDTHS[flag]
         fmt = f"{order}{width}d"
         size = 8 * width
-        replaced = self._rows.shape[1]
+        # The columns of a row this position takes: x, y, then its own z and m.
+        wanted = [
+            0,
+            1,
+            *([self._z] if flag in (1, 3) else []),
+            *([self._m] if flag in (2, 3) else []),
+        ]
+        columns = [column for column in wanted if column is not None]
         for _ in range(count):
             values = struct.unpack_from(fmt, self._buffer, offset)
             # An empty point is written as NaN, and has no row.
             if not (point and all(np.isnan(values))):
-                if replaced > width:
+                if len(columns) != width:
                     raise ValueError(
-                        f"{replaced} values per position cannot replace a "
-                        f"position of {width}; a collection's members differ "
-                        "in z or m"
+                        f"a position of WKB dimension {flag} has a z or m value "
+                        "that the rows do not"
                     )
-                row = self._rows[self.row]
-                struct.pack_into(
-                    f"{order}{replaced}d", self._buffer, offset, *row.tolist()
-                )
+                row = self._rows[self.row, columns]
+                struct.pack_into(fmt, self._buffer, offset, *row.tolist())
                 self.row += 1
             offset += size
         return offset

@@ -637,7 +637,7 @@ def _apply(
             )
         replaced = coordinates.copy()
         replaced[:, :width] = np.column_stack(columns)
-        moved[members] = _replace(units[members], replaced, has_m)
+        moved[members] = _replace(units[members], replaced, has_z, has_m)
         provenance = provenance or result
     if provenance is None:
         source = transformation.source_crs
@@ -743,9 +743,9 @@ def _groups(
 
 
 def _replace(
-    geometries: ObjectArray, coordinates: FloatArray, has_m: bool
+    geometries: ObjectArray, coordinates: FloatArray, has_z: bool, has_m: bool
 ) -> ObjectArray:
-    """``geometries`` with new coordinates, as many columns as they have values."""
+    """``geometries`` with new coordinates: x, y, then z and m as they have them."""
     if not has_m:
         replaced = geometries.copy()
         shapely.set_coordinates(replaced, coordinates)
@@ -755,7 +755,9 @@ def _replace(
     for geometry in geometries:
         count = int(shapely.get_num_coordinates(geometry))
         wkb = shapely.to_wkb(geometry, flavor="iso", output_dimension=4, byte_order=1)
-        rewritten = replace_coordinates(wkb, coordinates[start : start + count])
+        rewritten = replace_coordinates(
+            wkb, coordinates[start : start + count], has_z=has_z, has_m=has_m
+        )
         out.append(shapely.from_wkb(rewritten))
         start += count
     return shapely.set_srid(_objects(out), shapely.get_srid(geometries))
@@ -771,7 +773,7 @@ def _map_coordinates(geometries: ObjectArray, change: Any) -> ObjectArray:
         )
         if len(coordinates):
             out[members] = _replace(
-                units[members], change(coordinates, has_z, has_m), has_m
+                units[members], change(coordinates, has_z, has_m), has_z, has_m
             )
     return _join(geometries, out, origins)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -131,6 +132,41 @@ def test_json_fg_plus_from_anycrs_writes_a_geojson_fallback() -> None:
     assert fallback["coordinates"] == pytest.approx([3.0, 60.0, 3.048])
     assert fallback["bbox"] == fallback["coordinates"] * 2
     assert place["bbox"] == place["coordinates"] * 2
+
+
+def test_the_fallback_is_rounded_wound_and_states_no_crs() -> None:
+    ring = [[60.0, 2.0], [61.0, 3.0], [60.0, 3.0], [60.0, 2.0]]
+    polygon = {
+        "type": "Polygon",
+        "coordinates": [ring],
+        "coordRefSys": URI.format(4230),
+    }
+    source = _collection(_feature(place=polygon))
+    result = convert_geojson(
+        source,
+        "EPSG:4230",
+        output="jsonfg-plus",
+        decimals=2,
+        orient="ccw",
+        fallback_operation="EPSG:1612",
+    )
+    fallback = result.document["features"][0]["geometry"]
+    assert "coordRefSys" not in fallback
+    positions = fallback["coordinates"][0]
+    assert all(value == round(value, 2) for position in positions for value in position)
+    area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in pairwise(positions))
+    assert area > 0
+    again = convert_geojson(result.document, "EPSG:4230")
+    assert again.document["features"][0]["geometry"] == fallback
+
+
+def test_identical_scopes_are_converted_together() -> None:
+    features = [
+        _feature(place=_point(60.0 + n / 100, 3.0), coordRefSys=URI.format(4326))
+        for n in range(20)
+    ]
+    result = convert_geojson(_collection(*features), "EPSG:32631")
+    assert len(result.transformations) == 1
 
 
 def test_positions_at_different_epochs_are_refused() -> None:

@@ -17,6 +17,7 @@ from geodetic_engine.geodesy import (
     MissingCoordinateEpochError,
     Transformation,
     TransformationFailedError,
+    available_operations,
 )
 from geodetic_engine.geojson import (
     GeoJsonCrsError,
@@ -243,6 +244,55 @@ def test_a_compound_target_named_whole_is_written_once() -> None:
         6650000.0,
         10.0,
     ]
+
+
+def test_positions_without_heights_in_a_compound_crs_are_in_its_horizontal_part() -> (
+    None
+):
+    compound = to_persistable_reference(CRS.from_epsg(5972))
+    source = _anycrs(
+        _collection(
+            _feature({"type": "Point", "coordinates": [500000.0, 6650000.0, 10.0]}),
+            _feature({"type": "Point", "coordinates": [500000.0, 6650000.0]}),
+        )
+    )
+    source["persistableReferenceCrs"] = compound
+    source["VerticalUnitID"] = "m"
+    result = convert_geojson(source, compound)
+    assert [f["geometry"]["coordinates"] for f in result.document["features"]] == [
+        [500000.0, 6650000.0, 10.0],
+        [500000.0, 6650000.0],
+    ]
+
+
+def test_heights_carried_to_a_2d_target_keep_a_compound_source_vertical_crs() -> None:
+    source = _collection(
+        _feature(None, place={"type": "Point", "coordinates": [60.0, 3.0, 10.0]}),
+        conformsTo=["http://www.opengis.net/spec/json-fg-1/1.0/conf/core"],
+        coordRefSys=[
+            "http://www.opengis.net/def/crs/EPSG/0/4326",
+            "http://www.opengis.net/def/crs/EPSG/0/3855",
+        ],
+    )
+    operation = available_operations("EPSG:9518", "EPSG:32631")[0]
+    result = convert_geojson(source, "EPSG:32631", output="anycrs", operation=operation)
+    vertical = json.loads(result.document["persistableReferenceVerticalCrs"])
+    assert "EGM2008" in vertical["name"]
+    assert result.document["features"][0]["geometry"]["coordinates"][2] == 10.0
+
+
+def test_heights_of_stated_and_unstated_units_are_refused() -> None:
+    def place(crs: str) -> dict[str, Any]:
+        point = {"type": "Point", "coordinates": [60.0, 3.0, 1.0]}
+        return _feature(None, place=point, coordRefSys=crs)
+
+    source = _collection(
+        place("http://www.opengis.net/def/crs/EPSG/0/4979"),
+        place("http://www.opengis.net/def/crs/EPSG/0/4326"),
+        conformsTo=["http://www.opengis.net/spec/json-fg-1/1.0/conf/core"],
+    )
+    with pytest.raises(ValueError, match="more than one unit"):
+        convert_geojson(source, "EPSG:32631", output="anycrs")
 
 
 def test_a_vertical_crs_converts_heights_between_datums() -> None:

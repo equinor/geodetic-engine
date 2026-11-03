@@ -47,6 +47,8 @@ from geodetic_engine.geojson._scope import (
     Output,
     Source,
     Target,
+    crs_parts,
+    crs_reference,
     read_sources,
     read_target,
 )
@@ -254,6 +256,9 @@ class _Converter:
         self._written: dict[int, FloatArray] = {}
         self._fallback: dict[int, FloatArray] = {}
         self._z_unit: Unit | None = None
+        self._z_written = False
+        # The vertical CRS of each group of heights a 2D target carries through.
+        self._carried: list[CoordinateReferenceSystem | None] = []
         self._epochs: dict[int, float | None] = {}
         self._place = target.flavour is Flavour.JSONFG and not target.lonlat
         self._primary = self._primaries()
@@ -305,13 +310,30 @@ class _Converter:
         return frozenset(primary)
 
     def _groups(self) -> list[_Group]:
-        groups: dict[tuple[int, int], _Group] = {}
+        groups: dict[tuple[Any, ...], _Group] = {}
+        definitions: dict[int, str] = {}
+
+        def definition(crs: CoordinateReferenceSystem | None) -> str | None:
+            if crs is None:
+                return None
+            if id(crs) not in definitions:
+                definitions[id(crs)] = crs.crs.to_wkt()
+            return definitions[id(crs)]
+
         for index in sorted(self._primary):
             geometry = self._document.geometries[index]
             if not geometry.count:
                 continue
             source = self._sources[index]
-            key = (id(source), geometry.dimension)
+            # Scopes stating the same CRS, order, epoch and unit are one batch.
+            key = (
+                definition(source.crs),
+                definition(source.vertical),
+                source.axis_order,
+                source.epoch,
+                source.z_unit,
+                geometry.dimension,
+            )
             if key not in groups:
                 crs = source.crs_for(geometry.dimension)
                 groups[key] = _Group(source, geometry.dimension, crs, [])
@@ -333,6 +355,8 @@ class _Converter:
             rows[:, 2] = _height_input(
                 rows[:, 2], source, crs, transformation.target_crs
             )
+            if transformation.target_crs.dimension == 2:
+                self._carried.append(crs_parts(crs)[1])
         epoch = self._epoch_for(source)
         self._epochs.update(dict.fromkeys(group.members, epoch))
         columns = self._run(transformation, rows, epoch, group)
@@ -362,11 +386,15 @@ class _Converter:
             transformation = self._transformation(crs, group.dimension, fallback=True)
             columns = self._run(transformation, rows, self._epoch_for(source), group)
             rows = np.column_stack(columns)
+        rows = _rounded(rows, self._decimals)
         for position, index in enumerate(group.members):
             if self._feature_lacks_geometry(index):
+                geometry = self._document.geometries[index]
                 start = int(group.starts[position])
-                count = self._document.geometries[index].count
-                self._fallback[index] = rows[start : start + count]
+                values = rows[start : start + geometry.count]
+                if self._orient is not None:
+                    values = _oriented(geometry, values, self._orient)
+                self._fallback[index] = values
 
     def _needs_fallback(self, group: _Group) -> bool:
         if not (self._place and self._target.plus):
@@ -534,7 +562,23 @@ class _Converter:
                 if line not in self._operations:
                     self._operations.append(line)
             unit = wanted
-        self._z_unit = self._z_unit or unit
+        elif self._z_written and unit != self._z_unit:
+            # An AnyCrs document states one unit for all its heights.
+            first = self._z_unit
+            if first is None or unit is None:
+                raise ValueError(
+                    "the document's heights are in more than one unit, not all "
+                    "stated, and it can state only one; give target_unit_z for "
+                    "heights whose units are all stated"
+                )
+            if unit.scale != first.scale:
+                heights = heights * (unit.scale / first.scale)
+                line = f"heights converted from {unit.symbol} to {first.symbol}"
+                if line not in self._operations:
+                    self._operations.append(line)
+            unit = first
+        if not self._z_written:
+            self._z_unit, self._z_written = unit, True
         return heights
 
     def _fallback_objects(self) -> dict[int, Any]:
@@ -551,7 +595,7 @@ class _Converter:
             copied = copy.deepcopy(
                 place if place is not None else target.get("geometry")
             )
-            _plain_types(copied)
+            _as_fallback(copied)
             _rebox(copied)
             objects[feature] = copied
         return objects
@@ -699,14 +743,16 @@ class _Converter:
         _put(root, "persistableReferenceCrs", target.crs_reference())
         heights = 3 in self._document.dimensions
         vertical = target.vertical_reference()
-        # Heights carried through stay in the vertical CRS they were stated in.
-        carried = (
-            vertical is None
-            and heights
-            and self._target.crs.dimension == 2
-            and any(source.vertical is not None for source in self._sources)
-        )
-        if not carried:
+        carried = None
+        if vertical is None and heights and self._target.crs.dimension == 2:
+            carried = self._carried_vertical()
+        if carried is not None and any(s.vertical is not None for s in self._sources):
+            # The document's own vertical CRS members state it, and stay.
+            pass
+        elif carried is not None:
+            root.pop("VerticalCoordinateReferenceSystemID", None)
+            _put(root, "persistableReferenceVerticalCrs", crs_reference(carried))
+        else:
             root.pop("VerticalCoordinateReferenceSystemID", None)
             if vertical is None:
                 root.pop("persistableReferenceVerticalCrs", None)
@@ -717,6 +763,20 @@ class _Converter:
             _put(root, "persistableReferenceUnitZ", self._z_unit.reference())
         else:
             root.pop("persistableReferenceUnitZ", None)
+
+    def _carried_vertical(self) -> CoordinateReferenceSystem | None:
+        """The vertical CRS of the heights a 2D target carries through."""
+        distinct: list[CoordinateReferenceSystem | None] = []
+        for vertical in self._carried:
+            if vertical not in distinct:
+                distinct.append(vertical)
+        if len(distinct) > 1:
+            raise ValueError(
+                f"heights carried through to {_label(self._target.crs)} are in "
+                "different vertical CRSs, and an AnyCrs document states one; give "
+                "a compound target CRS, or convert them separately"
+            )
+        return distinct[0] if distinct else None
 
 
 def _put(
@@ -871,15 +931,16 @@ def _json_positions(value: Any) -> list[list[float]]:
     return [position for item in value for position in _json_positions(item)]
 
 
-def _plain_types(value: Any) -> None:
-    """Name the types of a geometry object and its members as GeoJSON does."""
+def _as_fallback(value: Any) -> None:
+    """A copied place as a WGS 84 geometry: GeoJSON types, and no coordRefSys."""
     if not isinstance(value, dict):
         return
     kind = value.get("type")
     if isinstance(kind, str):
         value["type"] = kind.removeprefix(ANYCRS_PREFIX)
+    value.pop(COORD_REF_SYS, None)
     for member in value.get("geometries") or ():
-        _plain_types(member)
+        _as_fallback(member)
 
 
 def _rounded(rows: FloatArray, decimals: Decimals) -> FloatArray:

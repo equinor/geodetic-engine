@@ -115,6 +115,9 @@ class Source:
                 return compound(self.crs, self.vertical)
             except UnsupportedCRSError as error:
                 raise GeoJsonCrsError(self.stated_by, str(error)) from error
+        if dimension == 2:
+            # Positions without heights in a compound CRS are in its horizontal part.
+            return crs_parts(self.crs)[0]
         return self.crs
 
 
@@ -252,14 +255,7 @@ class Target:
         self,
     ) -> tuple[CoordinateReferenceSystem, CoordinateReferenceSystem | None]:
         """The horizontal CRS, and the vertical CRS of a compound target."""
-        definition = self.crs.crs
-        if definition.is_compound and len(definition.sub_crs_list) == 2:
-            horizontal, vertical = definition.sub_crs_list
-            return (
-                CoordinateReferenceSystem(horizontal, horizontal.name),
-                CoordinateReferenceSystem(vertical, vertical.name),
-            )
-        return self.crs, None
+        return crs_parts(self.crs)
 
     def crs_reference(self) -> str:
         """The target CRS as a persistableReference, for an AnyCrs document.
@@ -279,8 +275,8 @@ class Target:
         if self._given_payload():
             return str(self.given).strip()
         if self._named_whole():
-            return _reference(self.crs)
-        return _reference(self.parts()[0])
+            return crs_reference(self.crs)
+        return crs_reference(self.parts()[0])
 
     def vertical_reference(self) -> str | None:
         """The vertical part of a compound target as a persistableReference.
@@ -292,7 +288,7 @@ class Target:
         vertical = self.parts()[1]
         if vertical is None or self._named_whole():
             return None
-        return _reference(vertical)
+        return crs_reference(vertical)
 
     def _given_payload(self) -> bool:
         return isinstance(self.given, str) and looks_like_reference(self.given.strip())
@@ -563,11 +559,26 @@ def _stated_crs(
     return None
 
 
-def _reference(crs: CoordinateReferenceSystem) -> str:
+def crs_reference(crs: CoordinateReferenceSystem) -> str:
+    """A CRS as a persistableReference: as its catalogue publishes it, if one does."""
     stored = crs.persistable_reference_from_catalog()
     if stored is not None:
         return stored.payload
     return to_persistable_reference(crs.crs)
+
+
+def crs_parts(
+    crs: CoordinateReferenceSystem,
+) -> tuple[CoordinateReferenceSystem, CoordinateReferenceSystem | None]:
+    """The horizontal and vertical parts of a compound CRS, else it and None."""
+    definition = crs.crs
+    if definition.is_compound and len(definition.sub_crs_list) == 2:
+        horizontal, vertical = definition.sub_crs_list
+        return (
+            CoordinateReferenceSystem(horizontal, horizontal.name),
+            CoordinateReferenceSystem(vertical, vertical.name),
+        )
+    return crs, None
 
 
 def _legacy_name(member: object) -> str | None:

@@ -355,12 +355,16 @@ def test_collection_members_are_rounded_in_their_own_dimensions() -> None:
     assert write_geometry(rounded[1], "wkt") == write_geometry(mixed, "wkt", decimals=1)
 
 
-def test_wkb_rewriting_never_writes_past_a_position() -> None:
+def test_wkb_rewriting_writes_each_member_its_own_values() -> None:
     mixed = shapely.from_wkt("GEOMETRYCOLLECTION (POINT (1 2), POINT M (3 4 5))")
     wkb = shapely.to_wkb(mixed, flavor="iso", output_dimension=4)
-    rows = np.array([[10.0, 20.0, 0.0], [30.0, 40.0, 5.0]])
-    with pytest.raises(ValueError, match="differ in z or m"):
-        replace_coordinates(wkb, rows)
+    rows = np.array([[10.0, 20.0, np.nan], [30.0, 40.0, 5.0]])
+    rewritten = replace_coordinates(wkb, rows, has_z=False, has_m=True)
+    assert shapely.from_wkb(rewritten).wkt == (
+        "GEOMETRYCOLLECTION M (POINT (10 20), POINT M (30 40 5))"
+    )
+    with pytest.raises(ValueError, match="z or m value that the rows do not"):
+        replace_coordinates(wkb, rows[:, :2], has_z=False, has_m=False)
 
 
 @pytest.mark.parametrize(
