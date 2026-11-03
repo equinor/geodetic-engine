@@ -265,6 +265,8 @@ class _Converter:
 
     def run(self) -> GeoJsonResult:
         document = self._document
+        if self._target.flavour is Flavour.JSONFG:
+            _refuse_nested_collections(document.root, "$")
         groups = self._groups()
         converted: list[tuple[_Group, FloatArray]] = []
         for group in groups:
@@ -929,6 +931,32 @@ def _json_positions(value: Any) -> list[list[float]]:
     if isinstance(value[0], int | float):
         return [value]
     return [position for item in value for position in _json_positions(item)]
+
+
+def _refuse_nested_collections(value: Any, path: str, *, inside: bool = False) -> None:
+    """Refuse a GeometryCollection in another, which JSON-FG 1.0 does not allow."""
+    if not isinstance(value, dict):
+        return
+    kind = value.get("type")
+    if (
+        isinstance(kind, str)
+        and kind.removeprefix(ANYCRS_PREFIX) == Kind.GEOMETRY_COLLECTION
+    ):
+        if inside:
+            raise ValueError(
+                f"{path} is a GeometryCollection in a GeometryCollection, which "
+                "JSON-FG 1.0 does not allow; write output='anycrs', or "
+                "output='geojson' for a WGS 84 target"
+            )
+        for number, member in enumerate(value.get("geometries") or ()):
+            _refuse_nested_collections(
+                member, f"{path}.geometries[{number}]", inside=True
+            )
+        return
+    for key in ("geometry", "place"):
+        _refuse_nested_collections(value.get(key), f"{path}.{key}")
+    for number, feature in enumerate(value.get("features") or ()):
+        _refuse_nested_collections(feature, f"{path}.features[{number}]")
 
 
 def _as_fallback(value: Any) -> None:

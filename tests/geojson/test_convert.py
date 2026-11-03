@@ -265,6 +265,23 @@ def test_positions_without_heights_in_a_compound_crs_are_in_its_horizontal_part(
     ]
 
 
+def test_a_compound_crs_may_repeat_its_vertical_part_but_not_another() -> None:
+    compound = to_persistable_reference(CRS.from_epsg(5972))
+    source = _anycrs(
+        _collection(
+            _feature({"type": "Point", "coordinates": [500000.0, 6650000.0, 10.0]})
+        )
+    )
+    source["persistableReferenceCrs"] = compound
+    source["VerticalCoordinateReferenceSystemID"] = "EPSG:5941"
+    source["VerticalUnitID"] = "m"
+    result = convert_geojson(source, compound)
+    assert result.document["features"][0]["geometry"]["coordinates"][2] == 10.0
+    source["VerticalCoordinateReferenceSystemID"] = "EPSG:5714"
+    with pytest.raises(GeoJsonCrsError, match="not EPSG:5714"):
+        convert_geojson(source, compound)
+
+
 def test_heights_carried_to_a_2d_target_keep_a_compound_source_vertical_crs() -> None:
     source = _collection(
         _feature(None, place={"type": "Point", "coordinates": [60.0, 3.0, 10.0]}),

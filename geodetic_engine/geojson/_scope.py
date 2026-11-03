@@ -216,6 +216,16 @@ def read_source(document: Document, source_crs: object = None) -> Source:
         vertical, path = found
         if not vertical.crs.is_vertical:
             raise InvalidGeoJsonError(path, f"{_label(vertical)} is not a vertical CRS")
+        own = crs_parts(crs)[1]
+        if own is not None:
+            if not same_crs(own, vertical):
+                raise GeoJsonCrsError(
+                    path,
+                    f"{_label(crs)} is compound with the vertical CRS "
+                    f"{_label(own)}, not {_label(vertical)}",
+                )
+            # A compound CRS already states it; compounding it again would fail.
+            vertical = None
     z_unit = None
     for key in ("VerticalUnitID", "persistableReferenceUnitZ"):
         if (text := _text(root, key)) is not None:

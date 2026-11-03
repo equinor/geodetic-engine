@@ -169,6 +169,20 @@ def test_identical_scopes_are_converted_together() -> None:
     assert len(result.transformations) == 1
 
 
+def test_json_fg_has_no_collection_in_a_collection() -> None:
+    nested = {
+        "type": "GeometryCollection",
+        "geometries": [
+            _point(3.0, 60.0),
+            {"type": "GeometryCollection", "geometries": [_point(3.1, 60.1)]},
+        ],
+    }
+    source = _collection(_feature(nested))
+    with pytest.raises(ValueError, match=r"geometry\.geometries\[1\] is a"):
+        convert_geojson(source, "EPSG:32631")
+    assert convert_geojson(source, "EPSG:32631", output="anycrs").success_count == 2
+
+
 def test_positions_at_different_epochs_are_refused() -> None:
     def at(epoch: float, latitude: float) -> dict[str, Any]:
         reference = {"type": "Reference", "href": URI.format(7912), "epoch": epoch}
