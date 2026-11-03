@@ -36,6 +36,9 @@ Example:
     (('E', 'N'), 'xy')
 """
 
+# Loaded with the package, as before they moved to _referencing.
+from geodetic_engine.geodesy import database as database
+from geodetic_engine.geodesy import osdu_id as osdu_id
 from geodetic_engine.geodesy.crs import AxisSpec, CoordinateReferenceSystem
 from geodetic_engine.geodesy.errors import (
     AmbiguousOperationError,

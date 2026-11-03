@@ -22,32 +22,38 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.database import (
+from geodetic_engine._referencing.axes import value_axis_order
+from geodetic_engine._referencing.database import (
     DatabaseIdentity,
     bound_definition,
     bound_definition_by_name,
     database_identity,
     skip_reason,
 )
-from geodetic_engine.geodesy.errors import (
-    UnembeddableOperationError,
-    UnresolvableCRSError,
-)
-from geodetic_engine.geodesy.osdu_id import (
+from geodetic_engine._referencing.osdu_id import (
     CRS_ENTITY,
     OsduId,
     parse_osdu_id,
     resolve_osdu_id,
     unresolved_reason,
 )
-
-if TYPE_CHECKING:
-    from geodetic_engine.persistablereference.stored import CatalogPersistableReference
+from geodetic_engine.geodesy.errors import (
+    UnembeddableOperationError,
+    UnresolvableCRSError,
+)
+from geodetic_engine.persistablereference import (
+    CatalogPersistableReference,
+    CrsReference,
+    PersistableReferenceError,
+    looks_like_reference,
+    parse_persistable_reference,
+    persistable_reference_from_catalog,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +61,6 @@ logger = logging.getLogger(__name__)
 # records that by giving the datum a reference epoch. An ensemble or a static
 # datum has no such key.
 _DYNAMIC_MARKER = "frame_reference_epoch"
-# PROJ's always_xy only reorders a literal north+east pair into east+north; a
-# south/west axis (Krovak, Cape/Hartebeesthoek Lo grids) is left in its
-# declared order, so those directions must not be bucketed in here too.
-_EASTINGS = frozenset({"east"})
-_NORTHINGS = frozenset({"north"})
-_VERTICALS = frozenset({"up", "down"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,10 +321,6 @@ class CoordinateReferenceSystem:
             >>> crs.persistable_reference_from_catalog().kind  # doctest: +SKIP
             <Kind.EARLY_BOUND_CRS: 'EBC'>
         """
-        from geodetic_engine.persistablereference.stored import (
-            persistable_reference_from_catalog,
-        )
-
         return persistable_reference_from_catalog(self, database=database)
 
     @property
@@ -365,26 +361,7 @@ class CoordinateReferenceSystem:
             So the first coordinate value is the axis at declared index 1,
             longitude.
         """
-        directions = [axis.direction.lower() for axis in self._axes]
-        east = next((i for i, d in enumerate(directions) if d in _EASTINGS), None)
-        north = next((i for i, d in enumerate(directions) if d in _NORTHINGS), None)
-        if east is None or north is None or east == north:
-            # Both axes of a polar CRS share a direction, so resolve the pair
-            # together from the abbreviations rather than mixing the two
-            # sources and risking them naming the same axis.
-            abbreviations = [axis.abbrev.upper() for axis in self._axes]
-            by_letter = (
-                _first_index(abbreviations, "E"),
-                _first_index(abbreviations, "N"),
-            )
-            if by_letter[0] is not None and by_letter[0] != by_letter[1]:
-                east, north = by_letter
-        if east is None or north is None or east == north:
-            return tuple(range(len(self._axes)))
-        vertical = [i for i, d in enumerate(directions) if d in _VERTICALS]
-        placed = {east, north, *vertical}
-        rest = [i for i in range(len(self._axes)) if i not in placed]
-        return (east, north, *vertical, *rest)
+        return value_axis_order(self._axes)
 
     @property
     def value_axis_abbreviations(self) -> tuple[str, ...]:
@@ -421,11 +398,6 @@ def _normalize(value: Any) -> str:
 @lru_cache(maxsize=256)
 def _cached(definition: str, identity: DatabaseIdentity) -> CoordinateReferenceSystem:
     """Resolve and cache a CRS by its textual definition."""
-    # Imported where it is used rather than at module scope: reading a
-    # reference builds bound CRSs through geodesy.utils, which reads this
-    # module.
-    from geodetic_engine.persistablereference import looks_like_reference
-
     if (osdu := parse_osdu_id(definition)) is not None:
         # Resolved here, never by PROJ: PROJ would match an unknown id against
         # names approximately, and a near miss is a different object. Checked
@@ -494,12 +466,6 @@ def _reference(definition: str) -> CRS:
             about the input rather than about PROJ, so all of them are reported
             as one failure to resolve.
     """
-    from geodetic_engine.persistablereference import (
-        CrsReference,
-        PersistableReferenceError,
-        parse_persistable_reference,
-    )
-
     try:
         reference = parse_persistable_reference(definition)
         if not isinstance(reference, CrsReference):
@@ -560,8 +526,3 @@ def _has_dynamic_frame(definition: object) -> bool:
     if isinstance(definition, list):
         return any(_has_dynamic_frame(item) for item in definition)
     return False
-
-
-def _first_index(values: list[str], wanted: str) -> int | None:
-    """Position of the first matching entry, or None."""
-    return values.index(wanted) if wanted in values else None

@@ -16,47 +16,46 @@ from __future__ import annotations
 import json
 import re
 import shlex
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pyproj.crs import CoordinateOperation
 from pyproj.database import get_authorities
 from pyproj.enums import TransformDirection
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.database import (
+from geodetic_engine._referencing.database import (
     DatabaseIdentity,
     IdentifiedObject,
     database_identity,
+    recorded_identifiers,
 )
-from geodetic_engine.geodesy.errors import OperationNotAvailableError
-from geodetic_engine.geodesy.osdu_id import (
+from geodetic_engine._referencing.osdu_id import (
     SCHEME,
     OsduId,
     parse_osdu_id,
     resolve_osdu_id,
     unresolved_reason,
 )
-
-if TYPE_CHECKING:
-    from geodetic_engine.persistablereference.stored import CatalogPersistableReference
-
-# PROJJSON object types that are coordinate operations. Anything else with an
-# "id" (a CRS, a datum, an ellipsoid, a method, a parameter) is not one, and
-# must not be allowed to satisfy a request for an operation code.
-_OPERATION_TYPES = frozenset(
-    {"Transformation", "Conversion", "ConcatenatedOperation", "PointMotionOperation"}
+from geodetic_engine._referencing.projjson import (
+    has_inverted_step as has_inverted_step,
 )
-
-# Descending into these would reach the map projection conversion that a
-# projected CRS carries, which is part of the CRS definition rather than part
-# of the operation being applied.
-_NESTED_CRS_KEYS = frozenset(
-    {"source_crs", "target_crs", "interpolation_crs", "base_crs"}
+from geodetic_engine._referencing.projjson import operation_nodes
+from geodetic_engine.geodesy.errors import OperationNotAvailableError
+from geodetic_engine.persistablereference import (
+    CatalogPersistableReference,
+    PersistableReferenceError,
+    looks_like_reference,
+    operation_from_geogtran,
+    parse_persistable_reference,
+    persistable_reference_from_catalog,
+)
+from geodetic_engine.persistablereference import (
+    OperationReference as PayloadOperation,
 )
 
 _URN_PREFIX = "urn:ogc:def:coordinateoperation:"
@@ -76,11 +75,6 @@ _EPOCH_READING_STEP = "t_epoch="
 # operation re-issues it as INVERSE(EPSG):1612 -- both nestable, both still the
 # same EPSG operation, and both must still satisfy a request for it.
 _WRAPPED_AUTHORITY = re.compile(r"^(?:DERIVED_FROM|INVERSE)\((.*)\)$", re.IGNORECASE)
-
-# Only the INVERSE wrapper changes what the operation computes, and neither
-# WKT2 nor PROJJSON can express it, so an export carrying one cannot be read
-# back faithfully. DERIVED_FROM is unaffected.
-_INVERSE_AUTHORITY = re.compile(r"INVERSE\(", re.IGNORECASE)
 
 
 def base_authority(authority: str) -> str:
@@ -389,11 +383,6 @@ class AppliedOperation:
             AmbiguousCatalogReferenceError: If records publishing different
                 references name the operation applied.
         """
-        from geodetic_engine.geodesy.database import recorded_identifiers
-        from geodetic_engine.persistablereference.stored import (
-            persistable_reference_from_catalog,
-        )
-
         if (
             self.requested
             and self.auth_name is not None
@@ -696,8 +685,9 @@ class StatedOperation(Protocol):
     its authority code against PROJ's database would answer with a different
     object that merely shares a code.
 
-    Structural rather than imported, because the package that reads payloads
-    reads this one.
+    Structural, so that anything stating an operation is accepted, not only
+    the :class:`~geodetic_engine.persistablereference.OperationReference` a
+    payload is read into.
     """
 
     def to_operation(self) -> CoordinateOperation:
@@ -719,16 +709,6 @@ def _stated_operation(payload: str) -> CoordinateOperation:
         ValueError: If the payload cannot be read, or states something that is
             not a coordinate operation.
     """
-    # Imported where it is used rather than at module scope: reading a payload
-    # goes through geodesy.utils, which reads this module.
-    from geodetic_engine.persistablereference import (
-        OperationReference as PayloadOperation,
-    )
-    from geodetic_engine.persistablereference import (
-        PersistableReferenceError,
-        parse_persistable_reference,
-    )
-
     try:
         reference = parse_persistable_reference(payload)
         if not isinstance(reference, PayloadOperation):
@@ -746,8 +726,6 @@ def _stated_operation(payload: str) -> CoordinateOperation:
 
 def _looks_like_payload(text: str) -> bool:
     """Whether the text is a persistableReference rather than a code or a name."""
-    from geodetic_engine.persistablereference import looks_like_reference
-
     return bool(looks_like_reference(text))
 
 
@@ -767,11 +745,6 @@ def _esri_operation(wkt: str) -> CoordinateOperation:
     Raises:
         ValueError: If the WKT cannot be read as a coordinate operation.
     """
-    from geodetic_engine.persistablereference import (
-        PersistableReferenceError,
-        operation_from_geogtran,
-    )
-
     try:
         return operation_from_geogtran(wkt)
     except PersistableReferenceError as error:
@@ -984,7 +957,7 @@ class OperationRequest:
             )
 
         match: dict[str, Any] | None = None
-        for node in _operation_nodes(definition):
+        for node in operation_nodes(definition):
             identifier_hit = (
                 self.auth_name is not None
                 and self.code is not None
@@ -1099,7 +1072,7 @@ def _not_a_reference(value: object) -> TypeError:
 
 def operation_names(definition: object) -> set[str]:
     """Collect the names of every coordinate operation in a PROJJSON tree."""
-    return {name for node in _operation_nodes(definition) if (name := node.get("name"))}
+    return {name for node in operation_nodes(definition) if (name := node.get("name"))}
 
 
 def fully_requested(
@@ -1229,59 +1202,9 @@ def datum_operation_count(definition: dict[str, Any]) -> int:
     """
     return sum(
         1
-        for node in _operation_nodes(definition)
+        for node in operation_nodes(definition)
         if node is not definition
         and node.get("type") in ("Transformation", "PointMotionOperation")
-    )
-
-
-def has_inverted_step(definition: object) -> bool:
-    """Whether a datum transformation in the tree is one PROJ applies inverted.
-
-    PROJ marks such a step by wrapping its authority as ``INVERSE(EPSG)``,
-    which is a PROJ-internal convention rather than anything WKT2 or PROJJSON
-    define: neither format has a flag for "apply this operation backwards".
-    Re-reading an export that contains one yields the *forward* operation
-    instead, silently reversing the sign of a datum shift, so such an export
-    must not be handed out. Reported as https://github.com/OSGeo/PROJ/issues/4866.
-
-    Only datum-changing steps count. An inverted *conversion* -- a map
-    projection or an axis-order reversal -- is analytically invertible from
-    the same parameters, so PROJ reconstructs it correctly and its export is
-    faithful. A Helmert's inverse is not recoverable that way, which is
-    exactly the case this guards.
-
-    The test is deliberately conservative: it asks whether an inversion is
-    present, not whether that particular inversion happens to be harmless. A
-    null transformation's inverse equals itself and would in fact survive the
-    round trip, but relying on the parameters being zero is not a property
-    worth betting coordinates on.
-
-    Args:
-        definition: PROJJSON of the operation, as a dict.
-
-    Returns:
-        True if a datum-changing step, or its method, carries an
-        ``INVERSE(...)`` authority.
-
-    Example:
-        >>> has_inverted_step(
-        ...     {"type": "Transformation",
-        ...      "id": {"authority": "INVERSE(EPSG)", "code": 9607}}
-        ... )
-        True
-        >>> has_inverted_step(
-        ...     {"type": "Conversion",
-        ...      "id": {"authority": "INVERSE(EPSG)", "code": 16031}}
-        ... )
-        False
-    """
-    return any(
-        _INVERSE_AUTHORITY.search(str(identifier.get("authority", "")))
-        for node in _operation_nodes(definition)
-        if node.get("type") in ("Transformation", "PointMotionOperation")
-        for identifier in (node.get("id"), (node.get("method") or {}).get("id"))
-        if isinstance(identifier, dict)
     )
 
 
@@ -1300,7 +1223,7 @@ def is_ballpark(definition: object) -> bool:
     """
     return any(
         str(node.get("name", "")).lower().startswith("ballpark")
-        for node in _operation_nodes(definition)
+        for node in operation_nodes(definition)
     )
 
 
@@ -1338,7 +1261,7 @@ def requires_epoch(
         return True
     if any(
         node.get("type") == "PointMotionOperation"
-        for node in _operation_nodes(definition)
+        for node in operation_nodes(definition)
     ):
         return True
     return any(
@@ -1346,19 +1269,6 @@ def requires_epoch(
         for operation in operations
         for parameter in operation.params
     )
-
-
-def _operation_nodes(definition: object) -> Iterator[dict[str, Any]]:
-    """Yield every coordinate operation dict in a PROJJSON tree."""
-    if isinstance(definition, dict):
-        if definition.get("type") in _OPERATION_TYPES:
-            yield definition
-        for key, value in definition.items():
-            if key not in _NESTED_CRS_KEYS:
-                yield from _operation_nodes(value)
-    elif isinstance(definition, list):
-        for item in definition:
-            yield from _operation_nodes(item)
 
 
 @lru_cache(maxsize=32)

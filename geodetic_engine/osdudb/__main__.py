@@ -29,8 +29,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from geodetic_engine._referencing.database import persistable_references_present
 from geodetic_engine.errors import GeodeticEngineError
-from geodetic_engine.geodesy.database import persistable_references_present
 from geodetic_engine.osdudb.build import build
 from geodetic_engine.osdudb.config import load_config
 from geodetic_engine.osdudb.download import (

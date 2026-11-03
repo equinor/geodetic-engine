@@ -29,10 +29,8 @@ from pyproj import CRS
 from pyproj.crs import BoundCRS, CoordinateOperation
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.utils import (
-    collapse_concatenated,
-    scale_in_parts_per_million,
-)
+from geodetic_engine._referencing.abridged import scale_in_parts_per_million
+from geodetic_engine._referencing.helmert import collapse_concatenated
 from geodetic_engine.persistablereference import esriwkt, methods
 from geodetic_engine.persistablereference.envelope import (
     AuthorityCode,

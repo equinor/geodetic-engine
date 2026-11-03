@@ -207,6 +207,7 @@ scripts/run_all_tests.sh   # including the dataset sweep
 uv run pytest tests/bingrid/test_properties.py --hypothesis-profile=geodetic-engine-random
 uv run ruff check geodetic_engine tests && uv run ruff format --check geodetic_engine tests
 uv run mypy geodetic_engine
+uv run lint-imports
 python scripts/sync_pins.py --check
 uv run --extra docs sphinx-build -W --keep-going -b html docs docs/_build/html
 ```

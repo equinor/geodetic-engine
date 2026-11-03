@@ -27,7 +27,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from geodetic_engine.geodesy.osdu_id import SCHEME
+from geodetic_engine._referencing.osdu_id import SCHEME
 from geodetic_engine.osdudb import translate as tr
 from geodetic_engine.osdudb.catalog import (
     BOUND_CRS,

@@ -14,7 +14,7 @@ a scale factor -- a scale of ``-670000`` ppm, and a position wrong by kilometres
 Restating such a parameter before the operation is embedded is enough to avoid
 this, and it is not specific to how the operation was arrived at: an operation
 read straight from a register needs it just as much as one composed by
-:mod:`geodetic_engine.geodesy.utils.helmert`.
+:func:`~geodetic_engine.geodesy.utils.collapse_concatenated`.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 from pyproj.crs import CoordinateOperation
 from pyproj.exceptions import CRSError
 
-from geodetic_engine.geodesy.errors import UnembeddableOperationError
+from geodetic_engine._referencing.errors import UnembeddableOperationError
 
 # The scale unit PROJ converts from when exporting an abridged transformation.
 _PARTS_PER_MILLION = 1e-06

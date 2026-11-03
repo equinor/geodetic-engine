@@ -38,6 +38,7 @@ dev = [
     "hypothesis>=6.100",
     "ruff>=0.6",
     "mypy>=1.11",
+    "import-linter>=2.1",
     "ipykernel>=6.29",
     "pandas-stubs>=2.0",
     "plotly>=6.1",
@@ -124,3 +125,40 @@ implicit_reexport = true
 [[tool.mypy.overrides]]
 module = ["plotly.*"]
 ignore_missing_imports = true
+
+# `lint-imports` checks these. Imports inside functions and under TYPE_CHECKING
+# count too.
+[tool.importlinter]
+root_package = "geodetic_engine"
+
+[[tool.importlinter.contracts]]
+name = "geodesy reads payloads through persistablereference, never the reverse"
+type = "layers"
+layers = [
+    "geodetic_engine.geodesy",
+    "geodetic_engine.persistablereference",
+    "geodetic_engine._referencing",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain packages do not depend on each other"
+type = "independence"
+modules = [
+    "geodetic_engine.welltrajectory",
+    "geodetic_engine.bingrid",
+    "geodetic_engine.geojson",
+]
+
+[[tool.importlinter.contracts]]
+name = "units reads units without the transformation API or a domain package"
+type = "forbidden"
+source_modules = ["geodetic_engine.units"]
+forbidden_modules = [
+    "geodetic_engine.geodesy",
+    "geodetic_engine.welltrajectory",
+    "geodetic_engine.bingrid",
+    "geodetic_engine.geojson",
+    "geodetic_engine.osdudb",
+    "geodetic_engine.projdb",
+    "geodetic_engine.georepository",
+]

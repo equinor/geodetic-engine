@@ -205,7 +205,7 @@ What the package does
 
 Code
 : `_rebound` in `geodetic_engine/geodesy/crs.py`; `bound_definition` and
-  `bound_definition_by_name` in `geodetic_engine/geodesy/database.py`.
+  `bound_definition_by_name` in `geodetic_engine/_referencing/database.py`.
 
 Upstream
 : None referenced.
@@ -232,7 +232,7 @@ What the package does
   approximated. See {doc}`/background/bound-crs`.
 
 Code
-: `geodetic_engine/geodesy/utils/helmert.py`, used by
+: `geodetic_engine/_referencing/helmert.py`, used by
   `geodetic_engine/projdb/bound.py`, `geodetic_engine/osdudb/bound.py` and
   `geodetic_engine/persistablereference/reference.py`.
 
@@ -260,7 +260,7 @@ What the package does
   ({func}`~geodetic_engine.geodesy.utils.scale_in_parts_per_million`).
 
 Code
-: `geodetic_engine/geodesy/utils/abridged.py`.
+: `geodetic_engine/_referencing/abridged.py`.
 
 Upstream
 : None referenced.
@@ -282,7 +282,7 @@ Cause
 
 What the package does
 : Detects inverted datum steps (`has_inverted_step` in
-  `geodetic_engine/geodesy/operation.py`). In that case
+  `geodetic_engine/_referencing/projjson.py`). In that case
   {meth}`AppliedOperation.to_wkt <geodetic_engine.geodesy.AppliedOperation.to_wkt>`
   and {meth}`OperationCandidate.to_wkt <geodetic_engine.geodesy.OperationCandidate.to_wkt>`
   return None, `to_persistable_reference` refuses, and chain collapse refuses.
@@ -290,7 +290,8 @@ What the package does
   Helmert of its exact inverse.
 
 Code
-: `geodetic_engine/geodesy/operation.py`,
+: `geodetic_engine/_referencing/projjson.py`,
+  `geodetic_engine/geodesy/operation.py`,
   `geodetic_engine/persistablereference/emit.py`,
   `_reversed` in `geodetic_engine/persistablereference/reference.py`.
 
