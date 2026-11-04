@@ -23,6 +23,16 @@ STRIP = [
     [600000.0, 6650000.0],
 ]
 LINE = [[600000.0, 6650000.0], [800000.0, 6680000.0]]
+# A square round the North Pole in NSIDC Polar Stereographic North, each corner
+# 1300 km from the pole, turned so that the antimeridian crosses an edge rather
+# than a corner.
+SQUARE_ROUND_THE_POLE = [
+    [1200000.0, 500000.0],
+    [-500000.0, 1200000.0],
+    [-1200000.0, -500000.0],
+    [500000.0, -1200000.0],
+    [1200000.0, 500000.0],
+]
 
 
 def _anycrs(*geometries: dict[str, Any], crs: str = "EPSG:32660") -> dict[str, Any]:
@@ -146,6 +156,50 @@ def test_a_cap_round_the_pole_is_closed_through_it() -> None:
         assert cap.is_valid
         assert cap.covers(shapely.Point(0, 90))
         assert cap.bounds[0] == -180 and cap.bounds[2] == 180
+
+
+def _square_round_the_pole_in_wgs84(densify: float | None) -> Any:
+    document = _anycrs(
+        {"type": "AnyCrsPolygon", "coordinates": [SQUARE_ROUND_THE_POLE]},
+        crs="EPSG:3413",
+    )
+    result = convert_geojson(document, "EPSG:4326", output="geojson", densify=densify)
+    return shapely.geometry.shape(_geometries(result)[0])
+
+
+def _on_the_polar_map(geometry: Any) -> Any:
+    """``geometry`` on the polar map, its segments straight in longitude and latitude."""
+    to_map = Transformer.from_crs("EPSG:4326", "EPSG:3413", always_xy=True)
+    return shapely.transform(
+        shapely.segmentize(geometry, 0.05),
+        lambda xy: np.column_stack(to_map.transform(xy[:, 0], xy[:, 1])),
+    )
+
+
+def test_a_densified_square_round_the_pole_is_that_square_on_the_globe() -> None:
+    corner_lat = (
+        Transformation("EPSG:3413", "EPSG:4326")
+        .transform_arrays(np.array(SQUARE_ROUND_THE_POLE))
+        .columns[1]
+    )
+    dense = _square_round_the_pole_in_wgs84(densify=10_000)
+    corners_only = _square_round_the_pole_in_wgs84(densify=None)
+    for band in (dense, corners_only):
+        # A band along the top of the map, closed through the pole, its
+        # corners the lowest positions.
+        assert band.geom_type == "Polygon" and band.is_valid
+        assert band.bounds == (-180.0, corner_lat.min(), 180.0, 90.0)
+    # Back on the polar map, the closure along the pole shrinks to the pole
+    # and the two sides along the antimeridian meet: the square again, but for
+    # up to 14 m that each segment, straight in longitude and latitude, bows
+    # out between the vertices densify puts 10 km apart.
+    square = shapely.Polygon(SQUARE_ROUND_THE_POLE)
+    assert _on_the_polar_map(dense).area == pytest.approx(square.area, rel=1e-4)
+    # The corners alone are joined along their parallel, as RFC 7946 reads a
+    # segment: the cap north of it, the disc through them on the map.
+    assert _on_the_polar_map(corners_only).area == pytest.approx(
+        np.pi * 1300000.0**2, rel=1e-4
+    )
 
 
 def test_cut_positions_are_rounded_and_wound_as_asked() -> None:
