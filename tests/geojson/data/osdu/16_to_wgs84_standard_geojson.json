@@ -1,0 +1,24 @@
+{
+    "summary": "Convert to WGS84 for standard GeoJSON output",
+    "description": "Converts from a projected CRS to WGS84 (EPSG:4326). When the target is WGS84 geographic, the output uses standard GeoJSON types (Point, LineString, etc.) instead of AnyCrs prefixed types, making it compatible with standard GeoJSON consumers.",
+    "value": {
+        "toCRS": "EPSG:4326",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "persistableReferenceCrs": "EPSG:32632",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Norwegian Platform",
+                        "description": "Output will be standard GeoJSON"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPoint",
+                        "coordinates": [500000.0, 6600000.0]
+                    }
+                }
+            ]
+        }
+    }
+}

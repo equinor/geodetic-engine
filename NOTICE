@@ -39,3 +39,15 @@ IOGP Publication 373-7-2, Geomatics Guidance Note 7, part 2 (EPSG Guidance
 Note 7-2), as published with the EPSG Dataset.
 - tests/bingrid/data/epsg_p6_examples.json: the worked examples of EPSG
   methods 9666 and 1049.
+
+This product includes third-party material in its test suite, tests/geojson,
+where it serves to check documents the geodetic_engine.geojson package writes.
+
+OGC Features and Geometries JSON (JSON-FG) 1.0, JSON Schemas
+https://schemas.opengis.net/json-fg/
+Copyright 2026 Open Geospatial Consortium; see https://www.ogc.org/legal/
+- tests/geojson/schemas/*.json: the schemas, unmodified.
+
+OSDU crs-conversion-service request examples and expected responses, as
+collected for an earlier prototype of this package.
+- tests/geojson/data/osdu/*.json: convertGeoJson requests and responses.

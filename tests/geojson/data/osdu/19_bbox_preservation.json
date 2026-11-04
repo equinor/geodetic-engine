@@ -1,0 +1,34 @@
+{
+    "summary": "Feature with bounding box",
+    "description": "Converts a feature that includes bounding box (bbox) at both feature and geometry level. The bbox values are recalculated during transformation to match the new coordinate system.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::32632:",
+            "bbox": [490000.0, 6590000.0, 510000.0, 6610000.0],
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "bbox": [495000.0, 6595000.0, 505000.0, 6605000.0],
+                    "properties": {
+                        "name": "Bounded Feature"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPolygon",
+                        "bbox": [495000.0, 6595000.0, 505000.0, 6605000.0],
+                        "coordinates": [
+                            [
+                                [495000.0, 6595000.0],
+                                [505000.0, 6595000.0],
+                                [505000.0, 6605000.0],
+                                [495000.0, 6605000.0],
+                                [495000.0, 6595000.0]
+                            ]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

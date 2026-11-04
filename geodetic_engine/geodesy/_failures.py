@@ -1,10 +1,11 @@
-"""Find the positions a transformation fails for, with only the public API.
+"""Find the points a transformation fails for.
 
-Private to :mod:`geodetic_engine.geojson`.
+Private to the package, shared by :mod:`geodetic_engine.geodesy.geometry` and
+:mod:`geodetic_engine.geojson`.
 :meth:`~geodetic_engine.geodesy.Transformation.transform_arrays` refuses a
 whole batch when any one point fails, and does not always say which. This
-module finds out, without a change to :mod:`geodetic_engine.geodesy`, by
-transforming parts of the batch.
+module finds out, by transforming the batch again: the whole of it with each
+failing point marked rather than raised, or parts of it.
 
 That rests on two properties of ``transform_arrays``, which the tests check:
 
@@ -16,13 +17,14 @@ That rests on two properties of ``transform_arrays``, which the tests check:
   transforms an empty batch first, so that such a failure is raised as it is
   rather than blamed on a position.
 
-Splitting costs nothing until something fails. :func:`first_failure` then
-finds the first failing point in a number of calls logarithmic in the batch
-size. :func:`isolate` finds every failing point; its cost grows with the
-number of failures, which only callers that ask to keep going pay, and they
-can cap it. A failure that only appears once points are transformed, such as
-a grid that cannot be fetched, fails every point; the cap keeps that from
-costing a call per point.
+Nothing of this costs anything until something fails. :func:`first_failure`
+then finds the first failing point in a number of calls logarithmic in the
+batch size. :func:`isolate` finds every failing point in a pass that marks
+them, and transforms the other points again to check them; each failing point
+is then transformed on its own for its reason, which callers that ask to keep
+going pay, and can cap. :func:`failing_rows` stops before that. A failure the
+marking does not see, which PROJ only logs, is found by halving the batch
+instead.
 """
 
 from __future__ import annotations
@@ -34,16 +36,14 @@ import numpy as np
 from numpy.typing import NDArray
 
 from geodetic_engine.errors import GeodeticEngineError
-from geodetic_engine.geodesy import (
-    ArrayTransformationResult,
-    Transformation,
-    TransformationFailedError,
-)
+from geodetic_engine.geodesy.errors import TransformationFailedError
+from geodetic_engine.geodesy.result import ArrayTransformationResult
+from geodetic_engine.geodesy.transformation import Transformation
 
 type FloatArray = NDArray[np.float64]
 
 SMALL_PART: Final = 8
-"""A failing part at most this large is transformed point by point."""
+"""A failing part at most this large is transformed point by point, when halving."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,14 +126,18 @@ def first_failure(
 
     Args:
         transformation: The transformation to apply.
-        rows: One row per point, already probed with :func:`probe`.
+        rows: One row per point.
         coordinate_epoch: As for ``transform_arrays``.
 
     Returns:
-        The first failing row, or None if none fails.
+        The first failing row, or None if none fails, or if the batch fails
+        without its rows too: a failure no row is to blame for, such as a
+        height the target CRS needs and no row has.
     """
     start, stop = 0, len(rows)
     if not _fails(transformation, rows, coordinate_epoch):
+        return None
+    if _fails(transformation, rows[:0], coordinate_epoch):
         return None
     while stop - start > 1:
         middle = (start + stop) // 2
@@ -152,19 +156,22 @@ def isolate(
     small_part: int = SMALL_PART,
     max_failures: int | None = None,
 ) -> Isolated:
-    """Transform every row that can be, and say which cannot.
+    """Transform every row that can be, and say which cannot and why.
 
-    One call when nothing fails. A part that fails is halved, and one of at
-    most ``small_part`` rows is transformed row by row. Parts are taken in
-    order, so failures are found in order.
+    One call when nothing fails. Otherwise a pass marks the failing rows, the
+    others are transformed again together, and each failing row is
+    transformed on its own, in order, for its reason. Should the others fail
+    together again, the batch is halved instead: a part that fails is halved,
+    and one of at most ``small_part`` rows is transformed row by row.
 
     Args:
         transformation: The transformation to apply.
         rows: One row per point.
         coordinate_epoch: As for ``transform_arrays``.
-        small_part: The largest failing part transformed row by row.
+        small_part: The largest failing part transformed row by row, when
+            halving.
         max_failures: The most failing rows to isolate, or None for no limit.
-            When every row fails, isolating them all costs a call per row.
+            Each costs a call.
 
     Raises:
         TooManyFailures: If more than ``max_failures`` rows fail.
@@ -173,6 +180,108 @@ def isolate(
     if max_failures is not None and max_failures < 0:
         raise ValueError(f"max_failures must not be negative, not {max_failures}")
     width = len(probe(transformation, rows.shape[1], coordinate_epoch).columns)
+    marked = _marked(transformation, rows, coordinate_epoch, width)
+    if marked is None:
+        return _halved(
+            transformation, rows, coordinate_epoch, width, small_part, max_failures
+        )
+    columns, failed = marked
+    failures: list[Failure] = []
+    for row in np.flatnonzero(failed).tolist():
+        try:
+            alone = transformation.transform_arrays(
+                rows[row : row + 1], coordinate_epoch=coordinate_epoch
+            )
+        except TransformationFailedError as error:
+            failures.append(Failure(row, error))
+            if max_failures is not None and len(failures) > max_failures:
+                raise TooManyFailures(tuple(failures)) from None
+            continue
+        # Transformed on its own, a row is kept, as halving keeps it.
+        for column, values in zip(columns, alone.columns, strict=True):
+            column[row] = values[0]
+    return Isolated(columns, tuple(failures))
+
+
+def failing_rows(
+    transformation: Transformation,
+    rows: FloatArray,
+    coordinate_epoch: float | None,
+) -> tuple[tuple[FloatArray, ...], NDArray[np.bool_]]:
+    """Transform every row that can be, and say which cannot, but not why.
+
+    As :func:`isolate`, without the call per failing row that its reason
+    costs: three passes over the batch at most, however many rows fail.
+
+    Returns:
+        One array per output axis, NaN in each failing row, and True for each
+        failing row.
+
+    Raises:
+        Whatever :func:`probe` raises: a failure no row is to blame for.
+    """
+    width = len(probe(transformation, rows.shape[1], coordinate_epoch).columns)
+    marked = _marked(transformation, rows, coordinate_epoch, width)
+    if marked is None:
+        isolated = _halved(
+            transformation, rows, coordinate_epoch, width, SMALL_PART, None
+        )
+        return isolated.columns, isolated.failed
+    return marked
+
+
+def _marked(
+    transformation: Transformation,
+    rows: FloatArray,
+    coordinate_epoch: float | None,
+    width: int,
+) -> tuple[tuple[FloatArray, ...], NDArray[np.bool_]] | None:
+    """Every row transformed that can be, and which cannot, in three passes.
+
+    One pass when nothing fails. Otherwise one marking the failing rows, and
+    one transforming the others again as ``transform_arrays`` does, which
+    their values are then taken from.
+
+    Returns:
+        The columns, NaN in each failing row, and True for each failing row;
+        or None if the others fail together again, by a failure the marking
+        did not see.
+    """
+    count = len(rows)
+    if not count:
+        empty = tuple(np.full(0, np.nan) for _ in range(width))
+        return empty, np.zeros(0, dtype=np.bool_)
+    try:
+        result = transformation.transform_arrays(
+            rows, coordinate_epoch=coordinate_epoch
+        )
+    except TransformationFailedError:
+        pass
+    else:
+        return result.columns, np.zeros(count, dtype=np.bool_)
+    columns, failed = transformation._transform_marking_failures(rows, coordinate_epoch)
+    passed = np.flatnonzero(~failed)
+    if len(passed):
+        try:
+            checked = transformation.transform_arrays(
+                rows[passed], coordinate_epoch=coordinate_epoch
+            )
+        except TransformationFailedError:
+            return None
+        for column, values in zip(columns, checked.columns, strict=True):
+            column[passed] = values
+    return columns, failed
+
+
+def _halved(
+    transformation: Transformation,
+    rows: FloatArray,
+    coordinate_epoch: float | None,
+    width: int,
+    small_part: int,
+    max_failures: int | None,
+) -> Isolated:
+    """:func:`isolate` by halving each part of the batch that fails."""
     count = len(rows)
     columns = tuple(np.full(count, np.nan) for _ in range(width))
     failures: list[Failure] = []

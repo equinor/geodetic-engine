@@ -1,0 +1,33 @@
+{
+    "summary": "Polygon representing an offshore license block",
+    "description": "Converts a license block polygon from WGS84 geographic to UTM Zone 31N. Demonstrates simple polygon conversion with feature properties.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::32631:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "licenseId": "PL-789",
+                        "operator": "Equinor ASA",
+                        "status": "Active"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPolygon",
+                        "coordinates": [
+                            [
+                                [2.0, 58.0],
+                                [2.5, 58.0],
+                                [2.5, 58.5],
+                                [2.0, 58.5],
+                                [2.0, 58.0]
+                            ]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

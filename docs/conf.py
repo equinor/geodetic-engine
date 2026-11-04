@@ -66,6 +66,9 @@ nitpick_ignore = [
     # references a NDArray[np.float64] annotation renders as cannot resolve.
     ("py:class", "numpy._typing._array_like.NDArray"),
     ("py:class", "numpy.float64"),
+    # The class every Shapely geometry is, which Shapely documents as
+    # shapely.Geometry without an inventory entry for this path.
+    ("py:class", "shapely.lib.Geometry"),
 ]
 
 intersphinx_mapping = {

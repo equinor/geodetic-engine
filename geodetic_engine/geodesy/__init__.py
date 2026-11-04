@@ -12,6 +12,9 @@ Public entry points:
   produced them.
 * :func:`projection_factors` -- grid convergence and point scale factor of a
   map projection at given points.
+* :mod:`geodetic_engine.geodesy.geometry` -- read, write and round geometries
+  as WKT, WKB, EWKB, GeoJSON or Esri JSON; transform them with
+  :meth:`Transformation.transform_geometry`.
 
 Coordinate **values** are always ordered ``xy``: longitude before latitude,
 easting before northing, then height. A CRS's EPSG-declared axis order is
@@ -45,6 +48,8 @@ from geodetic_engine.geodesy.errors import (
     BallparkTransformationError,
     CoordinateOutOfRangeError,
     GeodesyError,
+    GeometryError,
+    GeometryValidityWarning,
     MissingCoordinateEpochError,
     MissingGridError,
     NotCollapsibleError,
@@ -87,6 +92,8 @@ __all__ = [
     "CoordinateReferenceSystem",
     "Coordinates",
     "GeodesyError",
+    "GeometryError",
+    "GeometryValidityWarning",
     "GridUsage",
     "MissingCoordinateEpochError",
     "MissingGridError",

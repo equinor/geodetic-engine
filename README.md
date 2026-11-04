@@ -25,6 +25,12 @@ exactly as specified is refused with an error rather than approximated.
   for lazy bounded batches, without constructing Python objects per output point.
 - **OSDU `persistableReference` support.** Read and write the JSON/ESRI WKT
   envelope, and transform with exactly what it states.
+- **Geometries.** Transform, convert and round geometries in WKT, WKB, hex
+  WKB, PostGIS EWKT/EWKB, GeoJSON and Esri JSON with
+  `Transformation.transform_geometry()`, with exact half-up rounding.
+- **GeoJSON documents.** Convert RFC 7946 GeoJSON, OGC JSON-FG and OSDU
+  AnyCrs GeoJSON to another CRS with `geodetic_engine.geojson.convert_geojson`,
+  keeping structure and properties; a drop-in for the OSDU `convertGeoJson`.
 - **Custom PROJ databases.** Add a Georepository register's or an OSDU
   catalogue's own CRSs and transformations to a copy of PROJ's `proj.db`.
 - **Projection factors.** Grid convergence and scale factor of any projected

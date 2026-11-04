@@ -1,0 +1,32 @@
+{
+    "summary": "Projected CRS to projected CRS conversion",
+    "description": "Converts coordinates from one projected CRS (UTM Zone 31N) to another projected CRS (UTM Zone 32N). Both source and target are projected coordinate systems.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::32632:",
+        "featureCollection": {
+            "type": "AnyCrsFeatureCollection",
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:Projected:EPSG::32631:",
+            "features": [
+                {
+                    "type": "AnyCrsFeature",
+                    "properties": {
+                        "name": "Cross-zone platform",
+                        "note": "Near UTM zone boundary"
+                    },
+                    "geometry": {
+                        "type": "AnyCrsPolygon",
+                        "coordinates": [
+                            [
+                                [750000.0, 6400000.0],
+                                [760000.0, 6400000.0],
+                                [760000.0, 6410000.0],
+                                [750000.0, 6410000.0],
+                                [750000.0, 6400000.0]
+                            ]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

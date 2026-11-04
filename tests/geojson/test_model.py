@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from geodetic_engine.errors import GeodeticEngineError
 from geodetic_engine.geojson import (
@@ -20,7 +22,7 @@ from geodetic_engine.geojson import (
     UnsupportedGeoJsonError,
     _model,
 )
-from geodetic_engine.geojson._model import Flavour, Kind, read_document
+from geodetic_engine.geojson._model import JSONFG_CORE, Flavour, Kind, read_document
 
 SQUARE = [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]
 HOLE = [[0.2, 0.2], [0.2, 0.4], [0.4, 0.4], [0.2, 0.2]]
@@ -93,6 +95,8 @@ def test_reading_keeps_the_document_and_its_order(flavour: Flavour) -> None:
     source = _rich_document()
     if flavour is Flavour.ANYCRS:
         source = _anycrs(source)
+    if flavour is Flavour.JSONFG:
+        source["conformsTo"] = [JSONFG_CORE]
     document = read_document(source)
 
     assert document.flavour is flavour
@@ -336,13 +340,6 @@ def test_invalid_documents_are_refused_where_they_are_wrong(
     ("document", "path", "reason"),
     [
         (_point([1, 2, 3, 4]), "$.features[0].geometry.coordinates", "4 numbers"),
-        (
-            _collection(conformsTo=["http://www.opengis.net/spec/json-fg-1/1.0/conf/core"]),
-            "$.conformsTo",
-            "JSON-FG",
-        ),
-        (_collection(coordRefSys="http://www.opengis.net/def/crs/EPSG/0/25832"), "$.coordRefSys", "coordRefSys"),
-        (_collection(_feature(None, place={"type": "Point", "coordinates": [1, 2]})), "$.features[0].place", "place"),
         (_collection(_feature({"type": "Point", "coordinates": [1, 2], "measures": {"enabled": True}})), "$.features[0].geometry.measures", "measures"),
         ({"type": "CircularString", "coordinates": []}, "$.type", "JSON-FG geometry type"),
         (_collection(_feature(None, persistableReferenceCrs="{}")), "$.features[0].persistableReferenceCrs", "only on the document's root"),
@@ -495,7 +492,84 @@ def test_harmless_foreign_members_are_not_mistaken_for_json_fg() -> None:
         conformsTo=["http://example.com/profile"],
         crs=None,
     )
-    assert read_document(source).root == source
+    document = read_document(source)
+    assert document.root == source
+    assert document.flavour is Flavour.GEOJSON
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        {"conformsTo": [JSONFG_CORE]},
+        {"coordRefSys": "http://www.opengis.net/def/crs/EPSG/0/25832"},
+    ],
+)
+def test_json_fg_is_told_by_its_members(members: dict[str, Any]) -> None:
+    assert read_document(_collection(**members)).flavour is Flavour.JSONFG
+
+
+def test_json_fg_places_are_read_with_the_nearest_coord_ref_sys() -> None:
+    utm = "http://www.opengis.net/def/crs/EPSG/0/25832"
+    etrs = "http://www.opengis.net/def/crs/EPSG/0/4258"
+    source = _collection(
+        _feature(
+            {"type": "Point", "coordinates": [9, 60]},
+            place={"type": "Point", "coordinates": [500000, 6650000]},
+        ),
+        _feature(
+            None, place={"type": "Point", "coordinates": [60, 9]}, coordRefSys=etrs
+        ),
+        coordRefSys=utm,
+    )
+    document = read_document(source)
+    assert document.flavour is Flavour.JSONFG
+    geometry, place, nested = document.geometries
+    assert (geometry.placed, place.placed, nested.placed) == (False, True, True)
+    assert geometry.path == "$.features[0].geometry"
+    assert place.path == "$.features[0].place"
+    assert place.scope == ("$.coordRefSys", utm)
+    assert nested.scope == ("$.features[1].coordRefSys", etrs)
+    assert document.root == source
+
+
+def test_a_coord_ref_sys_in_a_feature_geometry_is_refused() -> None:
+    geometry = {"type": "Point", "coordinates": [1, 2], "coordRefSys": "x"}
+    with pytest.raises(InvalidGeoJsonError, match="WGS 84") as raised:
+        read_document(_collection(_feature(geometry)))
+    assert raised.value.path == "$.features[0].geometry.coordRefSys"
+
+
+@pytest.mark.parametrize(
+    ("members", "path"),
+    [
+        ({"conformsTo": [JSONFG_CORE]}, "$.conformsTo"),
+        (
+            {"coordRefSys": "http://www.opengis.net/def/crs/EPSG/0/25832"},
+            "$.coordRefSys",
+        ),
+    ],
+)
+def test_an_anycrs_document_has_no_json_fg_members(
+    members: dict[str, Any], path: str
+) -> None:
+    with pytest.raises(InvalidGeoJsonError, match="JSON-FG") as raised:
+        read_document(_anycrs(_collection()) | members)
+    assert raised.value.path == path
+
+
+def test_a_withdrawn_feature_loses_its_place_too() -> None:
+    document = read_document(
+        _collection(_feature(None, place={"type": "Point", "coordinates": [1, 2]}))
+    )
+    document.withdraw(document.features[0])
+    assert document.root["features"][0]["place"] is None
+    assert document.withdrawn == {0}
+
+
+def test_a_null_bbox_is_kept_and_not_computed() -> None:
+    document = read_document(_collection(bbox=None))
+    assert document.root["bbox"] is None
+    assert document.bounding_boxes == ()
 
 
 def test_a_non_document_is_a_type_error() -> None:
@@ -539,3 +613,71 @@ def test_errors_carry_their_path_and_survive_pickling() -> None:
     )
     assert isinstance(error, GeoJsonError)
     assert isinstance(error, GeodeticEngineError)
+
+
+@pytest.mark.parametrize(("name", "coordinates"), list(GEOMETRIES.items()))
+def test_plain_coordinates_are_read_without_a_call_per_value(
+    name: str, coordinates: Any
+) -> None:
+    kind = Kind(name)
+    plain = _model._read_plain(coordinates, kind)
+    assert plain is not None
+    positions, shape = _model._read_values(coordinates, "$", kind)
+    assert plain[1] == shape
+    assert np.array_equal(plain[0], positions)
+
+
+_COMMON = st.one_of(st.floats(-1e7, 1e7), st.integers(-(10**6), 10**6))
+_ODD = st.one_of(
+    st.floats(allow_nan=True, allow_infinity=True),
+    st.integers(-(2**1100), 2**1100),
+    st.booleans(),
+    st.decimals(allow_nan=False, allow_infinity=False),
+    st.builds(np.float64, st.floats(-1e3, 1e3)),
+    st.sampled_from(["1", None, [1.0, 2.0], {"x": 1}]),
+)
+
+
+@st.composite
+def _coordinates(draw: st.DrawFn) -> tuple[Kind, Any]:
+    """Coordinates of a kind, mostly as JSON text reads, and sometimes not."""
+    kind = draw(st.sampled_from(sorted(_model._DEPTHS)))
+    odd = draw(st.booleans())
+    width = draw(st.sampled_from([2, 2, 3, 3, 1, 4]))
+
+    def number() -> Any:
+        return draw(_ODD) if odd and not draw(st.integers(0, 9)) else draw(_COMMON)
+
+    def position() -> Any:
+        size = width if draw(st.integers(0, 19)) else draw(st.integers(0, 5))
+        values = [number() for _ in range(size)]
+        return tuple(values) if not draw(st.integers(0, 9)) else values
+
+    def array(depth: int) -> Any:
+        if depth <= 0:
+            return position()
+        members = [array(depth - 1) for _ in range(draw(st.integers(0, 5)))]
+        if depth == 1 and members and draw(st.booleans()):
+            members.append(copy.deepcopy(members[0]))
+        return members
+
+    depth = _model._DEPTHS[kind] + draw(st.sampled_from([0, 0, 0, 0, 1, -1]))
+    return kind, array(depth)
+
+
+@settings(max_examples=500)
+@given(_coordinates())
+def test_plain_coordinates_are_read_as_they_are_value_by_value(
+    coordinates: tuple[Kind, Any],
+) -> None:
+    kind, value = coordinates
+    plain = _model._read_plain(value, kind)
+    try:
+        positions, shape = _model._read_values(value, "$", kind)
+    except GeoJsonError:
+        assert plain is None
+        return
+    if plain is not None:
+        assert plain[1] == shape
+        assert plain[0].shape == positions.shape
+        assert np.array_equal(plain[0].view(np.uint64), positions.view(np.uint64))

@@ -1,0 +1,27 @@
+{
+    "summary": "ED50 UTM32N to WGS84 UTM32N example with bound CRS and unit conversion from meters to feet",
+    "description": "Converts an AnyCRS GeoJSON FeatureCollection from ED50 UTM Zone 32N (with EPSG:1612 transformation) to WGS84 / UTM zone 32N (EPSG:32632) using a bound CRS, and converts vertical units from meters to feet.",
+    "value": {
+        "toCRS": "data:reference-data--CoordinateReferenceSystem:Geographic2D:EPSG::4326:",
+        "toUnitZ": "data:reference-data--UnitOfMeasure:mm:",
+        "featureCollection": {
+            "CoordinateReferenceSystemID": "data:reference-data--CoordinateReferenceSystem:BoundProjected:EPSG::23032_EPSG::1612:",
+            "VerticalUnitID": "data:reference-data--UnitOfMeasure:m:",
+            "features": [
+                {
+                    "geometry": {
+                        "coordinates": [
+                            313405.9477893702,
+                            6944797.620047403,
+                            2
+                        ],
+                        "type": "AnyCrsPoint"
+                    },
+                    "type": "AnyCrsFeature",
+                     "properties": {}
+                }
+            ],
+            "type": "AnyCrsFeatureCollection"
+        }
+    }
+}

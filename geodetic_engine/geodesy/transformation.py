@@ -36,7 +36,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -89,6 +89,16 @@ from geodetic_engine.geodesy.result import (
     FloatArray,
     TransformationResult,
 )
+
+if TYPE_CHECKING:
+    from geodetic_engine.geodesy._antimeridian import Antimeridian
+    from geodetic_engine.geodesy._segments import Segments
+    from geodetic_engine.geodesy.geometry import (
+        AxisOrder,
+        GeometryResult,
+        GeometryResults,
+        Orientation,
+    )
 
 _VERTICAL_DIRECTIONS = frozenset({"up", "down"})
 
@@ -170,16 +180,24 @@ class _Pipeline:
         return self.steps if self.corrected is None else self.corrected
 
     def run(
-        self, columns: tuple[FloatArray, ...], epoch: float | None
+        self,
+        columns: tuple[FloatArray, ...],
+        epoch: float | None,
+        *,
+        errcheck: bool = True,
     ) -> tuple[FloatArray, ...]:
-        """Apply every step in place to privately owned coordinate buffers."""
+        """Apply every step in place to privately owned coordinate buffers.
+
+        With ``errcheck`` false, PROJ does not raise for a point it cannot
+        transform, and leaves it infinite instead.
+        """
         values = columns
         times = None if epoch is None else np.full(len(columns[0]), epoch)
         for transformer, direction in self.executed:
             if times is not None and epoch is not None:
                 # Every leg reads the observation year, not the previous output time.
                 times.fill(epoch)
-            values = _apply(transformer, values, times, direction)
+            values = _apply(transformer, values, times, direction, errcheck=errcheck)
         return values
 
     @property
@@ -602,6 +620,138 @@ class Transformation:
             offset += result.count
             yield result
 
+    def transform_geometry(
+        self,
+        value: object,
+        *,
+        coordinate_epoch: float | None = None,
+        axis_order: AxisOrder = "xy",
+        densify: float | None = None,
+        segments: Segments = "straight",
+        antimeridian: Antimeridian | None = "split",
+        orient: Orientation | None = None,
+        srid_authority: str = "EPSG",
+    ) -> GeometryResult:
+        """Transform a geometry, read from any encoding geometry WKT to Esri JSON.
+
+        Every position goes through :meth:`transform_arrays` in one call, so
+        the operation, grids, epoch and range checks are those of points. A
+        position that fails fails the whole geometry, naming its part and
+        vertex. Z is transformed where the CRSs have a height, and carried
+        through otherwise; M is carried through. None and empty geometries
+        come back as they are.
+
+        In a geographic target CRS, a part whose true path crosses the
+        antimeridian is cut there, into parts of a multipart geometry, as RFC
+        7946 has it; a ring round a pole is closed through it.
+
+        Args:
+            value: The geometry: WKT, EWKT, WKB or EWKB as bytes or hex,
+                a GeoJSON or Esri JSON geometry, or a Shapely geometry; see
+                :func:`~geodetic_engine.geodesy.geometry.read_geometry`.
+            coordinate_epoch: As for :meth:`transform`.
+            axis_order: ``"xy"``, or ``"crs"`` when the geometry is in the
+                source CRS's declared order, and is to be written in the
+                target's.
+            densify: Insert vertices first so that no segment is longer than
+                this: a straight edge in one CRS is not straight in another.
+                In source CRS units for straight segments, and in metres along
+                the ellipsoid for geodesics.
+            segments: What a segment is in the source CRS: ``"straight"``, as
+                WKT, WKB, GeoJSON and Esri JSON have it, or ``"geodesic"``,
+                the shortest line on the source CRS's ellipsoid, as
+                boundaries are commonly defined. Geodesics need ``densify``.
+            antimeridian: In a geographic target CRS, ``"split"`` cuts a part
+                that crosses the antimeridian into parts there, ``"unwrap"``
+                carries its longitudes on past it instead, and None keeps it
+                as transformed, a segment going the long way round.
+            orient: None keeps the vertex order as transformed; ``"ccw"``
+                winds exterior rings counterclockwise (the RFC 7946 rule) and
+                ``"cw"`` clockwise (Esri's).
+            srid_authority: The authority an EWKT or EWKB SRID is a code of.
+
+        Returns:
+            The geometry in the target CRS with its provenance, written in any
+            encoding by its ``wkt()``, ``wkb()``, ``ewkb_hex()``, ``geojson()``
+            and like methods, each rounding to ``decimals`` if asked.
+
+        Raises:
+            GeometryError: If the geometry cannot be read, or states a CRS
+                other than :attr:`source_crs`; if geodesics are asked of a
+                source CRS on no ellipsoid; or if a geometry with M values
+                crosses the antimeridian, cutting which would lose them.
+            ValueError: If its positions have a number of values the source
+                CRS does not allow.
+            TransformationFailedError: If a position cannot be transformed.
+
+        Example:
+            >>> tfm = Transformation("EPSG:4230", "EPSG:32631", operation="EPSG:1612")
+            >>> tfm.transform_geometry("LINESTRING (2.5 63.5, 3 64)").wkt(decimals=1)
+            'LINESTRING (475017.6 7041354.6, 499910.8 7096974.1)'
+        """
+        from geodetic_engine.geodesy import geometry
+
+        return cast(
+            "GeometryResult",
+            geometry._transform(
+                self,
+                value,
+                single=True,
+                coordinate_epoch=coordinate_epoch,
+                axis_order=axis_order,
+                densify=densify,
+                segments=segments,
+                antimeridian=antimeridian,
+                orient=orient,
+                srid_authority=srid_authority,
+            ),
+        )
+
+    def transform_geometries(
+        self,
+        values: object,
+        *,
+        coordinate_epoch: float | None = None,
+        axis_order: AxisOrder = "xy",
+        densify: float | None = None,
+        segments: Segments = "straight",
+        antimeridian: Antimeridian | None = "split",
+        orient: Orientation | None = None,
+        srid_authority: str = "EPSG",
+    ) -> GeometryResults:
+        """Transform many geometries, with one call per number of values per position.
+
+        As :meth:`transform_geometry`, for a sequence, a numpy array, a pandas
+        Series or a GeoPandas GeoSeries, whose CRS must be :attr:`source_crs`.
+        One failing position fails the batch, naming its geometry.
+
+        Returns:
+            The geometries in the target CRS, in the container they came in,
+            with their provenance and encodings.
+
+        Example:
+            >>> tfm = Transformation("EPSG:4230", "EPSG:32631", operation="EPSG:1612")
+            >>> tfm.transform_geometries(["POINT (2.5 63.5)", None]).wkt(decimals=0)
+            ['POINT (475018 7041355)', None]
+        """
+        from geodetic_engine.geodesy import geometry
+
+        return cast(
+            "GeometryResults",
+            geometry._transform(
+                self,
+                values,
+                single=False,
+                coordinate_epoch=coordinate_epoch,
+                axis_order=axis_order,
+                densify=densify,
+                segments=segments,
+                antimeridian=antimeridian,
+                orient=orient,
+                srid_authority=srid_authority,
+            ),
+        )
+
     def _transform_columns(
         self,
         columns: tuple[FloatArray, ...],
@@ -613,32 +763,7 @@ class Transformation:
             raise MissingCoordinateEpochError("coordinate epoch must be finite")
 
         _require_in_range(self._source, columns, point_offset=point_offset)
-
-        # PROJ workaround, see the note above _entry_step: remove this call
-        # once PROJ no longer leaves a residual axisswap at a vertical end.
-        ordered, swapped = _order_horizontal_for_pipeline(
-            self._source, self._pipeline, columns
-        )
-        columns = _carry_unread_horizontal(
-            self._source, self._target, self._applied, self._grids, ordered
-        )
-
-        if self._requires_epoch and coordinate_epoch is None:
-            raise MissingCoordinateEpochError(
-                "a dynamic CRS or time-dependent operation requires a coordinate "
-                "epoch; supply a finite observation year explicitly"
-            )
-
-        try:
-            produced = self._pipeline.run(columns, coordinate_epoch)
-        except ProjError as error:
-            raise TransformationFailedError(
-                f"PROJ could not transform from {_label(self._source)} to "
-                f"{_label(self._target)}: {error}"
-            ) from error
-
-        indices = _output_indices(self._target, len(produced))
-        output = tuple(produced[index] for index in indices)
+        output, swapped = self._execute(columns, coordinate_epoch, errcheck=True)
         _require_finite(output, self._source, self._target, point_offset=point_offset)
 
         applied, grids = self._applied, self._grids
@@ -656,6 +781,72 @@ class Transformation:
             pipeline=pipeline_text,
             database_fingerprints=self._database_fingerprints,
         )
+
+    def _transform_marking_failures(
+        self, rows: ArrayLike, coordinate_epoch: float | None
+    ) -> tuple[tuple[FloatArray, ...], NDArray[np.bool_]]:
+        """Transform a row batch, marking the rows that fail instead of raising.
+
+        For :mod:`geodetic_engine.geodesy._failures`, which finds every
+        failing row in a pass over the batch rather than by transforming parts
+        of it. A row that :meth:`transform_arrays` would refuse as out of
+        range, or that PROJ gives no finite value for, is NaN in every column
+        and True in the mask. The other rows have the values
+        :meth:`transform_arrays` gives them. A failure that is no row's raises
+        as it does there.
+
+        Returns:
+            One array per output axis, and True for each row that failed.
+        """
+        if coordinate_epoch is not None and not math.isfinite(coordinate_epoch):
+            raise MissingCoordinateEpochError("coordinate epoch must be finite")
+        columns = _array_columns(self._source, rows, None, None)
+        failed = _out_of_range(self._source, columns)
+        output, _ = self._execute(columns, coordinate_epoch, errcheck=False)
+        for column in output:
+            failed |= ~np.isfinite(column)
+        for column in output:
+            column[failed] = np.nan
+        return output, failed
+
+    def _execute(
+        self,
+        columns: tuple[FloatArray, ...],
+        coordinate_epoch: float | None,
+        *,
+        errcheck: bool,
+    ) -> tuple[tuple[FloatArray, ...], bool]:
+        """Run the pipeline over owned columns whose range has been seen to.
+
+        Returns:
+            The target CRS's columns, and whether the horizontal pair was
+            transposed for the pipeline.
+        """
+        # PROJ workaround, see the note above _entry_step: remove this call
+        # once PROJ no longer leaves a residual axisswap at a vertical end.
+        ordered, swapped = _order_horizontal_for_pipeline(
+            self._source, self._pipeline, columns
+        )
+        columns = _carry_unread_horizontal(
+            self._source, self._target, self._applied, self._grids, ordered
+        )
+
+        if self._requires_epoch and coordinate_epoch is None:
+            raise MissingCoordinateEpochError(
+                "a dynamic CRS or time-dependent operation requires a coordinate "
+                "epoch; supply a finite observation year explicitly"
+            )
+
+        try:
+            produced = self._pipeline.run(columns, coordinate_epoch, errcheck=errcheck)
+        except ProjError as error:
+            raise TransformationFailedError(
+                f"PROJ could not transform from {_label(self._source)} to "
+                f"{_label(self._target)}: {error}"
+            ) from error
+
+        indices = _output_indices(self._target, len(produced))
+        return tuple(produced[index] for index in indices), swapped
 
     def __repr__(self) -> str:
         return (
@@ -1908,6 +2099,8 @@ def _apply(
     values: tuple[FloatArray, ...],
     times: FloatArray | None,
     direction: TransformDirection,
+    *,
+    errcheck: bool = True,
 ) -> tuple[FloatArray, ...]:
     """Run one transformer over every coordinate component at once."""
     count = len(values[0]) if values else 0
@@ -1921,7 +2114,7 @@ def _apply(
         arguments["tt"] = times
 
     produced = transformer.transform(
-        **arguments, direction=direction, errcheck=True, inplace=True
+        **arguments, direction=direction, errcheck=errcheck, inplace=True
     )
     return tuple(produced[: len(values)])
 
@@ -2548,22 +2741,7 @@ def _require_in_range(
     rather than wrongly refused. Longitude is allowed a full turn either way,
     since a dataset counted from 0 to 360 is a convention, not a mistake.
     """
-    if not source.is_geographic:
-        return
-    order = source.value_axis_order
-    checks: list[tuple[int, AxisSpec, float]] = []
-    for value_index, declared_index in enumerate(order[: len(columns)]):
-        axis = source.axes[declared_index]
-        direction = axis.direction.lower()
-        if direction in _NORTHINGS:
-            limit = (math.pi / 2) / axis.unit_conversion_factor
-            checks.insert(0, (value_index, axis, limit))
-        elif direction in _EASTINGS:
-            limit = (2 * math.pi) / axis.unit_conversion_factor
-            checks.append((value_index, axis, limit))
-    # Latitude first: when both values are metres, the one read as latitude is
-    # the diagnostic the caller can act on.
-    for value_index, axis, limit in checks:
+    for value_index, axis, limit in _range_checks(source, len(columns)):
         values = np.asarray(columns[value_index])
         invalid = np.isfinite(values) & (np.abs(values) > limit)
         if np.any(invalid):
@@ -2578,6 +2756,40 @@ def _require_in_range(
                 "need a projected CRS",
                 point=point + point_offset,
             )
+
+
+def _out_of_range(
+    source: CoordinateReferenceSystem, columns: Sequence[FloatArray]
+) -> NDArray[np.bool_]:
+    """True for each point :func:`_require_in_range` would refuse."""
+    invalid = np.zeros(len(columns[0]) if columns else 0, dtype=np.bool_)
+    for value_index, _, limit in _range_checks(source, len(columns)):
+        values = columns[value_index]
+        invalid |= np.isfinite(values) & (np.abs(values) > limit)
+    return invalid
+
+
+def _range_checks(
+    source: CoordinateReferenceSystem, width: int
+) -> list[tuple[int, AxisSpec, float]]:
+    """Each latitude and longitude among ``width`` values, with its limit.
+
+    Latitude first: when both values are metres, the one read as latitude is
+    the diagnostic the caller can act on.
+    """
+    if not source.is_geographic:
+        return []
+    checks: list[tuple[int, AxisSpec, float]] = []
+    for value_index, declared_index in enumerate(source.value_axis_order[:width]):
+        axis = source.axes[declared_index]
+        direction = axis.direction.lower()
+        if direction in _NORTHINGS:
+            limit = (math.pi / 2) / axis.unit_conversion_factor
+            checks.insert(0, (value_index, axis, limit))
+        elif direction in _EASTINGS:
+            limit = (2 * math.pi) / axis.unit_conversion_factor
+            checks.append((value_index, axis, limit))
+    return checks
 
 
 def _require_finite(
