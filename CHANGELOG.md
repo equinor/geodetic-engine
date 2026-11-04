@@ -21,7 +21,9 @@ All notable changes to this project are documented here. The format follows
   is carried through. An SRID or Esri `spatialReference` must state the
   source CRS; `srid_authority` says which authority an SRID is a code of.
   `axis_order="crs"` reads and writes a CRS's declared order, `densify`
-  inserts vertices before transforming, and `orient` winds rings, which are
+  inserts vertices before transforming, along straight segments in source CRS
+  units or, with `segments="geodesic"`, along geodesics on the source CRS's
+  ellipsoid in metres, and `orient` winds rings, which are
   otherwise kept as transformed. The new module `geodesy.geometry` has
   `read_geometry`, `write_geometry` and `round_geometry`: `decimals` rounds
   half up by each value's shortest decimal form (`2.675` is `2.68`, `-0.125`

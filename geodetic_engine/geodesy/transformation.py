@@ -91,6 +91,7 @@ from geodetic_engine.geodesy.result import (
 )
 
 if TYPE_CHECKING:
+    from geodetic_engine.geodesy._segments import Segments
     from geodetic_engine.geodesy.geometry import (
         AxisOrder,
         GeometryResult,
@@ -625,6 +626,7 @@ class Transformation:
         coordinate_epoch: float | None = None,
         axis_order: AxisOrder = "xy",
         densify: float | None = None,
+        segments: Segments = "straight",
         orient: Orientation | None = None,
         srid_authority: str = "EPSG",
     ) -> GeometryResult:
@@ -646,8 +648,13 @@ class Transformation:
                 source CRS's declared order, and is to be written in the
                 target's.
             densify: Insert vertices first so that no segment is longer than
-                this, in source CRS units: a straight edge in one CRS is not
-                straight in another.
+                this: a straight edge in one CRS is not straight in another.
+                In source CRS units for straight segments, and in metres along
+                the ellipsoid for geodesics.
+            segments: What a segment is in the source CRS: ``"straight"``, as
+                WKT, WKB, GeoJSON and Esri JSON have it, or ``"geodesic"``,
+                the shortest line on the source CRS's ellipsoid, as
+                boundaries are commonly defined. Geodesics need ``densify``.
             orient: None keeps the vertex order as transformed; ``"ccw"``
                 winds exterior rings counterclockwise (the RFC 7946 rule) and
                 ``"cw"`` clockwise (Esri's).
@@ -660,7 +667,8 @@ class Transformation:
 
         Raises:
             GeometryError: If the geometry cannot be read, or states a CRS
-                other than :attr:`source_crs`.
+                other than :attr:`source_crs`, or if geodesics are asked of a
+                source CRS on no ellipsoid.
             ValueError: If its positions have a number of values the source
                 CRS does not allow.
             TransformationFailedError: If a position cannot be transformed.
@@ -681,6 +689,7 @@ class Transformation:
                 coordinate_epoch=coordinate_epoch,
                 axis_order=axis_order,
                 densify=densify,
+                segments=segments,
                 orient=orient,
                 srid_authority=srid_authority,
             ),
@@ -693,6 +702,7 @@ class Transformation:
         coordinate_epoch: float | None = None,
         axis_order: AxisOrder = "xy",
         densify: float | None = None,
+        segments: Segments = "straight",
         orient: Orientation | None = None,
         srid_authority: str = "EPSG",
     ) -> GeometryResults:
@@ -722,6 +732,7 @@ class Transformation:
                 coordinate_epoch=coordinate_epoch,
                 axis_order=axis_order,
                 densify=densify,
+                segments=segments,
                 orient=orient,
                 srid_authority=srid_authority,
             ),

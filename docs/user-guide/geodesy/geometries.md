@@ -154,7 +154,25 @@ written in the target's.
 
 A straight edge in one CRS is not straight in another. `densify` inserts
 vertices first, so that no segment is longer than the given length in source
-CRS units.
+CRS units. That keeps an edge straight in the source CRS, as WKT, WKB, GeoJSON
+and Esri JSON draw it: along a parallel, say, for a licence block in ED50.
+
+Boundaries are as often defined by geodesics, the shortest lines on the
+ellipsoid, as boundaries at sea commonly are. `segments="geodesic"` inserts the
+vertices along the geodesic on the source CRS's ellipsoid, through its
+geographic CRS for a projected one, and `densify` is then in metres along it.
+Over 500 km at 65°N, the two differ by 9 km:
+
+```{code-cell} python
+ed50_utm = Transformation("EPSG:4230", "EPSG:23032")
+edge = "LINESTRING (5 62, 10 66)"
+geodesic = ed50_utm.transform_geometry(edge, densify=1000, segments="geodesic")
+straight = ed50_utm.transform_geometry(edge, densify=0.01)
+round(geodesic.geometry.hausdorff_distance(straight.geometry))
+```
+
+The vertices given are kept as they are, bit for bit, and only those inserted
+are computed.
 
 Ring orientation is kept as transformed by default, which follows the
 standards: neither Simple Features nor RFC 7946 rejects either winding. A

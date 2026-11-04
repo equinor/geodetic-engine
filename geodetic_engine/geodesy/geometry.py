@@ -44,7 +44,7 @@ import math
 import os
 import re
 import warnings
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
@@ -59,6 +59,12 @@ from shapely.geometry.base import BaseGeometry, BaseMultipartGeometry
 from geodetic_engine.geodesy._crs_tools import compound, integer_code, same_crs
 from geodetic_engine.geodesy._failures import first_failure, probe, relocated
 from geodetic_engine.geodesy._rounding import axis_decimals, round_half_up
+from geodetic_engine.geodesy._segments import (
+    SEGMENTS,
+    Segments,
+    densify_rows,
+    require_length,
+)
 from geodetic_engine.geodesy._wkb import replace_coordinates
 from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 from geodetic_engine.geodesy.errors import (
@@ -494,13 +500,20 @@ def _transform(
     coordinate_epoch: float | None,
     axis_order: AxisOrder,
     densify: float | None,
+    segments: Segments,
     orient: Orientation | None,
     srid_authority: str,
 ) -> GeometryResult | GeometryResults:
     """Transform one geometry or a batch, for the methods of ``Transformation``."""
     _require_choice("axis_order", axis_order, _AXIS_ORDERS)
+    _require_choice("segments", segments, SEGMENTS)
     if orient is not None:
         _require_choice("orient", orient, _ORIENTATIONS)
+    if segments == "geodesic" and densify is None:
+        raise ValueError(
+            "segments='geodesic' draws geodesics with densify, the longest "
+            "segment in metres along the ellipsoid"
+        )
     source = transformation.source_crs
     target = transformation.target_crs
     container: _Container | None = None
@@ -519,7 +532,7 @@ def _transform(
     if axis_order == "crs":
         geometries = _permute(geometries, source, True)
     if densify is not None:
-        geometries = _densify(geometries, densify)
+        geometries = _densify(geometries, densify, segments, source)
     moved, provenance = _apply(transformation, geometries, coordinate_epoch)
     if orient is not None:
         moved = shapely.orient_polygons(moved, exterior_cw=orient == "cw")
@@ -895,12 +908,87 @@ def _permute(
     return _map_coordinates(geometries, change)
 
 
-def _densify(geometries: ObjectArray, length: float) -> ObjectArray:
-    if not isinstance(length, int | float) or not math.isfinite(length) or length <= 0:
-        raise ValueError(f"densify is a positive segment length, not {length!r}")
+def _densify(
+    geometries: ObjectArray,
+    length: float,
+    segments: Segments,
+    crs: CoordinateReferenceSystem,
+) -> ObjectArray:
+    require_length(length)
+    _require_choice("segments", segments, SEGMENTS)
     if shapely.has_m(geometries).any():
         raise GeometryError("geometries with M values cannot be densified")
-    return shapely.segmentize(geometries, length)
+    if segments == "straight":
+        return shapely.segmentize(geometries, length)
+    try:
+        return _with_lines(
+            geometries,
+            lambda rows, parts: densify_rows(rows, parts, crs, length, segments)[:2],
+        )
+    except ValueError as error:
+        raise GeometryError(str(error)) from error
+
+
+def _with_lines(
+    geometries: ObjectArray,
+    change: Callable[[FloatArray, NDArray[np.intp]], tuple[FloatArray, Any]],
+) -> ObjectArray:
+    """``geometries`` with the positions of each line and ring changed by ``change``.
+
+    ``change`` takes the positions of every line and ring, x, y and z, and
+    the part each is on, and gives them back, with positions inserted or not.
+    """
+    lines = [line for geometry in geometries for line in _lines(geometry)]
+    if not lines:
+        return geometries
+    array = _objects(lines)
+    has_z = shapely.has_z(array)
+    rows, parts = shapely.get_coordinates(array, include_z=True, return_index=True)
+    changed, changed_parts = change(rows, parts)
+    bounds = np.searchsorted(changed_parts, np.arange(len(lines) + 1))
+    pieces = iter(
+        [
+            changed[bounds[n] : bounds[n + 1], : 3 if has_z[n] else 2]
+            for n in range(len(lines))
+        ]
+    )
+    out = [_rebuilt(geometry, pieces) for geometry in geometries]
+    return shapely.set_srid(_objects(out), shapely.get_srid(geometries))
+
+
+def _lines(geometry: shapely.Geometry | None) -> Iterator[shapely.Geometry]:
+    """The lines and rings of a geometry, in order, but for empty ones."""
+    if geometry is None or shapely.is_empty(geometry):
+        return
+    if isinstance(geometry, shapely.LineString):
+        yield geometry
+    elif isinstance(geometry, shapely.Polygon):
+        yield geometry.exterior
+        yield from geometry.interiors
+    elif isinstance(geometry, BaseMultipartGeometry):
+        for part in geometry.geoms:
+            yield from _lines(part)
+
+
+def _rebuilt(
+    geometry: shapely.Geometry | None, pieces: Iterator[FloatArray]
+) -> shapely.Geometry | None:
+    """``geometry`` with its lines and rings, in order, taken from ``pieces``."""
+    if geometry is None or shapely.is_empty(geometry):
+        return geometry
+    if isinstance(geometry, shapely.LinearRing):
+        return shapely.LinearRing(next(pieces))
+    if isinstance(geometry, shapely.LineString):
+        return shapely.LineString(next(pieces))
+    if isinstance(geometry, shapely.Polygon):
+        shell = next(pieces)
+        return shapely.Polygon(shell, [next(pieces) for _ in geometry.interiors])
+    if isinstance(geometry, BaseMultipartGeometry) and not isinstance(
+        geometry, shapely.MultiPoint
+    ):
+        parts = [_rebuilt(part, pieces) for part in geometry.geoms]
+        return cast("shapely.Geometry", type(geometry)(parts))  # type: ignore[call-arg]
+    return geometry
 
 
 def _round(
