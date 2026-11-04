@@ -21,6 +21,7 @@ from geodetic_engine.geodesy import (
     Transformation,
     TransformationFailedError,
 )
+from geodetic_engine.geodesy import geometry as geometry_module
 from geodetic_engine.geodesy.geometry import GeometryResult, GeometryResults
 
 POLYGON = (
@@ -158,6 +159,28 @@ def test_an_srid_must_be_the_source_crs(ed50_to_utm: Transformation) -> None:
     with pytest.raises(GeometryError, match="geometry 1"):
         ed50_to_utm.transform_geometries(["POINT (2 60)", "SRID=4326;POINT (2 60)"])
     assert ed50_to_utm.transform_geometry("SRID=0;POINT (2 60)").geometry is not None
+
+
+def test_a_batch_reads_each_srid_once(
+    ed50_to_utm: Transformation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Reading an SRID looks at the database files: once per geometry was most
+    # of the time a batch of EWKB took.
+    read: list[int] = []
+    original = geometry_module._srid_crs
+
+    def counting(srid: int, authority: str) -> Any:
+        read.append(srid)
+        return original(srid, authority)
+
+    monkeypatch.setattr(geometry_module, "_srid_crs", counting)
+    batch = [
+        *["SRID=4230;POINT (2 60)"] * 5,
+        "SRID=0;POINT (2 61)",
+        shapely.Point(2, 62),
+    ]
+    assert len(ed50_to_utm.transform_geometries(batch).wkt()) == 7
+    assert sorted(read) == [0, 4230]
 
 
 def test_a_target_without_an_integer_code_writes_no_srid() -> None:

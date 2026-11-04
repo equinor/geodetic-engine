@@ -182,7 +182,7 @@ def read_geometry(
         ('POINT (10.123456789 60.987654321)', 'EPSG:4326')
     """
     _require_choice("axis_order", axis_order, _AXIS_ORDERS)
-    geometry, stated = _read(value, format, srid_authority)
+    geometry, stated = _read(value, format, _Srids(srid_authority))
     given = None if crs is None else CoordinateReferenceSystem.from_user_input(crs)
     if stated is not None and given is not None and not same_crs(stated, given):
         raise GeometryError(
@@ -577,9 +577,10 @@ def _read_all(
 ) -> tuple[ObjectArray, list[CoordinateReferenceSystem | None]]:
     geometries: list[shapely.Geometry | None] = []
     stated: list[CoordinateReferenceSystem | None] = []
+    srids = _Srids(srid_authority)
     for index, item in enumerate(items):
         try:
-            geometry, crs = _read(item, None, srid_authority)
+            geometry, crs = _read(item, None, srids)
         except (GeometryError, TypeError) as error:
             raise type(error)(f"geometry {index}: {error}") from error
         geometries.append(geometry)
@@ -1076,13 +1077,13 @@ def _srid(crs: CoordinateReferenceSystem | None, format: str) -> int:
 
 
 def _read(
-    value: object, format: Format | None, srid_authority: str
+    value: object, format: Format | None, srids: _Srids
 ) -> tuple[shapely.Geometry | None, CoordinateReferenceSystem | None]:
     """A geometry and the CRS it states, read from ``value``."""
     if value is None:
         return None, None
     if format is None:
-        return _detect(value, srid_authority)
+        return _detect(value, srids)
     _require_choice("format", format, FORMATS)
     if format in ("wkt", "ewkt"):
         text = _text(value, format)
@@ -1093,19 +1094,19 @@ def _read(
                     "the text starts with an SRID, which makes it EWKT; read "
                     "it with format='ewkt'"
                 )
-            return _from_ewkt(match, srid_authority)
+            return _from_ewkt(match, srids)
         if format == "ewkt":
             raise GeometryError("EWKT starts with SRID=<code>;")
         return _from_wkt(text), None
     if format in ("wkb", "ewkb"):
         if not isinstance(value, bytes | bytearray | memoryview):
             raise TypeError(f"{format} is bytes, not {type(value).__name__}")
-        return _from_wkb(bytes(value), srid_authority)
+        return _from_wkb(bytes(value), srids)
     if format in ("wkb_hex", "ewkb_hex"):
         text = _text(value, format)
         if not _HEX.match(text) or len(text) % 2:
             raise GeometryError(f"{format} is an even number of hex digits")
-        return _from_wkb(text, srid_authority)
+        return _from_wkb(text, srids)
     data = _json(value) if isinstance(value, str | bytes | bytearray) else value
     if not isinstance(data, Mapping):
         raise TypeError(f"{format} is a JSON object, not {type(data).__name__}")
@@ -1115,20 +1116,20 @@ def _read(
 
 
 def _detect(
-    value: object, srid_authority: str
+    value: object, srids: _Srids
 ) -> tuple[shapely.Geometry | None, CoordinateReferenceSystem | None]:
     if isinstance(value, shapely.Geometry):
-        return value, _srid_crs(int(shapely.get_srid(value)), srid_authority)
+        return value, srids(int(shapely.get_srid(value)))
     if isinstance(value, bytes | bytearray | memoryview):
-        return _from_wkb(bytes(value), srid_authority)
+        return _from_wkb(bytes(value), srids)
     if isinstance(value, str):
         text = value.strip()
         if (match := _EWKT.match(text)) is not None:
-            return _from_ewkt(match, srid_authority)
+            return _from_ewkt(match, srids)
         if text.startswith("{"):
             return _from_json(_json(text))
         if _HEX.match(text) and not len(text) % 2:
-            return _from_wkb(text, srid_authority)
+            return _from_wkb(text, srids)
         return _from_wkt(text), None
     if isinstance(value, Mapping):
         return _from_json(value)
@@ -1164,7 +1165,7 @@ def _from_wkt(text: str) -> shapely.Geometry:
 
 
 def _from_wkb(
-    data: bytes | str, srid_authority: str
+    data: bytes | str, srids: _Srids
 ) -> tuple[shapely.Geometry, CoordinateReferenceSystem | None]:
     try:
         geometry = shapely.from_wkb(data)
@@ -1172,16 +1173,33 @@ def _from_wkb(
         raise GeometryError(f"curved geometries are not supported: {error}") from error
     except ShapelyError as error:
         raise GeometryError(f"not WKB: {error}") from error
-    return geometry, _srid_crs(int(shapely.get_srid(geometry)), srid_authority)
+    return geometry, srids(int(shapely.get_srid(geometry)))
 
 
 def _from_ewkt(
-    match: re.Match[str], srid_authority: str
+    match: re.Match[str], srids: _Srids
 ) -> tuple[shapely.Geometry, CoordinateReferenceSystem | None]:
     srid = int(match.group(1))
     if srid < 0:
         raise GeometryError(f"an SRID is not negative: {srid}")
-    return _from_wkt(match.group(2)), _srid_crs(srid, srid_authority)
+    return _from_wkt(match.group(2)), srids(srid)
+
+
+class _Srids:
+    """The CRS each SRID names in an authority, each SRID read once.
+
+    The geometries of a batch commonly all state the same SRID, and reading
+    it costs a look at the files of the active database each time.
+    """
+
+    def __init__(self, authority: str) -> None:
+        self._authority = authority
+        self._crss: dict[int, CoordinateReferenceSystem | None] = {}
+
+    def __call__(self, srid: int) -> CoordinateReferenceSystem | None:
+        if srid not in self._crss:
+            self._crss[srid] = _srid_crs(srid, self._authority)
+        return self._crss[srid]
 
 
 def _srid_crs(srid: int, authority: str) -> CoordinateReferenceSystem | None:
