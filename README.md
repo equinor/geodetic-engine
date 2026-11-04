@@ -2,6 +2,15 @@
   <img src="https://raw.githubusercontent.com/equinor/geodetic-engine/main/docs/_static/logo.svg" alt="geodetic-engine" width="360">
 </h1>
 
+[![PyPI](https://img.shields.io/pypi/v/pygeodetic-engine)](https://pypi.org/project/pygeodetic-engine/)
+[![Python](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fequinor%2Fgeodetic-engine%2Fmain%2Fpyproject.toml)](https://pypi.org/project/pygeodetic-engine/)
+[![Tests](https://github.com/equinor/geodetic-engine/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/equinor/geodetic-engine/actions/workflows/tests.yml)
+[![Lint and type check](https://github.com/equinor/geodetic-engine/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/equinor/geodetic-engine/actions/workflows/lint.yml)
+[![Documentation](https://github.com/equinor/geodetic-engine/actions/workflows/docs.yml/badge.svg?branch=main)](https://equinor.github.io/geodetic-engine/)
+[![License](https://img.shields.io/github/license/equinor/geodetic-engine)](https://github.com/equinor/geodetic-engine/blob/main/LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+
 `geodetic-engine` is a Python library for transforming coordinates between
 coordinate reference systems (CRSs) under explicit, verifiable rules. It is
 built on [PROJ](https://proj.org) and
