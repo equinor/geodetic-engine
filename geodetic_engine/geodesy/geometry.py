@@ -1254,6 +1254,10 @@ def _geojson(geometry: shapely.Geometry | None) -> dict[str, Any] | None:
 
 def _lists(value: Any) -> Any:
     """``value`` with tuples as lists and a LinearRing as a LineString."""
+    kind = type(value)
+    if kind is tuple or kind is list:
+        # A coordinate is a float, read as it is: most values are.
+        return [item if type(item) is float else _lists(item) for item in value]
     if isinstance(value, Mapping):
         out = {key: _lists(item) for key, item in value.items()}
         if out.get("type") == "LinearRing":
