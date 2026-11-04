@@ -1945,7 +1945,7 @@ wheels = [
 
 [[package]]
 name = "pygeodetic-engine"
-version = "0.1.0.dev3"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },
