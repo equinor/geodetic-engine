@@ -139,6 +139,17 @@ def test_none_and_empty_geometries_pass_through(ed50_to_utm: Transformation) -> 
     assert ed50_to_utm.transform_geometry("POLYGON EMPTY").wkt() == "POLYGON EMPTY"
 
 
+def test_the_provenance_is_written_out_when_read(ed50_to_utm: Transformation) -> None:
+    # Writing it out takes longer than transforming a point, so a geometry
+    # transformed alone does not pay for it until it is read.
+    results = ed50_to_utm.transform_geometries(["POINT (2 60)", "POINT (3 61)"])
+    expected = ed50_to_utm.transform_arrays(np.array([[2.0, 60.0]]))
+    assert results.transformation == expected.metadata_json_dict()
+    assert results[1].transformation == results.transformation
+    assert results.transformation is not results.transformation
+    assert all(not len(column) for column in results._provenance.columns)
+
+
 @pytest.mark.parametrize(
     "value", [None, "POINT EMPTY", "POLYGON EMPTY", "GEOMETRYCOLLECTION EMPTY"]
 )

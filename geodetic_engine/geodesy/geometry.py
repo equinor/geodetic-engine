@@ -45,7 +45,7 @@ import os
 import re
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 import numpy as np
@@ -313,15 +313,20 @@ class GeometryResult:
         transformation: The provenance: CRSs, operation, grids, epoch and
             pipeline, as
             :meth:`~geodetic_engine.geodesy.ArrayTransformationResult.metadata_json_dict`
-            gives it.
+            gives it, written out each time it is read.
         axis_order: The axis order the encodings below are written in.
     """
 
     geometry: shapely.Geometry | None
     source_crs: CoordinateReferenceSystem
     target_crs: CoordinateReferenceSystem
-    transformation: dict[str, Any] = field(repr=False)
+    _provenance: ArrayTransformationResult = field(repr=False)
     axis_order: AxisOrder = "xy"
+
+    @property
+    def transformation(self) -> dict[str, Any]:
+        """The provenance, written out now: it takes longer than a point does."""
+        return self._provenance.metadata_json_dict()
 
     def wkt(self, decimals: Decimals = None, **options: Any) -> str | None:
         """WKT, as :func:`write_geometry` writes it."""
@@ -380,17 +385,23 @@ class GeometryResults:
             container. A GeoSeries comes back as one, with the target CRS set.
         source_crs: The CRS they were transformed from.
         target_crs: The CRS they are in.
-        transformation: The provenance, shared by every geometry.
+        transformation: The provenance, shared by every geometry, written out
+            each time it is read.
         axis_order: The axis order the encodings are written in.
     """
 
     geometries: Any
     source_crs: CoordinateReferenceSystem
     target_crs: CoordinateReferenceSystem
-    transformation: dict[str, Any] = field(repr=False)
+    _provenance: ArrayTransformationResult = field(repr=False)
     axis_order: AxisOrder = "xy"
     _array: ObjectArray = field(default_factory=lambda: _objects([]), repr=False)
     _container: _Container | None = field(default=None, repr=False)
+
+    @property
+    def transformation(self) -> dict[str, Any]:
+        """The provenance, written out now: it takes longer than a point does."""
+        return self._provenance.metadata_json_dict()
 
     def __len__(self) -> int:
         return len(self._array)
@@ -403,7 +414,7 @@ class GeometryResults:
             self._array[index],
             self.source_crs,
             self.target_crs,
-            self.transformation,
+            self._provenance,
             self.axis_order,
         )
 
@@ -512,15 +523,19 @@ def _transform(
     moved, provenance = _apply(transformation, geometries, coordinate_epoch)
     if orient is not None:
         moved = shapely.orient_polygons(moved, exterior_cw=orient == "cw")
-    metadata = provenance.metadata_json_dict()
+    # Kept for what it says of the transformation, not for its positions,
+    # which the geometries hold.
+    provenance = replace(
+        provenance, columns=tuple(np.empty(0) for _ in provenance.columns)
+    )
     if single:
-        return GeometryResult(moved[0], source, target, metadata, axis_order)
+        return GeometryResult(moved[0], source, target, provenance, axis_order)
     assert container is not None
     return GeometryResults(
         container.wrap(list(moved), geometries=True, crs=target.crs),
         source,
         target,
-        metadata,
+        provenance,
         axis_order,
         moved,
         container,
