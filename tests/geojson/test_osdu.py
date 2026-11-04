@@ -14,7 +14,7 @@ import pyproj
 import pytest
 
 from geodetic_engine.geodesy import AmbiguousOperationError, CoordinateReferenceSystem
-from geodetic_engine.geojson import convert_geojson_request
+from geodetic_engine.geojson import convert_geojson, convert_geojson_request
 from geodetic_engine.geojson._scope import is_wgs84_lonlat
 from geodetic_engine.osdudb.build import build
 from geodetic_engine.osdudb.config import OsduBuildConfig
@@ -198,6 +198,39 @@ def test_a_position_that_fails_is_nan_and_counted_out() -> None:
     assert (response["successCount"], response["totalCount"]) == (1, 2)
     failed = response["featureCollection"]["features"][1]["geometry"]["coordinates"]
     assert all(math.isnan(value) for value in failed)
+
+
+def test_failed_positions_are_answered_as_convert_geojson_writes_them() -> None:
+    # The response has no reasons, so the request finds failed positions
+    # without transforming each on its own: the answer must not change.
+    positions = [[3.0 + n / 10, 60.0] if n % 3 else [93.0, 0.0] for n in range(30)]
+    collection = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {},
+                "geometry": {"type": "LineString", "coordinates": positions},
+            },
+            {
+                "type": "Feature",
+                "properties": {},
+                "geometry": {"type": "Point", "coordinates": [93.0, 0.0]},
+                "bbox": [0, 0, 0, 0],
+            },
+        ],
+    }
+    response = convert_geojson_request(
+        {"toCRS": "EPSG:32631", "featureCollection": collection}
+    )
+    expected = convert_geojson(
+        collection, "EPSG:32631", output="anycrs", on_error="nan"
+    )
+    assert json.dumps(response["featureCollection"]) == json.dumps(expected.document)
+    assert response["successCount"] == expected.success_count == 20
+    assert response["totalCount"] == expected.total_count == 31
+    assert response["operationsApplied"] == list(expected.operations_applied)
+    assert len(expected.failures) == 11
 
 
 @pytest.mark.parametrize(

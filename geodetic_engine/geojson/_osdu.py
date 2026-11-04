@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Any, Final
 
 from geodetic_engine.geodesy import CoordinateReferenceSystem
-from geodetic_engine.geojson._convert import convert_geojson
+from geodetic_engine.geojson._convert import _convert
 from geodetic_engine.geojson._scope import is_wgs84_lonlat
 
 _COLLECTIONS: Final = ("FeatureCollection", "AnyCrsFeatureCollection")
@@ -58,14 +58,21 @@ def convert_geojson_request(body: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("toCRS is a CRS record id or persistableReference")
     target = CoordinateReferenceSystem.from_user_input(to_crs)
     plain = is_wgs84_lonlat(target)
-    result = convert_geojson(
+    # The response has no reasons for failed positions, which cost a call each.
+    result = _convert(
         collection,
         to_crs,
+        source_crs=None,
         operation=body.get("transformation") or None,
         # Plain GeoJSON heights are in metres, whatever toUnitZ says.
         target_unit_z=None if plain else body.get("toUnitZ") or None,
+        coordinate_epoch=None,
         output="geojson" if plain else "anycrs",
         on_error="nan",
+        decimals=None,
+        orient=None,
+        fallback_operation=None,
+        reasons=False,
     )
     return {
         "featureCollection": result.document,

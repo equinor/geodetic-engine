@@ -26,7 +26,13 @@ from geodetic_engine.geodesy import (
     Transformation,
     TransformationFailedError,
 )
-from geodetic_engine.geodesy._failures import first_failure, isolate, probe, relocated
+from geodetic_engine.geodesy._failures import (
+    failing_rows,
+    first_failure,
+    isolate,
+    probe,
+    relocated,
+)
 from geodetic_engine.geodesy._rounding import Decimals, round_columns
 from geodetic_engine.geojson._model import (
     ANYCRS_MEMBERS,
@@ -192,6 +198,44 @@ def convert_geojson(
         raise ValueError(f"on_error must be one of {ON_ERRORS}, not {on_error!r}")
     if orient is not None and orient not in _ORIENTATIONS:
         raise ValueError(f"orient must be one of {_ORIENTATIONS}, not {orient!r}")
+    return _convert(
+        document,
+        target_crs,
+        source_crs=source_crs,
+        operation=operation,
+        target_unit_z=target_unit_z,
+        coordinate_epoch=coordinate_epoch,
+        output=output,
+        on_error=on_error,
+        decimals=decimals,
+        orient=orient,
+        fallback_operation=fallback_operation,
+        reasons=True,
+    )
+
+
+def _convert(
+    document: object,
+    target_crs: object,
+    *,
+    source_crs: object,
+    operation: Any,
+    target_unit_z: str | None,
+    coordinate_epoch: float | None,
+    output: Output,
+    on_error: OnError,
+    decimals: Decimals,
+    orient: Orientation | None,
+    fallback_operation: Any,
+    reasons: bool,
+) -> GeoJsonResult:
+    """:func:`convert_geojson`, with each failed position's reason or without.
+
+    A reason costs a call per failed position, so with ``on_error="nan"`` and
+    ``reasons`` false, the failed positions are only written as NaN and
+    counted, in a fixed number of passes however many fail, and
+    :attr:`GeoJsonResult.failures` is empty.
+    """
     read = read_document(document)
     target = read_target(
         target_crs, source=read.flavour, output=output, target_unit_z=target_unit_z
@@ -206,6 +250,7 @@ def convert_geojson(
         on_error=on_error,
         decimals=decimals,
         orient=orient,
+        reasons=reasons,
     )
     return converter.run()
 
@@ -236,6 +281,7 @@ class _Converter:
         on_error: OnError,
         decimals: Decimals,
         orient: Orientation | None,
+        reasons: bool = True,
     ) -> None:
         self._document = document
         self._target = target
@@ -246,6 +292,8 @@ class _Converter:
         self._on_error: OnError = on_error
         self._decimals = decimals
         self._orient = orient
+        # Without reasons, a failed position written as NaN costs no call.
+        self._reasons = reasons or on_error != "nan"
         self._transformations: dict[tuple[int, int, bool], Transformation] = {}
         self._provenance: list[dict[str, Any]] = []
         self._operations: list[str] = []
@@ -490,6 +538,9 @@ class _Converter:
                     row, failing = failure.index, failure.error
                 raise relocated(failing, self._path(group, row)) from error
             columns = result.columns
+        elif not self._reasons:
+            columns, marked = failing_rows(transformation, rows, epoch)
+            failed = self._count_failed(group, np.flatnonzero(marked))
         else:
             isolated = isolate(transformation, rows, epoch)
             columns = isolated.columns
@@ -512,6 +563,14 @@ class _Converter:
                     self._failures.append((path, located))
         self._record(transformation, provenance, len(rows), failed)
         return columns
+
+    def _count_failed(self, group: _Group, rows: NDArray[np.intp]) -> int:
+        """Count failed rows against their geometries, without their reasons."""
+        positions = group.owners[rows]
+        local = rows - group.starts[positions]
+        for position, index in zip(positions.tolist(), local.tolist(), strict=True):
+            self._failed.setdefault(group.members[position], set()).add(index)
+        return len(rows)
 
     def _record(
         self,

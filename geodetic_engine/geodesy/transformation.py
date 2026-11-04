@@ -178,16 +178,24 @@ class _Pipeline:
         return self.steps if self.corrected is None else self.corrected
 
     def run(
-        self, columns: tuple[FloatArray, ...], epoch: float | None
+        self,
+        columns: tuple[FloatArray, ...],
+        epoch: float | None,
+        *,
+        errcheck: bool = True,
     ) -> tuple[FloatArray, ...]:
-        """Apply every step in place to privately owned coordinate buffers."""
+        """Apply every step in place to privately owned coordinate buffers.
+
+        With ``errcheck`` false, PROJ does not raise for a point it cannot
+        transform, and leaves it infinite instead.
+        """
         values = columns
         times = None if epoch is None else np.full(len(columns[0]), epoch)
         for transformer, direction in self.executed:
             if times is not None and epoch is not None:
                 # Every leg reads the observation year, not the previous output time.
                 times.fill(epoch)
-            values = _apply(transformer, values, times, direction)
+            values = _apply(transformer, values, times, direction, errcheck=errcheck)
         return values
 
     @property
@@ -730,32 +738,7 @@ class Transformation:
             raise MissingCoordinateEpochError("coordinate epoch must be finite")
 
         _require_in_range(self._source, columns, point_offset=point_offset)
-
-        # PROJ workaround, see the note above _entry_step: remove this call
-        # once PROJ no longer leaves a residual axisswap at a vertical end.
-        ordered, swapped = _order_horizontal_for_pipeline(
-            self._source, self._pipeline, columns
-        )
-        columns = _carry_unread_horizontal(
-            self._source, self._target, self._applied, self._grids, ordered
-        )
-
-        if self._requires_epoch and coordinate_epoch is None:
-            raise MissingCoordinateEpochError(
-                "a dynamic CRS or time-dependent operation requires a coordinate "
-                "epoch; supply a finite observation year explicitly"
-            )
-
-        try:
-            produced = self._pipeline.run(columns, coordinate_epoch)
-        except ProjError as error:
-            raise TransformationFailedError(
-                f"PROJ could not transform from {_label(self._source)} to "
-                f"{_label(self._target)}: {error}"
-            ) from error
-
-        indices = _output_indices(self._target, len(produced))
-        output = tuple(produced[index] for index in indices)
+        output, swapped = self._execute(columns, coordinate_epoch, errcheck=True)
         _require_finite(output, self._source, self._target, point_offset=point_offset)
 
         applied, grids = self._applied, self._grids
@@ -773,6 +756,72 @@ class Transformation:
             pipeline=pipeline_text,
             database_fingerprints=self._database_fingerprints,
         )
+
+    def _transform_marking_failures(
+        self, rows: ArrayLike, coordinate_epoch: float | None
+    ) -> tuple[tuple[FloatArray, ...], NDArray[np.bool_]]:
+        """Transform a row batch, marking the rows that fail instead of raising.
+
+        For :mod:`geodetic_engine.geodesy._failures`, which finds every
+        failing row in a pass over the batch rather than by transforming parts
+        of it. A row that :meth:`transform_arrays` would refuse as out of
+        range, or that PROJ gives no finite value for, is NaN in every column
+        and True in the mask. The other rows have the values
+        :meth:`transform_arrays` gives them. A failure that is no row's raises
+        as it does there.
+
+        Returns:
+            One array per output axis, and True for each row that failed.
+        """
+        if coordinate_epoch is not None and not math.isfinite(coordinate_epoch):
+            raise MissingCoordinateEpochError("coordinate epoch must be finite")
+        columns = _array_columns(self._source, rows, None, None)
+        failed = _out_of_range(self._source, columns)
+        output, _ = self._execute(columns, coordinate_epoch, errcheck=False)
+        for column in output:
+            failed |= ~np.isfinite(column)
+        for column in output:
+            column[failed] = np.nan
+        return output, failed
+
+    def _execute(
+        self,
+        columns: tuple[FloatArray, ...],
+        coordinate_epoch: float | None,
+        *,
+        errcheck: bool,
+    ) -> tuple[tuple[FloatArray, ...], bool]:
+        """Run the pipeline over owned columns whose range has been seen to.
+
+        Returns:
+            The target CRS's columns, and whether the horizontal pair was
+            transposed for the pipeline.
+        """
+        # PROJ workaround, see the note above _entry_step: remove this call
+        # once PROJ no longer leaves a residual axisswap at a vertical end.
+        ordered, swapped = _order_horizontal_for_pipeline(
+            self._source, self._pipeline, columns
+        )
+        columns = _carry_unread_horizontal(
+            self._source, self._target, self._applied, self._grids, ordered
+        )
+
+        if self._requires_epoch and coordinate_epoch is None:
+            raise MissingCoordinateEpochError(
+                "a dynamic CRS or time-dependent operation requires a coordinate "
+                "epoch; supply a finite observation year explicitly"
+            )
+
+        try:
+            produced = self._pipeline.run(columns, coordinate_epoch, errcheck=errcheck)
+        except ProjError as error:
+            raise TransformationFailedError(
+                f"PROJ could not transform from {_label(self._source)} to "
+                f"{_label(self._target)}: {error}"
+            ) from error
+
+        indices = _output_indices(self._target, len(produced))
+        return tuple(produced[index] for index in indices), swapped
 
     def __repr__(self) -> str:
         return (
@@ -2025,6 +2074,8 @@ def _apply(
     values: tuple[FloatArray, ...],
     times: FloatArray | None,
     direction: TransformDirection,
+    *,
+    errcheck: bool = True,
 ) -> tuple[FloatArray, ...]:
     """Run one transformer over every coordinate component at once."""
     count = len(values[0]) if values else 0
@@ -2038,7 +2089,7 @@ def _apply(
         arguments["tt"] = times
 
     produced = transformer.transform(
-        **arguments, direction=direction, errcheck=True, inplace=True
+        **arguments, direction=direction, errcheck=errcheck, inplace=True
     )
     return tuple(produced[: len(values)])
 
@@ -2665,22 +2716,7 @@ def _require_in_range(
     rather than wrongly refused. Longitude is allowed a full turn either way,
     since a dataset counted from 0 to 360 is a convention, not a mistake.
     """
-    if not source.is_geographic:
-        return
-    order = source.value_axis_order
-    checks: list[tuple[int, AxisSpec, float]] = []
-    for value_index, declared_index in enumerate(order[: len(columns)]):
-        axis = source.axes[declared_index]
-        direction = axis.direction.lower()
-        if direction in _NORTHINGS:
-            limit = (math.pi / 2) / axis.unit_conversion_factor
-            checks.insert(0, (value_index, axis, limit))
-        elif direction in _EASTINGS:
-            limit = (2 * math.pi) / axis.unit_conversion_factor
-            checks.append((value_index, axis, limit))
-    # Latitude first: when both values are metres, the one read as latitude is
-    # the diagnostic the caller can act on.
-    for value_index, axis, limit in checks:
+    for value_index, axis, limit in _range_checks(source, len(columns)):
         values = np.asarray(columns[value_index])
         invalid = np.isfinite(values) & (np.abs(values) > limit)
         if np.any(invalid):
@@ -2695,6 +2731,40 @@ def _require_in_range(
                 "need a projected CRS",
                 point=point + point_offset,
             )
+
+
+def _out_of_range(
+    source: CoordinateReferenceSystem, columns: Sequence[FloatArray]
+) -> NDArray[np.bool_]:
+    """True for each point :func:`_require_in_range` would refuse."""
+    invalid = np.zeros(len(columns[0]) if columns else 0, dtype=np.bool_)
+    for value_index, _, limit in _range_checks(source, len(columns)):
+        values = columns[value_index]
+        invalid |= np.isfinite(values) & (np.abs(values) > limit)
+    return invalid
+
+
+def _range_checks(
+    source: CoordinateReferenceSystem, width: int
+) -> list[tuple[int, AxisSpec, float]]:
+    """Each latitude and longitude among ``width`` values, with its limit.
+
+    Latitude first: when both values are metres, the one read as latitude is
+    the diagnostic the caller can act on.
+    """
+    if not source.is_geographic:
+        return []
+    checks: list[tuple[int, AxisSpec, float]] = []
+    for value_index, declared_index in enumerate(source.value_axis_order[:width]):
+        axis = source.axes[declared_index]
+        direction = axis.direction.lower()
+        if direction in _NORTHINGS:
+            limit = (math.pi / 2) / axis.unit_conversion_factor
+            checks.insert(0, (value_index, axis, limit))
+        elif direction in _EASTINGS:
+            limit = (2 * math.pi) / axis.unit_conversion_factor
+            checks.append((value_index, axis, limit))
+    return checks
 
 
 def _require_finite(

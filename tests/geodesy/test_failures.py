@@ -16,6 +16,7 @@ from geodetic_engine.geodesy import (
 )
 from geodetic_engine.geodesy._failures import (
     TooManyFailures,
+    failing_rows,
     first_failure,
     isolate,
     probe,
@@ -54,6 +55,22 @@ class _Counting:
     def transform_arrays(self, rows: Any, **options: Any) -> Any:
         self.sizes.append(len(rows))
         return self.transformation.transform_arrays(rows, **options)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.transformation, name)
+
+
+class _Unmarking(_Counting):
+    """A transformation whose marking pass misses every failure.
+
+    As it would miss one that PROJ only logs, without an infinite result.
+    """
+
+    def _transform_marking_failures(self, rows: Any, coordinate_epoch: Any) -> Any:
+        columns, failed = self.transformation._transform_marking_failures(
+            rows, coordinate_epoch
+        )
+        return columns, np.zeros_like(failed)
 
 
 def test_the_probe_raises_what_no_point_is_to_blame_for(to_utm: Transformation) -> None:
@@ -139,6 +156,66 @@ def test_isolation_costs_one_call_when_nothing_fails(to_utm: Transformation) -> 
     counting = _Counting(to_utm)
     isolate(counting, _rows(1000, {}), None)  # type: ignore[arg-type]
     assert counting.sizes == [0, 1000]
+
+
+@pytest.mark.parametrize("failures", [1, 64, 1000])
+def test_isolation_costs_three_passes_and_a_call_per_failing_row(
+    to_utm: Transformation, failures: int
+) -> None:
+    generator = np.random.default_rng(failures)
+    bad = generator.choice(1000, failures, replace=False).tolist()
+    counting = _Counting(to_utm)
+    rows = _rows(1000, dict.fromkeys(bad, OUTSIDE_DOMAIN))
+    isolated = isolate(counting, rows, None)  # type: ignore[arg-type]
+    assert [failure.index for failure in isolated.failures] == sorted(bad)
+    # The probe, the whole batch, the rows that did not fail, then each failing
+    # row on its own; the marking pass between is not a transform_arrays call.
+    others = [1000 - failures] if failures < 1000 else []
+    assert counting.sizes == [0, 1000, *others, *[1] * failures]
+
+
+@pytest.mark.parametrize("failures", [0, 7, 1000])
+def test_failing_rows_are_those_isolated_without_a_call_each(
+    to_utm: Transformation, failures: int
+) -> None:
+    generator = np.random.default_rng(failures)
+    bad = generator.choice(1000, failures, replace=False).tolist()
+    failing = {index: (OUT_OF_RANGE, OUTSIDE_DOMAIN)[index % 2] for index in bad}
+    rows = _rows(1000, failing)
+    counting = _Counting(to_utm)
+    columns, failed = failing_rows(counting, rows, None)  # type: ignore[arg-type]
+    isolated = isolate(to_utm, rows, None)
+    assert np.array_equal(failed, isolated.failed)
+    for got, expected in zip(columns, isolated.columns, strict=True):
+        assert np.array_equal(got.view(np.uint64), expected.view(np.uint64))
+    assert len(counting.sizes) <= 3
+
+
+def test_a_failure_the_marking_misses_is_found_by_halving(
+    to_utm: Transformation,
+) -> None:
+    rows = _rows(100, {10: OUT_OF_RANGE, 90: OUTSIDE_DOMAIN})
+    unmarking = _Unmarking(to_utm)
+    isolated = isolate(unmarking, rows, None)  # type: ignore[arg-type]
+    assert [failure.index for failure in isolated.failures] == [10, 90]
+    assert np.array_equal(isolated.failed, isolate(to_utm, rows, None).failed)
+    columns, failed = failing_rows(_Unmarking(to_utm), rows, None)  # type: ignore[arg-type]
+    assert np.flatnonzero(failed).tolist() == [10, 90]
+    assert all(np.isnan(column[failed]).all() for column in columns)
+
+
+def test_marking_failures_gives_the_others_values_bit_for_bit(
+    to_utm: Transformation,
+) -> None:
+    rows = _rows(500, {3: OUT_OF_RANGE, 7: OUTSIDE_DOMAIN, 499: OUTSIDE_DOMAIN})
+    columns, failed = to_utm._transform_marking_failures(rows, None)
+    assert np.flatnonzero(failed).tolist() == [3, 7, 499]
+    expected = to_utm.transform_arrays(rows[~failed]).columns
+    for column, values in zip(columns, expected, strict=True):
+        assert np.isnan(column[failed]).all()
+        assert np.array_equal(column[~failed].view(np.uint64), values.view(np.uint64))
+    with pytest.raises(TransformationFailedError, match="declares 3 axes"):
+        Transformation("EPSG:4326", "EPSG:4979")._transform_marking_failures(rows, None)
 
 
 def test_isolation_raises_what_no_row_is_to_blame_for() -> None:
