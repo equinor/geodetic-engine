@@ -88,8 +88,9 @@ def test_the_first_failing_row_is_found(
     assert found is not None
     assert found.index == first
     assert type(found.error) is error
-    # One whole batch, ten halvings of 1000 rows, and the row on its own.
-    assert len(counting.sizes) <= 12
+    # One whole batch, the batch without its rows, ten halvings of 1000 rows,
+    # and the row on its own.
+    assert len(counting.sizes) <= 13
     assert sum(counting.sizes) <= 2 * 1000 + 1
 
 
@@ -97,6 +98,11 @@ def test_no_failing_row_is_one_call(to_utm: Transformation) -> None:
     counting = _Counting(to_utm)
     assert first_failure(counting, _rows(1000, {}), None) is None  # type: ignore[arg-type]
     assert counting.sizes == [1000]
+
+
+def test_no_row_is_blamed_for_what_fails_without_rows() -> None:
+    to_3d = Transformation("EPSG:4326", "EPSG:4979")
+    assert first_failure(to_3d, _rows(100, {}), None) is None
 
 
 @pytest.mark.parametrize("failures", [0, 1, 7, 64, 1000])

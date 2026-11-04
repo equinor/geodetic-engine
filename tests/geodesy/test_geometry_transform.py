@@ -181,6 +181,17 @@ def test_a_failure_proj_does_not_place_is_found(ed50_to_utm: Transformation) -> 
         utm.transform_geometry("MULTIPOINT ((3 60), (4 61), (93 0))")
 
 
+def test_a_failure_no_position_is_to_blame_for_names_none() -> None:
+    # EPSG:4979 has a height that two values per position do not give, whichever.
+    to_3d = Transformation("EPSG:32631", "EPSG:4979")
+    with pytest.raises(TransformationFailedError, match="declares 3 axes") as raised:
+        to_3d.transform_geometries(
+            ["POINT (500000 6600000)", "LINESTRING (500000 6600000, 500100 6600100)"]
+        )
+    assert "geometry" not in str(raised.value)
+    assert "vertex" not in str(raised.value)
+
+
 def test_collection_members_keep_their_own_dimensions(
     ed50_to_utm: Transformation,
 ) -> None:

@@ -125,14 +125,18 @@ def first_failure(
 
     Args:
         transformation: The transformation to apply.
-        rows: One row per point, already probed with :func:`probe`.
+        rows: One row per point.
         coordinate_epoch: As for ``transform_arrays``.
 
     Returns:
-        The first failing row, or None if none fails.
+        The first failing row, or None if none fails, or if the batch fails
+        without its rows too: a failure no row is to blame for, such as a
+        height the target CRS needs and no row has.
     """
     start, stop = 0, len(rows)
     if not _fails(transformation, rows, coordinate_epoch):
+        return None
+    if _fails(transformation, rows[:0], coordinate_epoch):
         return None
     while stop - start > 1:
         middle = (start + stop) // 2
