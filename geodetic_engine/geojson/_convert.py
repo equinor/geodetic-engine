@@ -306,7 +306,7 @@ def _convert(
     counted, in a fixed number of passes however many fail, and
     :attr:`GeoJsonResult.failures` is empty.
     """
-    read = read_document(document)
+    read = read_document(document, write_coordinates=False)
     target = read_target(
         target_crs, source=read.flavour, output=output, target_unit_z=target_unit_z
     )
@@ -411,6 +411,7 @@ class _Converter:
         self._densified()
         document = self._document
         groups = self._groups()
+        self._write_unconverted(groups)
         converted: list[tuple[_Group, FloatArray]] = []
         for group in groups:
             converted.append((group, self._convert(group)))
@@ -482,6 +483,17 @@ class _Converter:
             )
             self._origins[index] = (geometry, origins)
         self._document = replace(self._document, geometries=tuple(geometries))
+
+    def _write_unconverted(self, groups: list[_Group]) -> None:
+        """Write the coordinates of each geometry no group converts, as read.
+
+        The others are written once converted. These are written first, as a
+        place is copied for ``jsonfg-plus`` before it is.
+        """
+        converted = {index for group in groups for index in group.members}
+        for index, geometry in enumerate(self._document.geometries):
+            if index not in converted:
+                geometry.write(geometry.positions.tolist() if geometry.count else [])
 
     def _primaries(self) -> frozenset[int]:
         """The geometries to convert: each feature's place, else its geometry."""

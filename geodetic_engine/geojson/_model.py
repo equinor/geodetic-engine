@@ -263,7 +263,8 @@ class Document:
 
     Attributes:
         root: The document being written. Until a conversion writes into it,
-            it is the input with numbers as floats and arrays as lists.
+            it is the input with numbers as floats and arrays as lists; each
+            geometry's coordinates are None if read without writing them.
         kind: What the root is.
         flavour: The flavour of every ``type`` in it.
         geometries: Every geometry with coordinates, in document order,
@@ -326,13 +327,16 @@ class Document:
         self._withdrawn.update(feature.geometries)
 
 
-def read_document(value: object) -> Document:
+def read_document(value: object, *, write_coordinates: bool = True) -> Document:
     """Read a GeoJSON document into a copy to be written into.
 
     Args:
         value: A mapping, JSON text as ``str`` or ``bytes``, or an object with
             a ``__geo_interface__``. Its root is a ``FeatureCollection``, a
             ``Feature`` or a geometry, plain or AnyCrs.
+        write_coordinates: Whether to write each geometry's coordinates into
+            the copy as they are read. A conversion that writes them itself
+            passes False, and leaves them None until it does.
 
     Raises:
         TypeError: If ``value`` is none of these.
@@ -341,15 +345,15 @@ def read_document(value: object) -> Document:
         UnsupportedGeoJsonError: If it states something not converted yet.
     """
     try:
-        return _read(value)
+        return _read(value, write_coordinates)
     except RecursionError:
         raise InvalidGeoJsonError("$", "nests too deeply to be read") from None
 
 
-def _read(value: object) -> Document:
+def _read(value: object, write_coordinates: bool) -> Document:
     data, owned = _load(value)
     kind, flavour = _type(data, "$")
-    reader = _Reader(flavour, owned=owned)
+    reader = _Reader(flavour, owned=owned, write_coordinates=write_coordinates)
     if kind is Kind.FEATURE_COLLECTION:
         root = reader.collection(data, "$")
     elif kind is Kind.FEATURE:
@@ -372,10 +376,13 @@ def _read(value: object) -> Document:
 class _Reader:
     """Reads one document, collecting its geometries as it goes."""
 
-    def __init__(self, flavour: Flavour, *, owned: bool) -> None:
+    def __init__(
+        self, flavour: Flavour, *, owned: bool, write_coordinates: bool
+    ) -> None:
         self._flavour = flavour
         # Parsed from JSON text here, so its member values need no copy.
         self._owned = owned
+        self._write_coordinates = write_coordinates
         # The feature being read, which holds the geometries read meanwhile.
         self._feature: int | None = None
         # Whether the geometry being read is in a feature's geometry member.
@@ -469,7 +476,8 @@ class _Reader:
             scope=self._scopes[-1] if self._scopes else None,
         )
         self._leave(scoped)
-        geometry.write(positions.tolist() if geometry.count else [])
+        if self._write_coordinates:
+            geometry.write(positions.tolist() if geometry.count else [])
         self.geometries.append(geometry)
         self._record(out, kind, path, first)
         return out
@@ -708,18 +716,30 @@ def _read_plain(value: object, kind: Kind) -> tuple[FloatArray, Shape] | None:
         return None
     if not set(map(type, chain.from_iterable(flat))) <= _NUMBERS:
         return None
+    if kind in _RINGS and not _closed(flat, shape):
+        return None
     try:
         positions = np.array(flat, dtype=np.float64)
     except OverflowError:
         return None
     if not np.isfinite(positions).all():
         return None
-    if kind in _RINGS:
-        sizes = np.array(_sizes(shape), dtype=np.intp)
-        last = np.cumsum(sizes) - 1
-        if not (positions[last - sizes + 1] == positions[last]).all():
-            return None
     return positions, shape
+
+
+def _closed(flat: Sequence[Sequence[Any]], shape: Shape) -> bool:
+    """Whether each ring of positions ``flat``, nested as ``shape``, is closed.
+
+    Compared as read, which is cheaper than as floats for the few positions
+    there are to compare; numbers equal only as floats, or a ring that ends
+    in a tuple where it starts in a list, are left to :func:`_walk`.
+    """
+    end = 0
+    for size in _sizes(shape):
+        start, end = end, end + size
+        if flat[start] != flat[end - 1]:
+            return False
+    return True
 
 
 def _plain_nesting(
