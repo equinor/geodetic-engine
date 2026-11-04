@@ -5,7 +5,8 @@ name: pypi_release
 # refuses geodetic-engine as too close to the existing geodeticengine; the
 # import name is still geodetic_engine. Trusted publishing: each index
 # trusts this workflow file and the environment named after it, so no token is
-# stored.
+# stored. A PyPI release is then tagged v<version> on the commit it was built
+# from, with a GitHub release carrying its CHANGELOG.md section.
 #
 # The package is pure Python. pyproj with the pinned PROJ comes from the index
 # pyproj-wheels.yml publishes, not from here. The wheel ships the official OSDU
@@ -48,11 +49,19 @@ jobs:
 
       # The input reaches the shell through the environment, never inline, and
       # is limited to public PEP 440 versions before it is written anywhere.
+      # PyPI takes only the pyproject.toml version, so its tag names the commit
+      # that states it.
       - name: Set the version
         id: version
         env:
           VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
         run: |
+          declared=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [[ "$TARGET" == pypi && -n "$VERSION" && "$VERSION" != "$declared" ]]; then
+            echo "::error::PyPI releases publish the pyproject.toml version, $declared; leave the version empty, or change pyproject.toml first"
+            exit 1
+          fi
           if [[ -n "$VERSION" ]]; then
             if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+)*((a|b|rc)[0-9]+)?(\.post[0-9]+)?(\.dev[0-9]+)?$ ]]; then
               echo "::error::'$VERSION' is not a version PyPI accepts, such as 0.1.0, 0.1.0rc1 or 0.1.0.dev1"
@@ -67,6 +76,19 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Publishing pygeodetic-engine $version to ${{ inputs.target }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check that the release tag is free
+        if: inputs.target == 'pypi'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          status=0
+          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null || status=$?
+          case $status in
+            0) echo "::error::tag v$VERSION exists, so $VERSION has been released"; exit 1 ;;
+            2) ;;
+            *) exit "$status" ;;
+          esac
 
       # In a new environment with the pinned pyproj wheel from the project's
       # index, so the base database is the one users install. Written to
@@ -112,3 +134,29 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: ${{ inputs.target == 'pypi' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
+
+  # A job of its own, so only it can write to the repository, and only once
+  # PyPI has accepted the upload.
+  tag:
+    needs: [build, publish]
+    if: inputs.target == 'pypi'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Tag the release and publish it on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          awk -v version="$VERSION" '/^## / { section = ($2 == version); next } section' CHANGELOG.md > notes.md
+          prerelease=()
+          if [[ "$VERSION" =~ (a|b|rc|\.dev)[0-9]+$ ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "v$VERSION" "${prerelease[@]}" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "pygeodetic-engine $VERSION" --notes-file notes.md

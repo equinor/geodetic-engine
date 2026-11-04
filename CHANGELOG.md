@@ -150,9 +150,10 @@ All notable changes to this project are documented here. The format follows
   and releases the wheels on GitHub as `pyproj 3.8.0+proj9.9.0`. The
   documentation site serves them as a package index under `simple/`.
   `pypi_release.yml`, run by hand, publishes the package to TestPyPI or PyPI,
-  as chosen, with trusted publishing. It is published as `pygeodetic-engine`,
-  since PyPI refuses `geodetic-engine` as too close to the existing
-  `geodeticengine`; it is still imported as `geodetic_engine`.
+  as chosen, with trusted publishing, and tags a PyPI release `v<version>`
+  with a GitHub release carrying its changelog section. It is published as
+  `pygeodetic-engine`, since PyPI refuses `geodetic-engine` as too close to
+  the existing `geodeticengine`; it is still imported as `geodetic_engine`.
   `geodetic_engine.__version__` is read from the installed package's metadata,
   so it reports the version that was published.
 - Installed packages reject a pyproj linked to a different PROJ. The custom
