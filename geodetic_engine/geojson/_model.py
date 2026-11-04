@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
+from itertools import chain
 from typing import Any, Final, cast
 
 import numpy as np
@@ -104,6 +105,10 @@ _JSONFG_TYPES: Final = frozenset(
 )
 _EMPTY: Final = np.empty((0, 0), dtype=np.float64)
 _SHOWN = 40
+# The arrays and numbers JSON text reads to, which positions are read from
+# without a call per value; values of other types are read one by one.
+_ARRAYS: Final = frozenset({list, tuple})
+_NUMBERS: Final = frozenset({float, int})
 
 
 class Flavour(StrEnum):
@@ -641,6 +646,14 @@ def _type(data: Mapping[str, Any], path: str) -> tuple[Kind, Flavour]:
 
 def _read_coordinates(value: object, path: str, kind: Kind) -> tuple[FloatArray, Shape]:
     """A geometry's positions, one row each, and how they nest."""
+    plain = _read_plain(value, kind)
+    if plain is not None:
+        return plain
+    return _read_values(value, path, kind)
+
+
+def _read_values(value: object, path: str, kind: Kind) -> tuple[FloatArray, Shape]:
+    """:func:`_read_coordinates` value by value, naming any that is wrong."""
     if not _is_array(value):
         raise InvalidGeoJsonError(path, f"must be an array, not {_shown(value)}")
     items = cast("Sequence[object]", value)
@@ -664,6 +677,75 @@ def _read_coordinates(value: object, path: str, kind: Kind) -> tuple[FloatArray,
                 f"has {width}; all positions of a geometry have as many",
             )
     return np.array(flat, dtype=np.float64), shape
+
+
+def _read_plain(value: object, kind: Kind) -> tuple[FloatArray, Shape] | None:
+    """A geometry's positions and how they nest, if they are as JSON text reads.
+
+    Arrays of finite numbers, two or three to a position, nested as ``kind``
+    nests them, every line of two positions or more and every ring closed:
+    the common case, read without a Python call for each value. None for
+    anything else, which :func:`_walk` reads value by value, to name what is
+    wrong or to read numbers of other types.
+    """
+    if type(value) not in _ARRAYS or not value:
+        return None
+    depth = _DEPTHS[kind]
+    items = cast("Sequence[Any]", value)
+    nested = ([items], None) if depth == 0 else _plain_nesting(items, depth, kind)
+    if nested is None:
+        return None
+    flat, shape = nested
+    if not set(map(type, flat)) <= _ARRAYS:
+        return None
+    widths = set(map(len, flat))
+    if len(widths) != 1 or not widths <= {2, 3}:
+        return None
+    if not set(map(type, chain.from_iterable(flat))) <= _NUMBERS:
+        return None
+    try:
+        positions = np.array(flat, dtype=np.float64)
+    except OverflowError:
+        return None
+    if not np.isfinite(positions).all():
+        return None
+    if kind in _RINGS:
+        sizes = np.array(_sizes(shape), dtype=np.intp)
+        last = np.cumsum(sizes) - 1
+        if not (positions[last - sizes + 1] == positions[last]).all():
+            return None
+    return positions, shape
+
+
+def _plain_nesting(
+    items: Sequence[Any], depth: int, kind: Kind
+) -> tuple[Sequence[Any], Shape] | None:
+    """The positions an array nests ``depth`` deep, and how; None if not plain."""
+    if depth == 1:
+        count = len(items)
+        if (kind in _LINES and count < 2) or (kind in _RINGS and count < 4):
+            return None
+        return items, count
+    flat: list[Any] = []
+    shape: list[Shape] = []
+    for item in items:
+        if type(item) not in _ARRAYS or (depth == 3 and not item):
+            return None
+        nested = _plain_nesting(item, depth - 1, kind)
+        if nested is None:
+            return None
+        flat.extend(nested[0])
+        shape.append(nested[1])
+    return flat, tuple(shape)
+
+
+def _sizes(shape: Shape) -> list[int]:
+    """The number of positions in each innermost array, in document order."""
+    if isinstance(shape, int):
+        return [shape]
+    if shape is None:
+        return []
+    return [size for part in shape for size in _sizes(part)]
 
 
 def _walk(

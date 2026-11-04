@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from geodetic_engine.errors import GeodeticEngineError
 from geodetic_engine.geojson import (
@@ -611,3 +613,71 @@ def test_errors_carry_their_path_and_survive_pickling() -> None:
     )
     assert isinstance(error, GeoJsonError)
     assert isinstance(error, GeodeticEngineError)
+
+
+@pytest.mark.parametrize(("name", "coordinates"), list(GEOMETRIES.items()))
+def test_plain_coordinates_are_read_without_a_call_per_value(
+    name: str, coordinates: Any
+) -> None:
+    kind = Kind(name)
+    plain = _model._read_plain(coordinates, kind)
+    assert plain is not None
+    positions, shape = _model._read_values(coordinates, "$", kind)
+    assert plain[1] == shape
+    assert np.array_equal(plain[0], positions)
+
+
+_COMMON = st.one_of(st.floats(-1e7, 1e7), st.integers(-(10**6), 10**6))
+_ODD = st.one_of(
+    st.floats(allow_nan=True, allow_infinity=True),
+    st.integers(-(2**1100), 2**1100),
+    st.booleans(),
+    st.decimals(allow_nan=False, allow_infinity=False),
+    st.builds(np.float64, st.floats(-1e3, 1e3)),
+    st.sampled_from(["1", None, [1.0, 2.0], {"x": 1}]),
+)
+
+
+@st.composite
+def _coordinates(draw: st.DrawFn) -> tuple[Kind, Any]:
+    """Coordinates of a kind, mostly as JSON text reads, and sometimes not."""
+    kind = draw(st.sampled_from(sorted(_model._DEPTHS)))
+    odd = draw(st.booleans())
+    width = draw(st.sampled_from([2, 2, 3, 3, 1, 4]))
+
+    def number() -> Any:
+        return draw(_ODD) if odd and not draw(st.integers(0, 9)) else draw(_COMMON)
+
+    def position() -> Any:
+        size = width if draw(st.integers(0, 19)) else draw(st.integers(0, 5))
+        values = [number() for _ in range(size)]
+        return tuple(values) if not draw(st.integers(0, 9)) else values
+
+    def array(depth: int) -> Any:
+        if depth <= 0:
+            return position()
+        members = [array(depth - 1) for _ in range(draw(st.integers(0, 5)))]
+        if depth == 1 and members and draw(st.booleans()):
+            members.append(copy.deepcopy(members[0]))
+        return members
+
+    depth = _model._DEPTHS[kind] + draw(st.sampled_from([0, 0, 0, 0, 1, -1]))
+    return kind, array(depth)
+
+
+@settings(max_examples=500)
+@given(_coordinates())
+def test_plain_coordinates_are_read_as_they_are_value_by_value(
+    coordinates: tuple[Kind, Any],
+) -> None:
+    kind, value = coordinates
+    plain = _model._read_plain(value, kind)
+    try:
+        positions, shape = _model._read_values(value, "$", kind)
+    except GeoJsonError:
+        assert plain is None
+        return
+    if plain is not None:
+        assert plain[1] == shape
+        assert plain[0].shape == positions.shape
+        assert np.array_equal(plain[0].view(np.uint64), positions.view(np.uint64))
