@@ -989,21 +989,31 @@ def _rounded(rows: FloatArray, decimals: Decimals) -> FloatArray:
 
 
 def _oriented(geometry: Geometry, rows: FloatArray, orient: Orientation) -> FloatArray:
-    """``rows`` with each ring of a polygon wound as ``orient`` asks."""
+    """``rows`` with each ring of a polygon wound as ``orient`` asks.
+
+    A ring is wound by the positions that were transformed: one that failed is
+    NaN and does not count, and a ring with fewer than three others is kept as
+    it is.
+    """
     out = rows.copy()
     start = 0
     for polygon in _ring_sizes(geometry):
         for number, size in enumerate(polygon):
             ring = out[start : start + size]
-            # Relative to a vertex: absolute coordinates cancel at UTM sizes.
-            local = ring[:, :2] - ring[0, :2]
-            area = float(
-                np.dot(local[:-1, 0], local[1:, 1])
-                - np.dot(local[1:, 0], local[:-1, 1])
-            )
-            counterclockwise = area > 0
-            if counterclockwise != ((number == 0) == (orient == "ccw")):
-                out[start : start + size] = ring[::-1]
+            plane = ring[:, :2]
+            plane = plane[np.isfinite(plane).all(axis=1)]
+            if len(plane) >= 3:
+                # Relative to a vertex, as absolute coordinates cancel at UTM
+                # sizes. That vertex's edges add nothing, so the sum is that of
+                # the closed ring even where a failed position opened it.
+                local = plane - plane[0]
+                area = float(
+                    np.dot(local[:-1, 0], local[1:, 1])
+                    - np.dot(local[1:, 0], local[:-1, 1])
+                )
+                counterclockwise = area > 0
+                if counterclockwise != ((number == 0) == (orient == "ccw")):
+                    out[start : start + size] = ring[::-1]
             start += size
     return out
 

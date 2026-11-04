@@ -422,6 +422,24 @@ def test_small_rings_far_from_the_origin_are_wound_as_asked(orient: str) -> None
     assert (_area(wound) > 0) == (orient == "ccw")
 
 
+@pytest.mark.parametrize("orient", ["ccw", "cw"])
+def test_a_ring_with_a_failed_position_is_wound_by_the_others(orient: str) -> None:
+    # The failed position is NaN, which made the shoelace sum NaN, read as
+    # clockwise: a ring already wound counterclockwise was reversed.
+    ring = [*SQUARE[:2], [93.0, 0.0], *SQUARE[2:]]
+    if orient == "cw":
+        ring.reverse()
+    failed = 2 if orient == "ccw" else 3
+    source = _collection(_feature({"type": "Polygon", "coordinates": [ring]}))
+    result = convert_geojson(
+        source, "EPSG:32631", output="anycrs", on_error="nan", orient=orient
+    )
+    wound = np.array(result.document["features"][0]["geometry"]["coordinates"][0])
+    assert np.isnan(wound[failed]).all()
+    assert (_area(wound[np.isfinite(wound).all(axis=1)]) > 0) == (orient == "ccw")
+    assert (result.success_count, result.total_count) == (5, 6)
+
+
 def _failing() -> dict[str, Any]:
     return _collection(
         _feature({"type": "Point", "coordinates": [3.0, 60.0]}),
