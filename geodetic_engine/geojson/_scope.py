@@ -29,9 +29,10 @@ scales them.
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal
 
 from geodetic_engine._referencing.osdu_id import parse_osdu_id
@@ -140,6 +141,8 @@ def read_sources(document: Document, source_crs: object = None) -> tuple[Source,
     wgs84 = Source(None, METRE, "RFC 7946")
     unscoped = _unscoped(given)
     scopes: dict[str, Source] = {}
+    # Each value read once: features commonly repeat the collection's CRS.
+    stated: dict[str, Source] = {}
     sources: list[Source] = []
     for geometry in document.geometries:
         if not geometry.placed:
@@ -149,7 +152,7 @@ def read_sources(document: Document, source_crs: object = None) -> tuple[Source,
         else:
             path = geometry.scope[0]
             if path not in scopes:
-                scopes[path] = _scoped(geometry, given)
+                scopes[path] = _scoped(geometry, given, stated)
             sources.append(scopes[path])
     return tuple(sources)
 
@@ -508,9 +511,32 @@ def _unscoped(given: CoordinateReferenceSystem | None) -> Source:
     return Source(given, None, "source_crs", axis_order="crs")
 
 
-def _scoped(geometry: Geometry, given: CoordinateReferenceSystem | None) -> Source:
+def _scoped(
+    geometry: Geometry,
+    given: CoordinateReferenceSystem | None,
+    stated: dict[str, Source],
+) -> Source:
+    """Where a place is, reading each ``coordRefSys`` value only the first time.
+
+    ``stated`` holds the sources read so far, by value. A repeated value is
+    where its first one is, stated by its own path.
+    """
     assert geometry.scope is not None
-    return _stated_scope(geometry.scope[0], geometry.scope[1], given)
+    path, value = geometry.scope
+    key = _value_key(value)
+    if key is None:
+        return _stated_scope(path, value, given)
+    if key not in stated:
+        stated[key] = _stated_scope(path, value, given)
+    return replace(stated[key], stated_by=path)
+
+
+def _value_key(value: object) -> str | None:
+    """``value`` as JSON text, telling values apart; None if it is not JSON."""
+    try:
+        return json.dumps(value, sort_keys=True)
+    except (TypeError, ValueError):
+        return None
 
 
 def _stated_scope(

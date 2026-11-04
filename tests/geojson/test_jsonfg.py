@@ -20,7 +20,8 @@ from geodetic_engine.geojson import (
     convert_geojson,
 )
 from geodetic_engine.geojson._jsonfg import coord_ref_sys, crs_name
-from geodetic_engine.geojson._model import JSONFG_CORE
+from geodetic_engine.geojson._model import JSONFG_CORE, read_document
+from geodetic_engine.geojson._scope import read_sources
 
 SCHEMAS = Path(__file__).parent / "schemas"
 URI = "http://www.opengis.net/def/crs/EPSG/0/{}"
@@ -167,6 +168,21 @@ def test_identical_scopes_are_converted_together() -> None:
     ]
     result = convert_geojson(_collection(*features), "EPSG:32631")
     assert len(result.transformations) == 1
+
+
+def test_a_repeated_coord_ref_sys_is_read_once_and_named_where_it_is() -> None:
+    features = [
+        _feature(place=_point(60.0 + n / 100, 3.0), coordRefSys=URI.format(4326))
+        for n in range(3)
+    ]
+    document = read_document(_collection(*features))
+    sources = read_sources(document)
+    paths = [f"$.features[{n}].coordRefSys" for n in range(3)]
+    assert [source.stated_by for source in sources] == paths
+    assert sources[0].crs is sources[1].crs is sources[2].crs
+    with pytest.raises(GeoJsonCrsError) as raised:
+        read_sources(document, "EPSG:4258")
+    assert raised.value.path == paths[0]
 
 
 def test_json_fg_has_no_collection_in_a_collection() -> None:

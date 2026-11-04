@@ -7,6 +7,7 @@ the one a caller gives, and both write a CRS back by its code.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from pyproj import CRS
@@ -33,9 +34,19 @@ def same_crs(
     transformation a CRS is bound with. A CRS counting longitude west does not
     repeat CRS84, and neither does a CRS that only states the same authority
     code: a persistableReference is defined by its parameters, not its code.
+
+    Comparing takes milliseconds, so each pair of definitions is compared once.
     """
-    return _in_value_order(first.crs).equals(
-        _in_value_order(second.crs), ignore_axis_order=True
+    return _same_definitions(first.crs.to_json(), second.crs.to_json())
+
+
+@lru_cache(maxsize=128)
+def _same_definitions(first: str, second: str) -> bool:
+    """:func:`same_crs` for two CRSs given by their PROJJSON, all it reads."""
+    if first == second:
+        return True
+    return _in_value_order(CRS.from_json(first)).equals(
+        _in_value_order(CRS.from_json(second)), ignore_axis_order=True
     )
 
 
