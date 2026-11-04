@@ -31,8 +31,9 @@ def test_edges_along_parallels_stay_on_them() -> None:
     expected = Transformation("OGC:CRS84", "EPSG:32631").transform_geometry(
         shapely.Polygon(BLOCK), densify=0.01
     )
+    # The vertices a geometry is densified with, bit for bit.
+    assert np.array_equal(_ring(dense), shapely.get_coordinates(expected.geometry))
     along = shapely.Polygon(_ring(dense))
-    assert along.hausdorff_distance(expected.geometry) < 1e-6
     # The corners alone leave the edges along the parallels 100 m off.
     assert shapely.Polygon(_ring(chords)).hausdorff_distance(along) > 100
     assert dense.total_count == dense.success_count == len(_ring(dense))

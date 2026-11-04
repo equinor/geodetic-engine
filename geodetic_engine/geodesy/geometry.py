@@ -159,6 +159,10 @@ _ESRI_KEYS: Final = (
 _AXIS_NAMES: Final = ("x", "y", "z", "m")
 # Rows transformed per call to transform_batches, bounding PROJ's buffers.
 _CHUNK: Final = 1 << 20
+# The types Shapely reads into ragged arrays and builds back from them, whose
+# lines and rings are runs of coordinates: LineString, Polygon,
+# MultiLineString and MultiPolygon.
+_RAGGED: Final = (1, 3, 5, 6)
 # Warnings name the caller's line, outside the package.
 _PACKAGE: Final = os.path.join(os.path.dirname(os.path.dirname(__file__)), "")
 
@@ -1019,12 +1023,17 @@ def _densify(
     segments: Segments,
     crs: CoordinateReferenceSystem,
 ) -> ObjectArray:
+    """``geometries`` with vertices inserted along their segments.
+
+    Straight segments too go through :func:`densify_rows`, as a GeoJSON
+    document's do, so either gets the same vertices. GEOS's own segmentize
+    buffers an invalid polygon into another geometry, and crashes on a
+    multipart geometry with an empty part.
+    """
     require_length(length)
     _require_choice("segments", segments, SEGMENTS)
     if shapely.has_m(geometries).any():
         raise GeometryError("geometries with M values cannot be densified")
-    if segments == "straight":
-        return shapely.segmentize(geometries, length)
     try:
         return _with_lines(
             geometries,
@@ -1040,9 +1049,54 @@ def _with_lines(
 ) -> ObjectArray:
     """``geometries`` with the positions of each line and ring changed by ``change``.
 
-    ``change`` takes the positions of every line and ring, x, y and z, and
-    the part each is on, and gives them back, with positions inserted or not.
+    ``change`` takes the positions of lines and rings, x, y and any z, and the
+    part each is on, and gives them back, with positions inserted or not. The
+    geometries of one type and dimension go through it together, as Shapely's
+    ragged arrays; a linear ring, a geometry collection and a multipart
+    geometry with an empty part, which Shapely cannot build back from one,
+    one by one.
     """
+    kinds = shapely.get_type_id(geometries)
+    has_z = shapely.has_z(geometries)
+    # Not None, which is -1, a point or a multipoint, or empty.
+    lined = (kinds > 0) & (kinds != 4) & ~shapely.is_empty(geometries)
+    ragged = lined & np.isin(kinds, _RAGGED)
+    multipart = np.flatnonzero(ragged & (kinds >= 5))
+    if len(multipart):
+        parts, owners = shapely.get_parts(geometries[multipart], return_index=True)
+        ragged[multipart[np.unique(owners[shapely.is_empty(parts)])]] = False
+    out = geometries.copy()
+    for kind in _RAGGED:
+        for z in (False, True):
+            members = np.flatnonzero(ragged & (kinds == kind) & (has_z == z))
+            if len(members):
+                out[members] = _changed_lines(geometries[members], z, change)
+    rest = np.flatnonzero(lined & ~ragged)
+    if len(rest):
+        out[rest] = _changed_one_by_one(geometries[rest], change)
+    return shapely.set_srid(out, shapely.get_srid(geometries))
+
+
+def _changed_lines(
+    geometries: ObjectArray,
+    has_z: bool,
+    change: Callable[[FloatArray, NDArray[np.intp]], tuple[FloatArray, Any]],
+) -> ObjectArray:
+    """:func:`_with_lines` for geometries of one ragged type and dimension."""
+    kind, coordinates, offsets = shapely.to_ragged_array(geometries, include_z=has_z)
+    lines = offsets[0]
+    parts = np.repeat(np.arange(len(lines) - 1, dtype=np.intp), np.diff(lines))
+    rows, changed_parts = change(np.ascontiguousarray(coordinates), parts)
+    sizes = np.bincount(changed_parts, minlength=len(lines) - 1)
+    starts = np.concatenate([[0], np.cumsum(sizes)])
+    return shapely.from_ragged_array(kind, rows, (starts, *offsets[1:]))
+
+
+def _changed_one_by_one(
+    geometries: ObjectArray,
+    change: Callable[[FloatArray, NDArray[np.intp]], tuple[FloatArray, Any]],
+) -> ObjectArray:
+    """:func:`_with_lines` taking each geometry apart and building it again."""
     lines = [line for geometry in geometries for line in _lines(geometry)]
     if not lines:
         return geometries
@@ -1057,8 +1111,7 @@ def _with_lines(
             for n in range(len(lines))
         ]
     )
-    out = [_rebuilt(geometry, pieces) for geometry in geometries]
-    return shapely.set_srid(_objects(out), shapely.get_srid(geometries))
+    return _objects([_rebuilt(geometry, pieces) for geometry in geometries])
 
 
 def _lines(geometry: shapely.Geometry | None) -> Iterator[shapely.Geometry]:
@@ -1092,7 +1145,13 @@ def _rebuilt(
         geometry, shapely.MultiPoint
     ):
         parts = [_rebuilt(part, pieces) for part in geometry.geoms]
-        return cast("shapely.Geometry", type(geometry)(parts))  # type: ignore[call-arg]
+        # Shapely's constructor functions take an empty part, as WKT has one;
+        # its classes refuse it.
+        if isinstance(geometry, shapely.MultiPolygon):
+            return cast("shapely.Geometry", shapely.multipolygons(parts))
+        if isinstance(geometry, shapely.MultiLineString):
+            return cast("shapely.Geometry", shapely.multilinestrings(parts))
+        return shapely.geometrycollections(parts)
     return geometry
 
 

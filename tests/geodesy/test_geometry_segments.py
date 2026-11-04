@@ -12,7 +12,7 @@ from geodetic_engine.geodesy import (
     GeometryError,
     Transformation,
 )
-from geodetic_engine.geodesy._segments import densify_rows
+from geodetic_engine.geodesy._segments import Segments, densify_rows
 
 # ED50's International 1924 ellipsoid, on which boundaries of the Norwegian
 # continental shelf are drawn as geodesics.
@@ -149,3 +149,50 @@ def test_straight_segments_are_densified_as_before() -> None:
         np.array([[5.0, 62.0], [5.25, 62.0], [5.5, 62.0], [5.75, 62.0], [6.0, 62.0]])
     ).to_numpy()
     assert np.array_equal(rows, expected)
+
+
+@pytest.mark.parametrize(
+    "wkt",
+    [
+        "MULTIPOLYGON (((2 60, 3 60, 3 61, 2 60)), EMPTY)",
+        "MULTIPOLYGON (EMPTY, ((2 60, 3 60, 3 61, 2 60)))",
+        "MULTILINESTRING ((5 62, 6 62), EMPTY)",
+        "GEOMETRYCOLLECTION (POINT (5 62), LINESTRING EMPTY, LINESTRING (5 62, 6 62))",
+    ],
+)
+@pytest.mark.parametrize(
+    ("segments", "length"), [("straight", 0.25), ("geodesic", 20000.0)]
+)
+def test_an_empty_part_is_kept_as_the_others_are_densified(
+    wkt: str, segments: Segments, length: float
+) -> None:
+    # GEOS's segmentize, which densified straight segments, crashed the
+    # interpreter on these.
+    to_utm = Transformation("EPSG:4230", "EPSG:23032")
+    source = shapely.from_wkt(wkt)
+    drawn = to_utm.transform_geometry(source, densify=length, segments=segments)
+    parts = shapely.get_parts(drawn.geometry)
+    assert drawn.geometry.geom_type == source.geom_type
+    assert (
+        shapely.is_empty(parts).tolist()
+        == shapely.is_empty(shapely.get_parts(source)).tolist()
+    )
+    assert shapely.get_num_coordinates(drawn.geometry) > shapely.get_num_coordinates(
+        source
+    )
+
+
+def test_an_invalid_polygon_is_densified_as_it_is() -> None:
+    # A bow tie, its edges crossing. GEOS's segmentize buffered it into
+    # another geometry; its vertices are kept, and those inserted added.
+    to_utm = Transformation("EPSG:4230", "EPSG:23032")
+    bow_tie = "POLYGON ((2 60, 3 61, 3 60, 2 61, 2 60))"
+    drawn = to_utm.transform_geometry(bow_tie, densify=0.25).geometry
+    assert drawn.geom_type == "Polygon" and not drawn.is_valid
+    rows = shapely.get_coordinates(drawn)
+    corners = to_utm.transform_arrays(
+        shapely.get_coordinates(shapely.from_wkt(bow_tie))
+    ).to_numpy()
+    # 6, 4, 6 and 4 pieces to the four edges.
+    assert len(rows) == 21
+    assert np.array_equal(rows[[0, 6, 10, 16, 20]], corners)

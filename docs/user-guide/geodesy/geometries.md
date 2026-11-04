@@ -172,7 +172,9 @@ round(geodesic.geometry.hausdorff_distance(straight.geometry))
 ```
 
 The vertices given are kept as they are, bit for bit, and only those inserted
-are computed.
+are computed, the same as for a {doc}`GeoJSON document </user-guide/geojson>`.
+Nothing else changes: an invalid polygon is densified as it is, not repaired,
+and a multipart geometry keeps an empty part.
 
 Ring orientation is kept as transformed by default, which follows the
 standards: neither Simple Features nor RFC 7946 rejects either winding. A
