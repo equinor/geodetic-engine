@@ -172,11 +172,47 @@ def test_an_srid_must_be_the_source_crs(ed50_to_utm: Transformation) -> None:
     assert ed50_to_utm.transform_geometry("SRID=0;POINT (2 60)").geometry is not None
 
 
+def test_a_batch_reads_each_geometry_as_it_reads_one(
+    ed50_to_utm: Transformation,
+) -> None:
+    # A batch is read with one Shapely call per encoding, in any order.
+    point = shapely.Point(2, 60)
+    items: list[Any] = [
+        shapely.to_wkb(point),
+        bytearray(shapely.to_wkb(point)),
+        shapely.to_wkb(point, hex=True),
+        " POINT (2 60) ",
+        "SRID=4230;POINT (2 60)",
+        shapely.to_wkb(shapely.set_srid(point, 4230), include_srid=True),
+        point,
+        None,
+        {"type": "Point", "coordinates": [2, 60]},
+        '{"x": 2, "y": 60}',
+    ]
+    alone = [
+        None if item is None else ed50_to_utm.transform_geometry(item).ewkt()
+        for item in items
+    ]
+    assert ed50_to_utm.transform_geometries(items).ewkt() == alone
+
+
+def test_a_batch_names_the_first_geometry_that_fails(
+    ed50_to_utm: Transformation,
+) -> None:
+    # The WKB is read before the WKT, but comes after it in the batch.
+    with pytest.raises(GeometryError, match="geometry 1: not WKT"):
+        ed50_to_utm.transform_geometries(["POINT (2 60)", "POINT (2", b"garbage"])
+    with pytest.raises(GeometryError, match="geometry 1: an SRID is not negative"):
+        ed50_to_utm.transform_geometries(
+            [shapely.to_wkb(shapely.Point(2, 60)), "SRID=-1;POINT (2 60)", b"garbage"]
+        )
+
+
 def test_a_batch_reads_each_srid_once(
     ed50_to_utm: Transformation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Reading an SRID looks at the database files: once per geometry was most
-    # of the time a batch of EWKB took.
+    # of the time a batch of EWKB took. SRID 0 states no CRS, and is not read.
     read: list[int] = []
     original = geometry_module._srid_crs
 
@@ -191,7 +227,7 @@ def test_a_batch_reads_each_srid_once(
         shapely.Point(2, 62),
     ]
     assert len(ed50_to_utm.transform_geometries(batch).wkt()) == 7
-    assert sorted(read) == [0, 4230]
+    assert sorted(read) == [4230]
 
 
 def test_a_target_without_an_integer_code_writes_no_srid() -> None:

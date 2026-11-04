@@ -625,9 +625,21 @@ def _missing(value: object) -> bool:
 def _read_all(
     items: Sequence[object], srid_authority: str
 ) -> tuple[ObjectArray, list[CoordinateReferenceSystem | None]]:
+    """Read a batch, each encoding in one Shapely call.
+
+    A batch that fails is read again item by item, which names the first item
+    that fails, and how, as reading it alone does.
+    """
+    srids = _Srids(srid_authority)
+    try:
+        batch = _read_batch(items, srids)
+    except Exception:
+        # Whatever failed, the item-by-item read below raises it, named.
+        batch = None
+    if batch is not None:
+        return batch
     geometries: list[shapely.Geometry | None] = []
     stated: list[CoordinateReferenceSystem | None] = []
-    srids = _Srids(srid_authority)
     for index, item in enumerate(items):
         try:
             geometry, crs = _read(item, None, srids)
@@ -636,6 +648,59 @@ def _read_all(
         geometries.append(geometry)
         stated.append(crs)
     return _objects(geometries), stated
+
+
+def _read_batch(
+    items: Sequence[object], srids: _Srids
+) -> tuple[ObjectArray, list[CoordinateReferenceSystem | None]]:
+    """:func:`_read_all` for a batch: one Shapely call per encoding."""
+    count = len(items)
+    geometries = np.empty(count, dtype=object)
+    # The SRID each item states, by its encoding or its geometry; 0 for none.
+    srid = np.zeros(count, dtype=np.int64)
+    from_geometry: list[int] = []
+    wkb_at: list[int] = []
+    wkb: list[bytes | str] = []
+    wkt_at: list[int] = []
+    wkt: list[str] = []
+    stated: list[CoordinateReferenceSystem | None] = [None] * count
+    for index, item in enumerate(items):
+        if item is None:
+            continue
+        if isinstance(item, shapely.Geometry):
+            geometries[index] = item
+            from_geometry.append(index)
+        elif isinstance(item, bytes | bytearray | memoryview):
+            wkb_at.append(index)
+            wkb.append(bytes(item))
+        elif isinstance(item, str):
+            text = item.strip()
+            if (match := _EWKT.match(text)) is not None:
+                srid[index] = int(match.group(1))
+                if srid[index] < 0:
+                    raise GeometryError(f"an SRID is not negative: {srid[index]}")
+                wkt_at.append(index)
+                wkt.append(match.group(2))
+            elif text.startswith("{"):
+                geometries[index], stated[index] = _detect(item, srids)
+            elif _HEX.match(text) and not len(text) % 2:
+                wkb_at.append(index)
+                wkb.append(text)
+            else:
+                wkt_at.append(index)
+                wkt.append(text)
+        else:
+            geometries[index], stated[index] = _detect(item, srids)
+    if wkb:
+        geometries[wkb_at] = shapely.from_wkb(np.array(wkb, dtype=object))
+        from_geometry.extend(wkb_at)
+    if wkt:
+        geometries[wkt_at] = shapely.from_wkt(np.array(wkt, dtype=object))
+    if from_geometry:
+        srid[from_geometry] = shapely.get_srid(geometries[from_geometry])
+    for index in np.flatnonzero(srid).tolist():
+        stated[index] = srids(int(srid[index]))
+    return _objects(list(geometries)), stated
 
 
 def _require_source(
