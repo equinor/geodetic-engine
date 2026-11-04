@@ -19,6 +19,7 @@ from geodetic_engine.geodesy import (
     TransformationFailedError,
     available_operations,
 )
+from geodetic_engine.geodesy._shared import _resolved
 from geodetic_engine.geojson import (
     GeoJsonCrsError,
     GeoJsonResult,
@@ -103,6 +104,17 @@ def _coordinates(geometry: dict[str, Any]) -> Any:
     if "geometries" in geometry:
         return [c for g in geometry["geometries"] for c in _positions(g["coordinates"])]
     return geometry["coordinates"]
+
+
+def test_documents_converted_one_after_another_resolve_their_operation_once() -> None:
+    point = {"type": "Point", "coordinates": [2.5, 63.5]}
+    before = _resolved.cache_info()
+    first = convert_geojson(point, "EPSG:32631", decimals=3)
+    again = convert_geojson(point, "EPSG:32631", decimals=3)
+    after = _resolved.cache_info()
+    assert after.misses - before.misses <= 1
+    assert after.hits - before.hits >= 1
+    assert again.document == first.document
 
 
 def test_structure_members_and_key_order_are_kept() -> None:

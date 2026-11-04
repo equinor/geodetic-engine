@@ -34,6 +34,7 @@ from geodetic_engine.geodesy._failures import (
     relocated,
 )
 from geodetic_engine.geodesy._rounding import Decimals, round_columns
+from geodetic_engine.geodesy._shared import shared_transformation
 from geodetic_engine.geojson._model import (
     ANYCRS_MEMBERS,
     ANYCRS_PREFIX,
@@ -464,12 +465,14 @@ class _Converter:
         key = (id(crs), dimension, fallback)
         if key not in self._transformations:
             if fallback:
-                wgs84 = CRS84H if crs.dimension == 3 else CRS84
-                self._transformations[key] = Transformation(
+                wgs84 = CoordinateReferenceSystem.from_user_input(
+                    CRS84H if crs.dimension == 3 else CRS84
+                )
+                self._transformations[key] = shared_transformation(
                     crs, wgs84, self._fallback_operation
                 )
             else:
-                self._transformations[key] = Transformation(
+                self._transformations[key] = shared_transformation(
                     crs, self._target_for(dimension, crs), self._operation
                 )
         return self._transformations[key]
