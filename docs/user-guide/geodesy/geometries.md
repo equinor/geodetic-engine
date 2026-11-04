@@ -180,6 +180,33 @@ left-handed target CRS or an axis swap reverses it. `orient="ccw"` winds
 exterior rings counterclockwise (RFC 7946's right-hand rule) and `orient="cw"`
 clockwise.
 
+## The antimeridian and the poles
+
+PROJ gives longitudes within half a turn of the prime meridian, so a geometry
+crossing the antimeridian, transformed into a geographic CRS, has positions at
+both ends of that range. Read as straight in longitude and latitude, as every
+encoding here reads it, a segment across would go the long way round. In a
+geographic target CRS, such a part is cut at the antimeridian into parts of a
+multipart geometry, as RFC 7946 (3.1.9) and `ogr2ogr -wrapdateline` do, and
+every encoding is written from the cut geometry: WKT, WKB, EWKB, GeoJSON and
+Esri JSON alike. A ring round a pole, as a polar projection draws one, is
+closed along the antimeridian through the pole.
+
+```{code-cell} python
+utm60 = Transformation("EPSG:32660", "EPSG:4326")
+utm60.transform_geometry("LINESTRING (600000 7000000, 800000 7000000)").wkt(decimals=2)
+```
+
+`antimeridian="unwrap"` keeps the part whole instead, its longitudes carried
+on past ±180°, and `antimeridian=None` keeps it as transformed. A segment that
+does go the long way round, from a geographic source CRS, is kept: a segment is
+cut only where the middle of its source segment lands past the antimeridian.
+No position moves; a cut part gains a vertex on the antimeridian, where the
+straight line between the positions either side crosses it, so densify first
+to keep that vertex on the path. A cut polygon is a multipolygon, which a
+database column typed for polygons refuses: write it unwrapped there. A
+geometry with M values that crosses is refused, as cutting would lose them.
+
 ## Without a CRS change
 
 {func}`~geodetic_engine.geodesy.geometry.read_geometry` reads any encoding

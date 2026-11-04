@@ -24,7 +24,11 @@ All notable changes to this project are documented here. The format follows
   inserts vertices before transforming, along straight segments in source CRS
   units or, with `segments="geodesic"`, along geodesics on the source CRS's
   ellipsoid in metres, and `orient` winds rings, which are
-  otherwise kept as transformed. The new module `geodesy.geometry` has
+  otherwise kept as transformed. In a geographic target CRS, a part crossing
+  the antimeridian is cut there into parts of a multipart geometry, as RFC
+  7946 has it (`antimeridian="split"`; `"unwrap"` carries its longitudes on
+  past ±180° instead), and a ring round a pole is closed through it. The new
+  module `geodesy.geometry` has
   `read_geometry`, `write_geometry` and `round_geometry`: `decimals` rounds
   half up by each value's shortest decimal form (`2.675` is `2.68`, `-0.125`
   is `-0.13`), before encoding, so every encoding holds the same numbers, and

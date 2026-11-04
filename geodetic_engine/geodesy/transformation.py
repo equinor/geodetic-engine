@@ -91,6 +91,7 @@ from geodetic_engine.geodesy.result import (
 )
 
 if TYPE_CHECKING:
+    from geodetic_engine.geodesy._antimeridian import Antimeridian
     from geodetic_engine.geodesy._segments import Segments
     from geodetic_engine.geodesy.geometry import (
         AxisOrder,
@@ -627,6 +628,7 @@ class Transformation:
         axis_order: AxisOrder = "xy",
         densify: float | None = None,
         segments: Segments = "straight",
+        antimeridian: Antimeridian | None = "split",
         orient: Orientation | None = None,
         srid_authority: str = "EPSG",
     ) -> GeometryResult:
@@ -638,6 +640,10 @@ class Transformation:
         vertex. Z is transformed where the CRSs have a height, and carried
         through otherwise; M is carried through. None and empty geometries
         come back as they are.
+
+        In a geographic target CRS, a part whose true path crosses the
+        antimeridian is cut there, into parts of a multipart geometry, as RFC
+        7946 has it; a ring round a pole is closed through it.
 
         Args:
             value: The geometry: WKT, EWKT, WKB or EWKB as bytes or hex,
@@ -655,6 +661,10 @@ class Transformation:
                 WKT, WKB, GeoJSON and Esri JSON have it, or ``"geodesic"``,
                 the shortest line on the source CRS's ellipsoid, as
                 boundaries are commonly defined. Geodesics need ``densify``.
+            antimeridian: In a geographic target CRS, ``"split"`` cuts a part
+                that crosses the antimeridian into parts there, ``"unwrap"``
+                carries its longitudes on past it instead, and None keeps it
+                as transformed, a segment going the long way round.
             orient: None keeps the vertex order as transformed; ``"ccw"``
                 winds exterior rings counterclockwise (the RFC 7946 rule) and
                 ``"cw"`` clockwise (Esri's).
@@ -667,8 +677,9 @@ class Transformation:
 
         Raises:
             GeometryError: If the geometry cannot be read, or states a CRS
-                other than :attr:`source_crs`, or if geodesics are asked of a
-                source CRS on no ellipsoid.
+                other than :attr:`source_crs`; if geodesics are asked of a
+                source CRS on no ellipsoid; or if a geometry with M values
+                crosses the antimeridian, cutting which would lose them.
             ValueError: If its positions have a number of values the source
                 CRS does not allow.
             TransformationFailedError: If a position cannot be transformed.
@@ -690,6 +701,7 @@ class Transformation:
                 axis_order=axis_order,
                 densify=densify,
                 segments=segments,
+                antimeridian=antimeridian,
                 orient=orient,
                 srid_authority=srid_authority,
             ),
@@ -703,6 +715,7 @@ class Transformation:
         axis_order: AxisOrder = "xy",
         densify: float | None = None,
         segments: Segments = "straight",
+        antimeridian: Antimeridian | None = "split",
         orient: Orientation | None = None,
         srid_authority: str = "EPSG",
     ) -> GeometryResults:
@@ -733,6 +746,7 @@ class Transformation:
                 axis_order=axis_order,
                 densify=densify,
                 segments=segments,
+                antimeridian=antimeridian,
                 orient=orient,
                 srid_authority=srid_authority,
             ),

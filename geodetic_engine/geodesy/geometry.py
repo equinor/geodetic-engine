@@ -56,8 +56,20 @@ from numpy.typing import NDArray
 from shapely.errors import ShapelyError
 from shapely.geometry.base import BaseGeometry, BaseMultipartGeometry
 
+from geodetic_engine.geodesy._antimeridian import (
+    ANTIMERIDIANS,
+    Antimeridian,
+    crossings,
+    cut,
+    turns,
+)
 from geodetic_engine.geodesy._crs_tools import compound, integer_code, same_crs
-from geodetic_engine.geodesy._failures import first_failure, probe, relocated
+from geodetic_engine.geodesy._failures import (
+    failing_rows,
+    first_failure,
+    probe,
+    relocated,
+)
 from geodetic_engine.geodesy._rounding import axis_decimals, round_half_up
 from geodetic_engine.geodesy._segments import (
     SEGMENTS,
@@ -501,12 +513,15 @@ def _transform(
     axis_order: AxisOrder,
     densify: float | None,
     segments: Segments,
+    antimeridian: Antimeridian | None,
     orient: Orientation | None,
     srid_authority: str,
 ) -> GeometryResult | GeometryResults:
     """Transform one geometry or a batch, for the methods of ``Transformation``."""
     _require_choice("axis_order", axis_order, _AXIS_ORDERS)
     _require_choice("segments", segments, SEGMENTS)
+    if antimeridian is not None:
+        _require_choice("antimeridian", antimeridian, ANTIMERIDIANS)
     if orient is not None:
         _require_choice("orient", orient, _ORIENTATIONS)
     if segments == "geodesic" and densify is None:
@@ -534,6 +549,8 @@ def _transform(
     if densify is not None:
         geometries = _densify(geometries, densify, segments, source)
     moved, provenance = _apply(transformation, geometries, coordinate_epoch)
+    if antimeridian is not None:
+        moved = _wrap(moved, geometries, transformation, coordinate_epoch, antimeridian)
     if orient is not None:
         moved = shapely.orient_polygons(moved, exterior_cw=orient == "cw")
     # Kept for what it says of the transformation, not for its positions,
@@ -989,6 +1006,142 @@ def _rebuilt(
         parts = [_rebuilt(part, pieces) for part in geometry.geoms]
         return cast("shapely.Geometry", type(geometry)(parts))  # type: ignore[call-arg]
     return geometry
+
+
+def _wrap(
+    moved: ObjectArray,
+    geometries: ObjectArray,
+    transformation: Transformation,
+    coordinate_epoch: float | None,
+    mode: Antimeridian,
+) -> ObjectArray:
+    """``moved`` cut at the target CRS's antimeridian where it crosses it, or unwrapped.
+
+    ``geometries`` are the same geometries in the source CRS, which tell a
+    segment that crosses the antimeridian from one going the long way round.
+    """
+    kinds = shapely.get_type_id(moved)
+    lined = np.flatnonzero((kinds > 0) & (kinds != 4))
+    if not len(lined):
+        return moved
+    longitude = _longitude(transformation.target_crs)
+    if longitude is None:
+        return moved
+    half, pole = longitude
+    # Only a geometry that jumps half a turn somewhere can cross the antimeridian.
+    rows, owner = shapely.get_coordinates(moved[lined], return_index=True)
+    jumps = (owner[1:] == owner[:-1]) & (np.abs(np.diff(rows[:, 0])) > half)
+    suspects = lined[np.unique(owner[1:][jumps])]
+    if not len(suspects):
+        return moved
+    out = moved.copy()
+    out[suspects] = _wrapped(
+        moved[suspects],
+        geometries[suspects],
+        suspects,
+        transformation,
+        coordinate_epoch,
+        mode,
+        (half, pole),
+    )
+    return out
+
+
+def _wrapped(
+    moved: ObjectArray,
+    geometries: ObjectArray,
+    indices: NDArray[np.intp],
+    transformation: Transformation,
+    coordinate_epoch: float | None,
+    mode: Antimeridian,
+    longitude: tuple[float, float],
+) -> ObjectArray:
+    """:func:`_wrap` for the geometries at ``indices``, which jump half a turn."""
+    half, pole = longitude
+    lines, owners = [], []
+    for index, geometry in enumerate(moved):
+        for line in _lines(geometry):
+            lines.append(line)
+            owners.append(index)
+    array = _objects(lines)
+    rows, parts = shapely.get_coordinates(array, include_z=True, return_index=True)
+    source = _objects([line for geometry in geometries for line in _lines(geometry)])
+    source_rows = shapely.get_coordinates(source, include_z=True)
+    crossing = crossings(
+        rows[:, 0],
+        parts,
+        half,
+        lambda at: _middles(transformation, source_rows, at, coordinate_epoch),
+    )
+    if not crossing.any():
+        return moved
+    turned = turns(rows[:, 0], parts, crossing)
+    bounds = np.searchsorted(parts, np.arange(len(lines) + 1))
+    has_z = shapely.has_z(array)
+    per_line = [
+        (
+            rows[bounds[n] : bounds[n + 1], : 3 if has_z[n] else 2],
+            turned[bounds[n] : bounds[n + 1]],
+        )
+        for n in range(len(lines))
+    ]
+    counts = np.bincount(np.array(owners), minlength=len(moved))
+    out = moved.copy()
+    start = 0
+    for index, count in enumerate(counts.tolist()):
+        mine = per_line[start : start + count]
+        start += count
+        if not any(line_turns.any() for _, line_turns in mine):
+            continue
+        if shapely.has_m(moved[index]):
+            raise GeometryError(
+                f"geometry {int(indices[index])} crosses the antimeridian of "
+                f"{_label(transformation.target_crs)}, and has M values, which "
+                "cutting or unwrapping it would lose; give antimeridian=None to "
+                "keep it as transformed"
+            )
+        out[index] = cut(moved[index], iter(mine), mode, half, pole)
+    return out
+
+
+def _middles(
+    transformation: Transformation,
+    rows: FloatArray,
+    at: NDArray[np.intp],
+    coordinate_epoch: float | None,
+) -> FloatArray:
+    """The longitude the middle of each source segment from ``at`` goes to, or NaN."""
+    middle = (rows[at] + rows[at + 1]) / 2
+    lon = np.full(len(at), np.nan)
+    flat = np.isnan(middle[:, 2])
+    for mask, width in ((flat, 2), (~flat, 3)):
+        if not mask.any():
+            continue
+        try:
+            columns, _ = failing_rows(
+                transformation,
+                np.ascontiguousarray(middle[mask, :width]),
+                coordinate_epoch,
+            )
+        except (GeodesyError, ValueError):
+            continue
+        lon[mask] = columns[0]
+    return lon
+
+
+def _longitude(crs: CoordinateReferenceSystem) -> tuple[float, float] | None:
+    """Half a turn of a geographic CRS's longitude, and its poles' latitude."""
+    if not crs.is_geographic or crs.dimension < 2:
+        return None
+    lon_axis, lat_axis = (crs.axes[index] for index in crs.value_axis_order[:2])
+    if lon_axis.direction.lower() not in ("east", "west"):
+        return None
+    if lat_axis.direction.lower() not in ("north", "south"):
+        return None
+    return (
+        math.pi / lon_axis.unit_conversion_factor,
+        (math.pi / 2) / lat_axis.unit_conversion_factor,
+    )
 
 
 def _round(
