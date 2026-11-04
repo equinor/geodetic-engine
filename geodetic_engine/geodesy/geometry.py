@@ -640,13 +640,32 @@ def _apply(
         moved[members] = _replace(units[members], replaced, has_z, has_m)
         provenance = provenance or result
     if provenance is None:
-        source = transformation.source_crs
-        provenance = probe(
-            transformation,
-            3 if source.dimension == 1 else source.dimension,
-            coordinate_epoch,
-        )
+        provenance = _provenance(transformation, coordinate_epoch)
     return shapely.set_srid(_join(geometries, moved, origins), 0), provenance
+
+
+def _provenance(
+    transformation: Transformation, coordinate_epoch: float | None
+) -> ArrayTransformationResult:
+    """The provenance of geometries without a position to transform.
+
+    That of an empty batch of positions of two values or of three, whichever
+    the transformation takes, the source CRS's own number first: a target with
+    a height refuses positions of two values, but there are none to refuse.
+
+    Raises:
+        What an empty batch of the source CRS's own number of values raises,
+        if neither is taken; a missing epoch, say, at once.
+    """
+    dimension = transformation.source_crs.dimension
+    natural = 3 if dimension == 1 else dimension
+    errors: list[Exception] = []
+    for width in (natural, 2 if natural == 3 else 3):
+        try:
+            return probe(transformation, width, coordinate_epoch)
+        except (TransformationFailedError, ValueError) as error:
+            errors.append(error)
+    raise errors[0]
 
 
 def _transform_rows(

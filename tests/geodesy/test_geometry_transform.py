@@ -138,6 +138,20 @@ def test_none_and_empty_geometries_pass_through(ed50_to_utm: Transformation) -> 
     assert ed50_to_utm.transform_geometry("POLYGON EMPTY").wkt() == "POLYGON EMPTY"
 
 
+@pytest.mark.parametrize(
+    "value", [None, "POINT EMPTY", "POLYGON EMPTY", "GEOMETRYCOLLECTION EMPTY"]
+)
+def test_none_and_empty_geometries_need_no_height_for_a_3d_target(
+    value: str | None,
+) -> None:
+    # Positions of two values cannot reach EPSG:4979, but these have none.
+    to_3d = Transformation("EPSG:32631", "EPSG:4979")
+    result = to_3d.transform_geometry(value)
+    assert result.wkt() == value
+    assert result.transformation["target_crs"] == "EPSG:4979"
+    assert to_3d.transform_geometries([value, None]).wkt() == [value, None]
+
+
 def test_an_srid_must_be_the_source_crs(ed50_to_utm: Transformation) -> None:
     with pytest.raises(GeometryError, match="EPSG:4326"):
         ed50_to_utm.transform_geometry("SRID=4326;POINT (2 60)")
