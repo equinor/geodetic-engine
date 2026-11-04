@@ -25,7 +25,9 @@ dependencies = [
     # emSign's unaffected roots, restored in 2026.10.19.
     "certifi>=2026.10.19",
     "python-dotenv>=1.0",
-    "filelock>=3.16",
+    # Before 4.2.1 UnixFileLock, which FileLock is on Linux, can truncate a
+    # file renamed onto the lock path (GHSA-69hj-f68j-2879).
+    "filelock>=4.2.1",
     "numpy>=1.26",
     "pandas>=2.0",
     "shapely>=2.2",

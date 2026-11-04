@@ -442,6 +442,15 @@ All notable changes to this project are documented here. The format follows
   emSign ECC Root CA - G3, under which intermediate CA keys were compromised
   (GHSA-6q48-6c7w-9gw2); 2026.10.18 also dropped emSign's unaffected roots,
   which 2026.10.19 restored.
+- filelock 4.2.1 or later is required, and the lock file takes filelock 4.2.9,
+  up from 3.32.6. The OSDU database writer locks its output with `FileLock`,
+  which on Linux is `UnixFileLock`; before 4.2.1 that truncates and changes the
+  mode of a file another user renames onto the lock path
+  (GHSA-69hj-f68j-2879), and twelve further advisories cover filelock's other
+  lock types.
+- The lock file takes Pillow 13.0.0, up from 12.3.0, for 41 advisories in
+  image decoders and encoders. Pillow comes in only through matplotlib in the
+  `dev` extra; the package does not use it.
 
 ## 0.1.0
 
