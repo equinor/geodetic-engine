@@ -12,10 +12,11 @@ rounded, written back in the order the output flavour wants, and every
 from __future__ import annotations
 
 import copy
+import itertools
 import math
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -23,9 +24,18 @@ from numpy.typing import NDArray
 from geodetic_engine.geodesy import (
     ArrayTransformationResult,
     CoordinateReferenceSystem,
+    GeodesyError,
     Transformation,
     TransformationFailedError,
 )
+from geodetic_engine.geodesy._antimeridian import (
+    ANTIMERIDIANS,
+    Antimeridian,
+    crossings,
+    cut,
+    turns,
+)
+from geodetic_engine.geodesy._crs_tools import longitude
 from geodetic_engine.geodesy._failures import (
     failing_rows,
     first_failure,
@@ -69,6 +79,10 @@ from geodetic_engine.geojson._scope import (
 )
 from geodetic_engine.geojson.errors import GeoJsonCrsError
 from geodetic_engine.units import Unit
+
+if TYPE_CHECKING:
+    import shapely
+    from shapely.geometry.base import BaseGeometry
 
 type FloatArray = NDArray[np.float64]
 type OnError = Literal["raise", "withdraw", "nan"]
@@ -128,6 +142,7 @@ def convert_geojson(
     decimals: Decimals = None,
     densify: float | None = None,
     segments: Segments = "straight",
+    antimeridian: Antimeridian | None = "split",
     orient: Orientation | None = None,
     fallback_operation: Any = None,
 ) -> GeoJsonResult:
@@ -185,6 +200,12 @@ def convert_geojson(
             GeoJSON has it, or ``\"geodesic\"``, the shortest line on the
             source CRS's ellipsoid, as boundaries are commonly defined.
             Geodesics need ``densify``.
+        antimeridian: Positions written in a geographic CRS whose part crosses
+            its antimeridian: ``\"split\"`` cuts the part there, into parts of
+            a multipart geometry, as RFC 7946 (3.1.9) has it, closing a ring
+            round a pole through the pole; ``\"unwrap\"`` carries its
+            longitudes on past the antimeridian; and None keeps it as
+            transformed, a segment going the long way round.
         orient: None keeps the vertex order as transformed; ``\"ccw\"`` winds
             exterior rings counterclockwise and holes clockwise (RFC 7946's
             right-hand rule), and ``\"cw\"`` the other way.
@@ -225,6 +246,10 @@ def convert_geojson(
         raise ValueError(f"orient must be one of {_ORIENTATIONS}, not {orient!r}")
     if segments not in SEGMENTS:
         raise ValueError(f"segments must be one of {SEGMENTS}, not {segments!r}")
+    if antimeridian is not None and antimeridian not in ANTIMERIDIANS:
+        raise ValueError(
+            f"antimeridian must be one of {ANTIMERIDIANS} or None, not {antimeridian!r}"
+        )
     if densify is not None:
         require_length(densify)
     elif segments == "geodesic":
@@ -244,6 +269,7 @@ def convert_geojson(
         decimals=decimals,
         densify=densify,
         segments=segments,
+        antimeridian=antimeridian,
         orient=orient,
         fallback_operation=fallback_operation,
         reasons=True,
@@ -263,6 +289,7 @@ def _convert(
     decimals: Decimals,
     densify: float | None,
     segments: Segments,
+    antimeridian: Antimeridian | None,
     orient: Orientation | None,
     fallback_operation: Any,
     reasons: bool,
@@ -291,6 +318,7 @@ def _convert(
         reasons=reasons,
         densify=densify,
         segments=segments,
+        antimeridian=antimeridian,
     )
     return converter.run()
 
@@ -306,6 +334,8 @@ class _Group:
     rows: FloatArray = field(init=False)
     starts: NDArray[np.intp] = field(init=False)
     owners: NDArray[np.intp] = field(init=False)
+    # Members cut at the target CRS's antimeridian, as transformed, by geometry.
+    cuts: dict[int, shapely.Geometry] = field(init=False, default_factory=dict)
 
 
 class _Converter:
@@ -324,6 +354,7 @@ class _Converter:
         reasons: bool = True,
         densify: float | None = None,
         segments: Segments = "straight",
+        antimeridian: Antimeridian | None = None,
     ) -> None:
         self._document = document
         self._target = target
@@ -336,6 +367,9 @@ class _Converter:
         self._orient = orient
         self._densify = densify
         self._segments: Segments = segments
+        self._antimeridian: Antimeridian | None = antimeridian
+        # Fallback geometries cut at the antimeridian, by geometry.
+        self._fallback_cuts: dict[int, shapely.Geometry] = {}
         # A densified geometry as it was read, and the position each of its
         # positions is or follows there, to name a failed one by its path.
         self._origins: dict[int, tuple[Geometry, NDArray[np.intp]]] = {}
@@ -510,12 +544,14 @@ class _Converter:
         out = np.column_stack(columns)
         if group.dimension == 3:
             out[:, 2] = self._heights(out[:, 2], source, crs, transformation)
+        group.cuts = self._cuts(group, out, rows, transformation, epoch)
         return _rounded(out, self._decimals)
 
     def _convert_fallback(self, group: _Group) -> None:
         """WGS 84 positions for the fallback geometry of ``jsonfg-plus``."""
         source, crs = group.source, group.crs
         rows = self._value_order(group.rows, crs, source.axis_order)
+        cuts: dict[int, shapely.Geometry] = {}
         if source.crs is not None:
             if group.dimension == 3:
                 # RFC 7946 heights are metres, whatever the source CRS carries.
@@ -526,17 +562,115 @@ class _Converter:
                     CoordinateReferenceSystem.from_user_input(CRS84H),
                 )
             transformation = self._transformation(crs, group.dimension, fallback=True)
-            columns = self._run(transformation, rows, self._epoch_for(source), group)
-            rows = np.column_stack(columns)
+            epoch = self._epoch_for(source)
+            columns = self._run(transformation, rows, epoch, group)
+            moved = np.column_stack(columns)
+            cuts = self._cuts(group, moved, rows, transformation, epoch)
+            rows = moved
         rows = _rounded(rows, self._decimals)
         for position, index in enumerate(group.members):
             if self._feature_lacks_geometry(index):
+                if index in cuts:
+                    shape = self._finished(cuts[index], None)
+                    self._fallback_cuts[index] = shape
+                    self._fallback[index] = _positions(shape)
+                    continue
                 geometry = self._document.geometries[index]
                 start = int(group.starts[position])
                 values = rows[start : start + geometry.count]
                 if self._orient is not None:
                     values = _oriented(geometry, values, self._orient)
                 self._fallback[index] = values
+
+    def _cuts(
+        self,
+        group: _Group,
+        moved: FloatArray,
+        rows: FloatArray,
+        transformation: Transformation,
+        epoch: float | None,
+    ) -> dict[int, shapely.Geometry]:
+        """The members of ``group`` that cross the target CRS's antimeridian, cut.
+
+        ``moved`` are the group's positions as transformed, and ``rows`` as
+        given to the transformation, in value order. Where the middle of a
+        source segment goes tells one that crosses from one that goes the long
+        way round. A member with a position that failed is kept as it is.
+        """
+        mode = self._antimeridian
+        if mode is None or len(moved) < 2:
+            return {}
+        bounds = longitude(transformation.target_crs)
+        if bounds is None:
+            return {}
+        half, pole = bounds
+        # Only a line or polygon with two positions half a turn apart can
+        # cross it, which is seldom: the others cost no more than this.
+        jumps = np.flatnonzero(np.abs(np.diff(moved[:, 0])) > half)
+        owners = group.owners
+        within = jumps[owners[jumps] == owners[jumps + 1]]
+        suspects = [
+            position
+            for position in np.unique(owners[within]).tolist()
+            if self._document.geometries[group.members[position]].kind in _SEGMENTED
+        ]
+        if not suspects:
+            return {}
+        geometries = [self._document.geometries[group.members[p]] for p in suspects]
+        at = np.concatenate(
+            [
+                np.arange(int(group.starts[p]), int(group.starts[p]) + g.count)
+                for p, g in zip(suspects, geometries, strict=True)
+            ]
+        )
+        sizes = [size for geometry in geometries for size in _sizes(geometry.shape)]
+        parts = np.repeat(np.arange(len(sizes), dtype=np.intp), sizes)
+        lon = moved[at, 0]
+        # A segment is within a part, so its end is the row after its start.
+        crossing = crossings(
+            lon,
+            parts,
+            half,
+            lambda some: _middles(transformation, rows, at[some], epoch),
+        )
+        if not crossing.any():
+            return {}
+        turned = turns(lon, parts, crossing)
+        cuts: dict[int, shapely.Geometry] = {}
+        start = 0
+        for position, geometry in zip(suspects, geometries, strict=True):
+            stop = start + geometry.count
+            values = moved[at[start:stop]]
+            if turned[start:stop].any() and np.isfinite(values).all():
+                cuts[group.members[position]] = _cut(
+                    geometry, values, turned[start:stop], mode, half, pole
+                )
+            start = stop
+        return cuts
+
+    def _finished(
+        self, shape: shapely.Geometry, crs: CoordinateReferenceSystem | None
+    ) -> shapely.Geometry:
+        """A cut geometry rounded and wound as asked, in ``crs``'s declared order.
+
+        In value order for a ``crs`` of None.
+        """
+        import shapely
+
+        finished = shapely.set_coordinates(
+            shape, _rounded(_positions(shape), self._decimals)
+        )
+        if self._orient is not None:
+            # Wound in value order, as an uncut geometry is.
+            finished = shapely.orient_polygons(
+                finished, exterior_cw=self._orient == "cw"
+            )
+        if crs is not None:
+            rows = _positions(finished)
+            finished = shapely.set_coordinates(
+                finished, rows[:, _permutation(crs, rows.shape[1], to_values=False)]
+            )
+        return finished
 
     def _needs_fallback(self, group: _Group) -> bool:
         if not (self._place and self._target.plus):
@@ -758,7 +892,15 @@ class _Converter:
         """For ``jsonfg-plus``, each feature's WGS 84 geometry, by feature."""
         objects: dict[int, Any] = {}
         for index, rows in self._fallback.items():
-            self._document.geometries[index].write(rows.tolist())
+            geometry = self._document.geometries[index]
+            shape = self._fallback_cuts.get(index)
+            if shape is None:
+                geometry.write(rows.tolist())
+            else:
+                geometry.target["coordinates"] = _coordinates(shape)
+                # The copy keeps this type; the place is given its own back
+                # when every type is renamed.
+                geometry.target["type"] = _kind(shape).value
         for index in self._fallback:
             feature = self._document.geometries[index].feature
             if feature is None or feature in objects:
@@ -779,6 +921,12 @@ class _Converter:
         ).target_crs
         for position, index in enumerate(group.members):
             geometry = self._document.geometries[index]
+            if index in group.cuts:
+                shape = self._finished(group.cuts[index], crs if self._place else None)
+                geometry.target["coordinates"] = _coordinates(shape)
+                self._document.rekind(geometry.target, _kind(shape))
+                self._written[index] = _positions(shape)
+                continue
             start = int(group.starts[position])
             values = rows[start : start + geometry.count]
             if self._orient is not None:
@@ -1201,6 +1349,97 @@ def _ring_sizes(geometry: Geometry) -> list[list[int]]:
         for polygon in polygons
         if isinstance(polygon, tuple)
     ]
+
+
+def _middles(
+    transformation: Transformation,
+    rows: FloatArray,
+    at: NDArray[np.intp],
+    epoch: float | None,
+) -> FloatArray:
+    """The longitude the middle of each source segment from ``at`` goes to, or NaN."""
+    middle = np.ascontiguousarray((rows[at] + rows[at + 1]) / 2)
+    try:
+        columns, _ = failing_rows(transformation, middle, epoch)
+    except (GeodesyError, ValueError):
+        return np.full(len(at), np.nan)
+    return np.asarray(columns[0], dtype=np.float64)
+
+
+def _cut(
+    geometry: Geometry,
+    values: FloatArray,
+    turned: NDArray[np.intp],
+    mode: Antimeridian,
+    half: float,
+    pole: float,
+) -> shapely.Geometry:
+    """A line or polygon geometry with positions ``values``, cut at the antimeridian."""
+    import shapely
+
+    ends = np.cumsum([0, *_sizes(geometry.shape)]).tolist()
+    lines = [
+        (values[start:stop], turned[start:stop])
+        for start, stop in itertools.pairwise(ends)
+    ]
+    pieces = [rows for rows, _ in lines]
+    shape: shapely.Geometry
+    if geometry.kind is Kind.LINE_STRING:
+        shape = shapely.LineString(pieces[0])
+    elif geometry.kind is Kind.MULTI_LINE_STRING:
+        shape = shapely.MultiLineString(pieces)
+    else:
+        polygons = []
+        start = 0
+        for rings in _ring_sizes(geometry):
+            stop = start + len(rings)
+            polygons.append(shapely.Polygon(pieces[start], pieces[start + 1 : stop]))
+            start = stop
+        shape = (
+            polygons[0]
+            if geometry.kind is Kind.POLYGON
+            else shapely.MultiPolygon(polygons)
+        )
+    return cast("shapely.Geometry", cut(shape, iter(lines), mode, half, pole))
+
+
+def _positions(shape: shapely.Geometry) -> FloatArray:
+    """The positions of ``shape``, with its heights if it has them."""
+    import shapely
+
+    rows: FloatArray = shapely.get_coordinates(
+        shape, include_z=bool(shapely.has_z(shape))
+    )
+    return rows
+
+
+def _coordinates(shape: shapely.Geometry) -> list[Any]:
+    """The GeoJSON ``coordinates`` of a line or polygon, or of several."""
+    import shapely
+
+    def positions(line: shapely.Geometry) -> list[Any]:
+        rows: list[Any] = _positions(line).tolist()
+        return rows
+
+    def rings(polygon: shapely.Polygon) -> list[Any]:
+        if polygon.is_empty:
+            return []
+        return [positions(polygon.exterior), *map(positions, polygon.interiors)]
+
+    if isinstance(shape, shapely.LineString):
+        return positions(shape)
+    if isinstance(shape, shapely.MultiLineString):
+        return [positions(line) for line in shape.geoms]
+    if isinstance(shape, shapely.Polygon):
+        return rings(shape)
+    if isinstance(shape, shapely.MultiPolygon):
+        return [rings(polygon) for polygon in shape.geoms]
+    raise TypeError(f"a {_kind(shape)} is not cut at the antimeridian")
+
+
+def _kind(shape: shapely.Geometry) -> Kind:
+    """What a cut geometry is."""
+    return Kind(cast("BaseGeometry", shape).geom_type)
 
 
 def _label(crs: CoordinateReferenceSystem) -> str:

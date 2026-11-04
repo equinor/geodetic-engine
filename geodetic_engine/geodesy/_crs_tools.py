@@ -1,12 +1,14 @@
-"""Comparing CRSs, combining them, and reading their integer codes.
+"""Comparing CRSs, combining them, and reading their integer codes and longitude.
 
 Private to the package, shared by :mod:`geodetic_engine.geodesy.geometry` and
 :mod:`geodetic_engine.geojson`, which both check a CRS stated in data against
-the one a caller gives, and both write a CRS back by its code.
+the one a caller gives, both write a CRS back by its code, and both cut
+positions at a geographic CRS's antimeridian.
 """
 
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 from typing import Any
 
@@ -72,6 +74,25 @@ def compound(
     except CRSError as error:
         raise UnsupportedCRSError(f"cannot join {name!r}: {error}") from error
     return CoordinateReferenceSystem(joined, name)
+
+
+def longitude(crs: CoordinateReferenceSystem) -> tuple[float, float] | None:
+    """Half a turn of a geographic CRS's longitude, and its poles' latitude.
+
+    Both in the CRS's own units, or None if its first two values are not a
+    longitude and a latitude.
+    """
+    if not crs.is_geographic or crs.dimension < 2:
+        return None
+    lon_axis, lat_axis = (crs.axes[index] for index in crs.value_axis_order[:2])
+    if lon_axis.direction.lower() not in ("east", "west"):
+        return None
+    if lat_axis.direction.lower() not in ("north", "south"):
+        return None
+    return (
+        math.pi / lon_axis.unit_conversion_factor,
+        (math.pi / 2) / lat_axis.unit_conversion_factor,
+    )
 
 
 def integer_code(crs: CoordinateReferenceSystem) -> tuple[str, int] | None:

@@ -18,18 +18,21 @@ winds round a pole, as one round it in a polar projection does, is closed
 along the antimeridian through the pole. No position is moved by cutting: a
 part gains a vertex on the antimeridian, where a straight line between the
 positions either side crosses it, which densifying first keeps on the path.
+
+Shapely is imported only to cut, so that converting GeoJSON loads it only for
+a document that crosses the antimeridian.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 import numpy as np
-import shapely
 from numpy.typing import NDArray
-from shapely.errors import GEOSException
-from shapely.geometry.base import BaseMultipartGeometry
+
+if TYPE_CHECKING:
+    import shapely
 
 type FloatArray = NDArray[np.float64]
 type IndexArray = NDArray[np.intp]
@@ -107,6 +110,9 @@ def cut(
         half: Half a turn of longitude, in its unit.
         pole: The latitude of the poles, in its unit.
     """
+    import shapely
+    from shapely.geometry.base import BaseMultipartGeometry
+
     if geometry is None or shapely.is_empty(geometry):
         return geometry
     if isinstance(geometry, shapely.LineString):
@@ -171,6 +177,8 @@ def _cut_polygon(
     rings: list[Line], mode: Antimeridian, half: float, pole: float
 ) -> shapely.Geometry:
     """A polygon cut at the antimeridian, closed through any pole it winds round."""
+    import shapely
+
     full = 2 * half
     shell_rows, shell_turns = rings[0]
     unwrapped = _ring(shell_rows, shell_turns, 0, full, pole)
@@ -244,6 +252,8 @@ def _shift(
     rows: FloatArray, turned: IndexArray, shell: shapely.Polygon, full: float
 ) -> int:
     """The turns that put a hole inside its shell."""
+    import shapely
+
     lon, lat = float(rows[0, 0]), float(rows[0, 1])
     for shift in (0, 1, -1, 2, -2):
         if shell.covers(shapely.Point(lon + full * shift, lat)):
@@ -254,6 +264,8 @@ def _shift(
 def _difference(
     shell: shapely.Polygon, holes: list[shapely.Polygon]
 ) -> shapely.Geometry:
+    import shapely
+
     area: shapely.Geometry = shell
     for hole in holes:
         area = _overlay(shapely.difference, area, hole)
@@ -265,6 +277,9 @@ def _overlay(
     first: shapely.Geometry,
     second: shapely.Geometry,
 ) -> shapely.Geometry:
+    import shapely
+    from shapely.errors import GEOSException
+
     try:
         return operation(first, second)
     except GEOSException:

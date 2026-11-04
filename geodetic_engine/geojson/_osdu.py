@@ -72,6 +72,8 @@ def convert_geojson_request(body: Mapping[str, Any]) -> dict[str, Any]:
         decimals=None,
         densify=None,
         segments="straight",
+        # As the service writes positions: as transformed, never cut.
+        antimeridian=None,
         orient=None,
         fallback_operation=None,
         reasons=False,

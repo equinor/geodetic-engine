@@ -63,7 +63,12 @@ from geodetic_engine.geodesy._antimeridian import (
     cut,
     turns,
 )
-from geodetic_engine.geodesy._crs_tools import compound, integer_code, same_crs
+from geodetic_engine.geodesy._crs_tools import (
+    compound,
+    integer_code,
+    longitude,
+    same_crs,
+)
 from geodetic_engine.geodesy._failures import (
     failing_rows,
     first_failure,
@@ -1024,10 +1029,10 @@ def _wrap(
     lined = np.flatnonzero((kinds > 0) & (kinds != 4))
     if not len(lined):
         return moved
-    longitude = _longitude(transformation.target_crs)
-    if longitude is None:
+    bounds = longitude(transformation.target_crs)
+    if bounds is None:
         return moved
-    half, pole = longitude
+    half, pole = bounds
     # Only a geometry that jumps half a turn somewhere can cross the antimeridian.
     rows, owner = shapely.get_coordinates(moved[lined], return_index=True)
     jumps = (owner[1:] == owner[:-1]) & (np.abs(np.diff(rows[:, 0])) > half)
@@ -1054,10 +1059,10 @@ def _wrapped(
     transformation: Transformation,
     coordinate_epoch: float | None,
     mode: Antimeridian,
-    longitude: tuple[float, float],
+    extent: tuple[float, float],
 ) -> ObjectArray:
     """:func:`_wrap` for the geometries at ``indices``, which jump half a turn."""
-    half, pole = longitude
+    half, pole = extent
     lines, owners = [], []
     for index, geometry in enumerate(moved):
         for line in _lines(geometry):
@@ -1127,21 +1132,6 @@ def _middles(
             continue
         lon[mask] = columns[0]
     return lon
-
-
-def _longitude(crs: CoordinateReferenceSystem) -> tuple[float, float] | None:
-    """Half a turn of a geographic CRS's longitude, and its poles' latitude."""
-    if not crs.is_geographic or crs.dimension < 2:
-        return None
-    lon_axis, lat_axis = (crs.axes[index] for index in crs.value_axis_order[:2])
-    if lon_axis.direction.lower() not in ("east", "west"):
-        return None
-    if lat_axis.direction.lower() not in ("north", "south"):
-        return None
-    return (
-        math.pi / lon_axis.unit_conversion_factor,
-        (math.pi / 2) / lat_axis.unit_conversion_factor,
-    )
 
 
 def _round(

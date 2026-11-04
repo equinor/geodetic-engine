@@ -54,8 +54,13 @@ All notable changes to this project are documented here. The format follows
   geometry, or writes NaN as the OSDU service does. `decimals` and `orient`
   round and wind as for geometries, and `densify` and `segments` insert
   vertices along straight segments or geodesics as for them, which are
-  converted and counted with the others. `convert_geojson_request` takes and
-  returns the OSDU service's `convertGeoJson` request and response.
+  converted and counted with the others. In a geographic target CRS, a line
+  or polygon crossing the antimeridian is cut there as for geometries, its
+  `type` renamed to the multipart one, and a ring round a pole is closed
+  through it (`antimeridian="split"`; `"unwrap"` or None as for geometries).
+  `convert_geojson_request` takes and
+  returns the OSDU service's `convertGeoJson` request and response, its
+  positions never cut.
 
 - `geodetic_engine.units`: one reader for the length and angle units the
   package takes, from a symbol or name, an OSDU `UnitOfMeasure` record id,

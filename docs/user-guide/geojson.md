@@ -174,3 +174,42 @@ len(dense.document["coordinates"][0]), dense.total_count
 The positions inserted are converted, counted and written like the others. A
 failed one is named by the position before it, as `coordinates[3] (vertex 2
 densify inserted after it)`.
+
+## The antimeridian and the poles
+
+Converted into a geographic CRS, a line or polygon that crosses the
+antimeridian has positions at both ends of the longitude range, and a segment
+between them, read straight in longitude and latitude, would go the long way
+round. Such a part is cut at the antimeridian into parts of a multipart
+geometry, as RFC 7946 (3.1.9) has it, and its `type` is renamed to match. A ring
+round a pole, as a polar projection draws one, is closed along the antimeridian
+through the pole:
+
+```{code-cell} python
+crossing = {
+    "type": "AnyCrsFeatureCollection",
+    "CoordinateReferenceSystemID": "EPSG:32660",
+    "features": [
+        {
+            "type": "AnyCrsFeature",
+            "properties": {},
+            "geometry": {
+                "type": "AnyCrsLineString",
+                "coordinates": [[600000, 6650000], [800000, 6680000]],
+            },
+        }
+    ],
+}
+cut = convert_geojson(crossing, "EPSG:4326", output="geojson", decimals=4)
+cut.document["features"][0]["geometry"]
+```
+
+`antimeridian="unwrap"` keeps the part whole, its longitudes carried on past
+±180°, and `antimeridian=None` keeps it as transformed, as
+`convert_geojson_request` does for the OSDU service. A JSON-FG `place` is cut
+by its longitude whatever its axis order, and the WGS 84 `geometry` that
+`jsonfg-plus` writes beside it is cut on its own. A segment that does go the
+long way round in a geographic source is kept, as is a part with a position
+that failed. No position moves: a cut part gains vertices on the antimeridian,
+rounded like the others and not counted. The cut is that of
+{doc}`geometries </user-guide/geodesy/geometries>`, bit for bit.

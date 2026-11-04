@@ -282,6 +282,7 @@ class Document:
     bounding_boxes: tuple[BoundingBox, ...]
     typed: tuple[tuple[dict[str, Any], Kind], ...]
     _withdrawn: set[int] = field(default_factory=set, init=False, repr=False)
+    _kinds: dict[int, Kind] = field(default_factory=dict, init=False, repr=False)
 
     @property
     def count(self) -> int:
@@ -301,7 +302,11 @@ class Document:
     def retype(self, flavour: Flavour) -> None:
         """Rename every ``type`` to its name in ``flavour``."""
         for target, kind in self.typed:
-            target["type"] = kind.name_in(flavour)
+            target["type"] = self._kinds.get(id(target), kind).name_in(flavour)
+
+    def rekind(self, target: dict[str, Any], kind: Kind) -> None:
+        """Make ``target`` a ``kind``, as cutting a polygon makes a multipolygon."""
+        self._kinds[id(target)] = kind
 
     def withdraw(self, feature: Feature) -> None:
         """Write ``feature`` with a null geometry, as when a position fails.
