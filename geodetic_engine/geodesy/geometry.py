@@ -926,6 +926,24 @@ def _uniform(geometry: shapely.Geometry | None) -> bool:
     return len(kinds) <= 1 and all(_uniform(part) for part in parts)
 
 
+def _all_uniform(multipart: ObjectArray) -> bool:
+    """:func:`_uniform` for every geometry of ``multipart``, all of them multipart.
+
+    The members of a multipoint, multilinestring or multipolygon are not
+    multipart, so theirs are compared in one pass; a geometry collection's
+    members may be, and are walked.
+    """
+    collections = shapely.get_type_id(multipart) == 7
+    parts, owners = shapely.get_parts(multipart[~collections], return_index=True)
+    filled = ~shapely.is_empty(parts)
+    parts, owners = parts[filled], owners[filled]
+    key = 2 * shapely.has_z(parts).astype(np.intp) + shapely.has_m(parts)
+    # A geometry's parts are consecutive, so alike when each is like the next.
+    if (key[1:] != key[:-1])[owners[1:] == owners[:-1]].any():
+        return False
+    return all(_uniform(geometry) for geometry in multipart[collections])
+
+
 def _units(
     geometry: shapely.Geometry, path: tuple[int, ...] = ()
 ) -> Iterator[tuple[tuple[int, ...], shapely.Geometry]]:
@@ -943,7 +961,7 @@ def _split(geometries: ObjectArray) -> tuple[ObjectArray, _Origins | None]:
     geometry's coordinates are read and written with one width throughout.
     """
     multipart = np.flatnonzero(shapely.get_type_id(geometries) >= 4)
-    if all(_uniform(geometries[index]) for index in multipart):
+    if _all_uniform(geometries[multipart]):
         return geometries, None
     units: list[shapely.Geometry | None] = []
     origins: _Origins = []
