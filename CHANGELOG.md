@@ -52,7 +52,9 @@ All notable changes to this project are documented here. The format follows
   heights, and `persistableReferenceUnitZ` is always written for them.
   `on_error` raises naming the position's JSON path, withdraws the feature's
   geometry, or writes NaN as the OSDU service does. `decimals` and `orient`
-  round and wind as for geometries. `convert_geojson_request` takes and
+  round and wind as for geometries, and `densify` and `segments` insert
+  vertices along straight segments or geodesics as for them, which are
+  converted and counted with the others. `convert_geojson_request` takes and
   returns the OSDU service's `convertGeoJson` request and response.
 
 - `geodetic_engine.units`: one reader for the length and angle units the

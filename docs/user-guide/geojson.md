@@ -151,3 +151,26 @@ from the rounded values.
 
 Ring orientation is kept as transformed by default; `orient="ccw"` applies
 RFC 7946's right-hand rule, and `orient="cw"` the opposite.
+
+## Densifying
+
+RFC 7946 draws a segment straight in longitude and latitude, and only its ends
+are converted, so in a projected target a segment is the chord between them:
+an edge of a licence block along a parallel is 100 m off it at 60°N in UTM.
+`densify` inserts vertices first, so that no segment is longer than the given
+length, in source CRS units. `segments="geodesic"` inserts them along the
+geodesic on the source CRS's ellipsoid instead, with `densify` in metres, for
+boundaries defined by geodesics:
+
+```{code-cell} python
+block = {
+    "type": "Polygon",
+    "coordinates": [[[2, 60], [3, 60], [3, 61], [2, 61], [2, 60]]],
+}
+dense = convert_geojson(block, "EPSG:32631", output="anycrs", densify=0.05)
+len(dense.document["coordinates"][0]), dense.total_count
+```
+
+The positions inserted are converted, counted and written like the others. A
+failed one is named by the position before it, as `coordinates[3] (vertex 2
+densify inserted after it)`.

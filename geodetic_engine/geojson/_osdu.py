@@ -70,6 +70,8 @@ def convert_geojson_request(body: Mapping[str, Any]) -> dict[str, Any]:
         output="geojson" if plain else "anycrs",
         on_error="nan",
         decimals=None,
+        densify=None,
+        segments="straight",
         orient=None,
         fallback_operation=None,
         reasons=False,

@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import copy
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal
 
 import numpy as np
@@ -34,6 +34,12 @@ from geodetic_engine.geodesy._failures import (
     relocated,
 )
 from geodetic_engine.geodesy._rounding import Decimals, round_columns
+from geodetic_engine.geodesy._segments import (
+    SEGMENTS,
+    Segments,
+    densify_rows,
+    require_length,
+)
 from geodetic_engine.geodesy._shared import shared_transformation
 from geodetic_engine.geojson._model import (
     ANYCRS_MEMBERS,
@@ -45,6 +51,8 @@ from geodetic_engine.geojson._model import (
     Flavour,
     Geometry,
     Kind,
+    Shape,
+    _sizes,
     read_document,
 )
 from geodetic_engine.geojson._scope import (
@@ -73,6 +81,10 @@ _JSONFG_PREFIXES: Final = (
     "https://www.opengis.net/spec/json-fg-1/",
 )
 _HEIGHT_DIRECTIONS: Final = frozenset({"up", "down"})
+# The geometries with segments between positions, which densify divides.
+_SEGMENTED: Final = frozenset(
+    {Kind.LINE_STRING, Kind.MULTI_LINE_STRING, Kind.POLYGON, Kind.MULTI_POLYGON}
+)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -114,6 +126,8 @@ def convert_geojson(
     output: Output = "auto",
     on_error: OnError = "raise",
     decimals: Decimals = None,
+    densify: float | None = None,
+    segments: Segments = "straight",
     orient: Orientation | None = None,
     fallback_operation: Any = None,
 ) -> GeoJsonResult:
@@ -161,6 +175,16 @@ def convert_geojson(
             write ``\"nan\"`` in its place, as the OSDU service does.
         decimals: Round converted values half up to this many decimals, one
             number for all, or one per value in ``xy`` order then height.
+        densify: Insert vertices into each line and ring first, so that no
+            segment is longer than this: RFC 7946 draws a segment straight in
+            longitude and latitude, and it is not straight in another CRS.
+            In source CRS units for straight segments, in metres along the
+            ellipsoid for geodesics. The positions inserted are converted
+            and counted with the others.
+        segments: What a segment is in the source CRS: ``\"straight\"``, as
+            GeoJSON has it, or ``\"geodesic\"``, the shortest line on the
+            source CRS's ellipsoid, as boundaries are commonly defined.
+            Geodesics need ``densify``.
         orient: None keeps the vertex order as transformed; ``\"ccw\"`` winds
             exterior rings counterclockwise and holes clockwise (RFC 7946's
             right-hand rule), and ``\"cw\"`` the other way.
@@ -199,6 +223,15 @@ def convert_geojson(
         raise ValueError(f"on_error must be one of {ON_ERRORS}, not {on_error!r}")
     if orient is not None and orient not in _ORIENTATIONS:
         raise ValueError(f"orient must be one of {_ORIENTATIONS}, not {orient!r}")
+    if segments not in SEGMENTS:
+        raise ValueError(f"segments must be one of {SEGMENTS}, not {segments!r}")
+    if densify is not None:
+        require_length(densify)
+    elif segments == "geodesic":
+        raise ValueError(
+            "segments='geodesic' draws geodesics with densify, the longest "
+            "segment in metres along the ellipsoid"
+        )
     return _convert(
         document,
         target_crs,
@@ -209,6 +242,8 @@ def convert_geojson(
         output=output,
         on_error=on_error,
         decimals=decimals,
+        densify=densify,
+        segments=segments,
         orient=orient,
         fallback_operation=fallback_operation,
         reasons=True,
@@ -226,6 +261,8 @@ def _convert(
     output: Output,
     on_error: OnError,
     decimals: Decimals,
+    densify: float | None,
+    segments: Segments,
     orient: Orientation | None,
     fallback_operation: Any,
     reasons: bool,
@@ -252,6 +289,8 @@ def _convert(
         decimals=decimals,
         orient=orient,
         reasons=reasons,
+        densify=densify,
+        segments=segments,
     )
     return converter.run()
 
@@ -283,6 +322,8 @@ class _Converter:
         decimals: Decimals,
         orient: Orientation | None,
         reasons: bool = True,
+        densify: float | None = None,
+        segments: Segments = "straight",
     ) -> None:
         self._document = document
         self._target = target
@@ -293,6 +334,11 @@ class _Converter:
         self._on_error: OnError = on_error
         self._decimals = decimals
         self._orient = orient
+        self._densify = densify
+        self._segments: Segments = segments
+        # A densified geometry as it was read, and the position each of its
+        # positions is or follows there, to name a failed one by its path.
+        self._origins: dict[int, tuple[Geometry, NDArray[np.intp]]] = {}
         # Without reasons, a failed position written as NaN costs no call.
         self._reasons = reasons or on_error != "nan"
         self._transformations: dict[tuple[int, int, bool], Transformation] = {}
@@ -313,9 +359,10 @@ class _Converter:
         self._primary = self._primaries()
 
     def run(self) -> GeoJsonResult:
-        document = self._document
         if self._target.flavour is Flavour.JSONFG:
-            _refuse_nested_collections(document.root, "$")
+            _refuse_nested_collections(self._document.root, "$")
+        self._densified()
+        document = self._document
         groups = self._groups()
         converted: list[tuple[_Group, FloatArray]] = []
         for group in groups:
@@ -344,6 +391,50 @@ class _Converter:
             operations_applied=tuple(self._operations),
             failures=tuple(self._failures),
         )
+
+    def _densified(self) -> None:
+        """Insert vertices into each line and ring to convert, as densify asks."""
+        if self._densify is None:
+            return
+        geometries = list(self._document.geometries)
+        crss: dict[tuple[int, int], CoordinateReferenceSystem] = {}
+        for index in sorted(self._primary):
+            geometry = geometries[index]
+            if not geometry.count or geometry.kind not in _SEGMENTED:
+                continue
+            source = self._sources[index]
+            key = (id(source), geometry.dimension)
+            if key not in crss:
+                crss[key] = source.crs_for(geometry.dimension)
+            crs = crss[key]
+            width = geometry.dimension
+            order = (
+                list(range(width))
+                if source.axis_order == "xy"
+                else _permutation(crs, width, to_values=True)
+            )
+            sizes = _sizes(geometry.shape)
+            parts = np.repeat(np.arange(len(sizes), dtype=np.intp), sizes)
+            try:
+                rows, dense_parts, origins = densify_rows(
+                    np.ascontiguousarray(geometry.positions[:, order]),
+                    parts,
+                    crs,
+                    self._densify,
+                    self._segments,
+                )
+            except ValueError as error:
+                raise GeoJsonCrsError(source.stated_by, str(error)) from error
+            if len(rows) == geometry.count:
+                continue
+            counts = np.bincount(dense_parts, minlength=len(sizes)).tolist()
+            geometries[index] = replace(
+                geometry,
+                positions=rows[:, np.argsort(order)],
+                shape=_resized(geometry.shape, iter(counts)),
+            )
+            self._origins[index] = (geometry, origins)
+        self._document = replace(self._document, geometries=tuple(geometries))
 
     def _primaries(self) -> frozenset[int]:
         """The geometries to convert: each feature's place, else its geometry."""
@@ -597,8 +688,16 @@ class _Converter:
 
     def _path(self, group: _Group, row: int) -> str:
         position = int(group.owners[row])
-        geometry = self._document.geometries[group.members[position]]
-        return geometry.position_path(row - int(group.starts[position]))
+        index = group.members[position]
+        local = row - int(group.starts[position])
+        if index not in self._origins:
+            return self._document.geometries[index].position_path(local)
+        read, origins = self._origins[index]
+        path = read.position_path(int(origins[local]))
+        first = int(np.searchsorted(origins, origins[local]))
+        if local > first:
+            return f"{path} (vertex {local - first} densify inserted after it)"
+        return path
 
     def _value_order(
         self, rows: FloatArray, crs: CoordinateReferenceSystem, axis_order: str
@@ -1078,6 +1177,15 @@ def _oriented(geometry: Geometry, rows: FloatArray, orient: Orientation) -> Floa
                     out[start : start + size] = ring[::-1]
             start += size
     return out
+
+
+def _resized(shape: Shape, sizes: Iterator[int]) -> Shape:
+    """``shape`` with the number of positions in each innermost array from ``sizes``."""
+    if shape is None:
+        return None
+    if isinstance(shape, int):
+        return next(sizes)
+    return tuple(_resized(part, sizes) for part in shape)
 
 
 def _ring_sizes(geometry: Geometry) -> list[list[int]]:
