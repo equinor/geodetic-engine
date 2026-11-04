@@ -14,7 +14,7 @@ from __future__ import annotations
 import copy
 import itertools
 import math
-from collections.abc import Iterator, Sequence
+from collections.abc import Container, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
@@ -581,6 +581,8 @@ class _Converter:
             cuts = self._cuts(group, moved, rows, transformation, epoch)
             rows = moved
         rows = _rounded(rows, self._decimals)
+        if self._orient is not None:
+            rows = _wound(rows, *self._rings(group, cuts), self._orient)
         for position, index in enumerate(group.members):
             if self._feature_lacks_geometry(index):
                 if index in cuts:
@@ -590,10 +592,34 @@ class _Converter:
                     continue
                 geometry = self._document.geometries[index]
                 start = int(group.starts[position])
-                values = rows[start : start + geometry.count]
-                if self._orient is not None:
-                    values = _oriented(geometry, values, self._orient)
-                self._fallback[index] = values
+                self._fallback[index] = rows[start : start + geometry.count]
+
+    def _rings(
+        self, group: _Group, cut: Container[int]
+    ) -> tuple[NDArray[np.intp], NDArray[np.intp], NDArray[np.bool_]]:
+        """Where each polygon ring of the group is, for :func:`_wound`.
+
+        Its first row, its number of rows, and whether it is a shell; but for
+        the members in ``cut``, which are wound as they are cut.
+        """
+        starts: list[int] = []
+        sizes: list[int] = []
+        shells: list[bool] = []
+        for position, index in enumerate(group.members):
+            if index in cut:
+                continue
+            start = int(group.starts[position])
+            for polygon in _ring_sizes(self._document.geometries[index]):
+                for number, size in enumerate(polygon):
+                    starts.append(start)
+                    sizes.append(size)
+                    shells.append(number == 0)
+                    start += size
+        return (
+            np.array(starts, dtype=np.intp),
+            np.array(sizes, dtype=np.intp),
+            np.array(shells, dtype=np.bool_),
+        )
 
     def _cuts(
         self,
@@ -932,6 +958,8 @@ class _Converter:
         crs = self._transformation(
             group.crs, group.dimension, fallback=False
         ).target_crs
+        if self._orient is not None:
+            rows = _wound(rows, *self._rings(group, group.cuts), self._orient)
         for position, index in enumerate(group.members):
             geometry = self._document.geometries[index]
             if index in group.cuts:
@@ -943,8 +971,6 @@ class _Converter:
                 continue
             start = int(group.starts[position])
             values = rows[start : start + geometry.count]
-            if self._orient is not None:
-                values = _oriented(geometry, values, self._orient)
             if self._place:
                 values = values[
                     :, axis_permutation(crs, values.shape[1], to_values=False)
@@ -1463,33 +1489,50 @@ def _rounded(rows: FloatArray, decimals: Decimals) -> FloatArray:
     return np.column_stack(columns)
 
 
-def _oriented(geometry: Geometry, rows: FloatArray, orient: Orientation) -> FloatArray:
-    """``rows`` with each ring of a polygon wound as ``orient`` asks.
+def _wound(
+    rows: FloatArray,
+    starts: NDArray[np.intp],
+    sizes: NDArray[np.intp],
+    shells: NDArray[np.bool_],
+    orient: Orientation,
+) -> FloatArray:
+    """``rows`` with each polygon ring wound as ``orient`` asks, holes the other way.
 
-    A ring is wound by the positions that were transformed: one that failed is
-    NaN and does not count, and a ring with fewer than three others is kept as
-    it is.
+    Ring ``i`` is the ``sizes[i]`` rows from ``starts[i]``, a polygon's shell
+    where ``shells[i]``. A ring is wound by the positions that were
+    transformed: one that failed is NaN and does not count, and a ring with
+    fewer than three others is kept as it is.
     """
+    if not len(starts):
+        return rows
+    ring = np.repeat(np.arange(len(starts)), sizes)
+    offset = np.arange(len(ring)) - np.repeat(np.cumsum(sizes) - sizes, sizes)
+    at = starts[ring] + offset
+    plane = rows[at, :2]
+    finite = np.isfinite(plane).all(axis=1)
+    kept, kept_ring = plane[finite], ring[finite]
+    # Relative to a vertex, as absolute coordinates cancel at UTM sizes. That
+    # vertex's edges add nothing, so the sum is that of the closed ring even
+    # where a failed position opened it.
+    first = np.searchsorted(kept_ring, np.arange(len(starts)))
+    local = kept - kept[first[kept_ring]]
+    pair = kept_ring[1:] == kept_ring[:-1]
+    owner = kept_ring[1:][pair]
+    forward = (local[:-1, 0] * local[1:, 1])[pair]
+    backward = (local[1:, 0] * local[:-1, 1])[pair]
+    area = np.bincount(owner, forward, len(starts)) - np.bincount(
+        owner, backward, len(starts)
+    )
+    counts = np.bincount(kept_ring, minlength=len(starts))
+    flip = (counts >= 3) & ((area > 0) != (shells == (orient == "ccw")))
+    if not flip.any():
+        return rows
     out = rows.copy()
-    start = 0
-    for polygon in _ring_sizes(geometry):
-        for number, size in enumerate(polygon):
-            ring = out[start : start + size]
-            plane = ring[:, :2]
-            plane = plane[np.isfinite(plane).all(axis=1)]
-            if len(plane) >= 3:
-                # Relative to a vertex, as absolute coordinates cancel at UTM
-                # sizes. That vertex's edges add nothing, so the sum is that of
-                # the closed ring even where a failed position opened it.
-                local = plane - plane[0]
-                area = float(
-                    np.dot(local[:-1, 0], local[1:, 1])
-                    - np.dot(local[1:, 0], local[:-1, 1])
-                )
-                counterclockwise = area > 0
-                if counterclockwise != ((number == 0) == (orient == "ccw")):
-                    out[start : start + size] = ring[::-1]
-            start += size
+    turned = flip[ring]
+    reversed_ring = ring[turned]
+    out[at[turned]] = rows[
+        starts[reversed_ring] + sizes[reversed_ring] - 1 - offset[turned]
+    ]
     return out
 
 
