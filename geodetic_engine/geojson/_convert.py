@@ -99,6 +99,8 @@ _HEIGHT_DIRECTIONS: Final = frozenset({"up", "down"})
 _SEGMENTED: Final = frozenset(
     {Kind.LINE_STRING, Kind.MULTI_LINE_STRING, Kind.POLYGON, Kind.MULTI_POLYGON}
 )
+# Half a turn of WGS 84 longitude, which RFC 7946 positions are in.
+_HALF_TURN: Final = 180.0
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -203,9 +205,11 @@ def convert_geojson(
         antimeridian: Positions written in a geographic CRS whose part crosses
             its antimeridian: ``\"split\"`` cuts the part there, into parts of
             a multipart geometry, as RFC 7946 (3.1.9) has it, closing a ring
-            round a pole through the pole; ``\"unwrap\"`` carries its
-            longitudes on past the antimeridian; and None keeps it as
-            transformed, a segment going the long way round.
+            round a pole through the pole, and a ``bbox`` crosses it, its west
+            bound east of its east one, as RFC 7946 (5.2) has it, where that
+            box is the narrower and no wider than half a turn of longitude;
+            ``\"unwrap\"`` carries the longitudes on past the antimeridian; and
+            None keeps them as transformed, a segment going the long way round.
         orient: None keeps the vertex order as transformed; ``\"ccw\"`` winds
             exterior rings counterclockwise and holes clockwise (RFC 7946's
             right-hand rule), and ``\"cw\"`` the other way.
@@ -391,6 +395,14 @@ class _Converter:
         self._epochs: dict[int, float | None] = {}
         self._place = target.flavour is Flavour.JSONFG and not target.lonlat
         self._primary = self._primaries()
+        # Where a bbox finds the longitude of written positions, and half a
+        # turn of it, to cross the antimeridian: in the target CRS, or WGS 84.
+        self._target_longitude = self._longitude_column(target.crs)
+        self._wgs84_longitude = (
+            (0, _HALF_TURN) if self._antimeridian == "split" else None
+        )
+        # Geometries cut at the antimeridian, as written, by geometry.
+        self._written_cuts: dict[int, shapely.Geometry] = {}
 
     def run(self) -> GeoJsonResult:
         if self._target.flavour is Flavour.JSONFG:
@@ -911,7 +923,7 @@ class _Converter:
                 place if place is not None else target.get("geometry")
             )
             _as_fallback(copied)
-            _rebox(copied)
+            _rebox(copied, _HALF_TURN if self._antimeridian == "split" else None)
             objects[feature] = copied
         return objects
 
@@ -926,6 +938,7 @@ class _Converter:
                 geometry.target["coordinates"] = _coordinates(shape)
                 self._document.rekind(geometry.target, _kind(shape))
                 self._written[index] = _positions(shape)
+                self._written_cuts[index] = shape
                 continue
             start = int(group.starts[position])
             values = rows[start : start + geometry.count]
@@ -976,15 +989,83 @@ class _Converter:
             indices = [i for i in box.geometries if i not in withdrawn]
             if id(box.target) in containers:
                 fallback = [i for i in indices if i in self._fallback or self._kept(i)]
-                chosen = fallback if self._place and fallback else indices
+                # WGS 84 positions, beside places, or the target's.
+                wgs84 = self._place and bool(fallback)
+                chosen = fallback if wgs84 else indices
                 rows = [self._bbox_rows(i) for i in chosen]
             else:
+                # A geometry object is all in a place, or all beside it.
+                wgs84 = bool(indices) and self._is_kept(indices[0])
+                chosen = indices
                 rows = [self._own_rows(i) for i in indices]
-            bounds = _box(rows, len(box.target["bbox"]) // 2)
+            axes = len(box.target["bbox"]) // 2
+            bounds = _box(rows, axes)
             if bounds is None:
                 box.target.pop("bbox", None)
+                continue
+            self._cross(bounds, axes, chosen, rows, wgs84=wgs84)
+            box.target["bbox"] = bounds
+
+    def _is_kept(self, index: int) -> bool:
+        """Whether a geometry is written with its WGS 84 positions as read."""
+        return self._place and self._kept(index)
+
+    def _longitude_column(
+        self, crs: CoordinateReferenceSystem
+    ) -> tuple[int, float] | None:
+        """The column of the longitude of positions written in ``crs``, and half a turn.
+
+        None for a CRS without one, or positions not cut at its antimeridian.
+        """
+        if self._antimeridian != "split":
+            return None
+        bounds = longitude(crs)
+        if bounds is None:
+            return None
+        return (crs.value_axis_order[0] if self._place else 0), bounds[0]
+
+    def _cross(
+        self,
+        bounds: list[float],
+        axes: int,
+        indices: Sequence[int],
+        rows: Sequence[FloatArray | None],
+        *,
+        wgs84: bool,
+    ) -> None:
+        """Make ``bounds`` cross the antimeridian where that box is the smaller.
+
+        Only where the box spans half a turn of longitude or more: a gap that
+        wide between parts is left out, as RFC 7946 (5.2) has it. ``rows`` are
+        WGS 84 positions, or the target's.
+        """
+        place = self._wgs84_longitude if wgs84 else self._target_longitude
+        if place is None:
+            return
+        column, half = place
+        if column >= axes or bounds[axes + column] - bounds[column] < half:
+            return
+        # One pass over the positions of the geometries as read, and one per
+        # geometry cut, which has parts of its own.
+        lon: list[FloatArray] = []
+        sizes: list[int] = []
+        spans: list[FloatArray] = []
+        for index, values in zip(indices, rows, strict=True):
+            if values is None or not len(values):
+                continue
+            shape = (self._fallback_cuts if wgs84 else self._written_cuts).get(index)
+            if shape is not None:
+                spans.append(_shape_spans(shape, column))
             else:
-                box.target["bbox"] = bounds
+                lon.append(values[:, column])
+                sizes.extend(_part_sizes(self._document.geometries[index]))
+        if lon:
+            spans.append(_part_spans(np.concatenate(lon), sizes))
+        if not spans:
+            return
+        across = _across(np.concatenate(spans), half)
+        if across is not None:
+            bounds[column], bounds[axes + column] = across
 
     def _kept(self, index: int) -> bool:
         """Whether a geometry is a feature's WGS 84 geometry kept beside its place."""
@@ -1215,19 +1296,118 @@ def _box(rows: Sequence[FloatArray | None], axes: int) -> list[float] | None:
     return None if len(low) < 2 else low + high
 
 
-def _rebox(value: Any) -> None:
-    """Compute again the ``bbox`` of a geometry object and of its members."""
+def _rebox(value: Any, half: float | None = None) -> None:
+    """Compute again the ``bbox`` of a WGS 84 geometry object and of its members.
+
+    Across the antimeridian where that box is the smaller, given ``half`` a
+    turn of longitude, as :meth:`_Converter._cross` does.
+    """
     if not isinstance(value, dict):
         return
     for member in value.get("geometries") or ():
-        _rebox(member)
+        _rebox(member, half)
     if value.get("bbox") is None:
         return
-    bounds = _box(_object_rows(value), len(value["bbox"]) // 2)
+    axes = len(value["bbox"]) // 2
+    bounds = _box(_object_rows(value), axes)
     if bounds is None:
         value.pop("bbox")
-    else:
-        value["bbox"] = bounds
+        return
+    if half is not None and bounds[axes] - bounds[0] >= half:
+        across = _across(_object_spans(value), half)
+        if across is not None:
+            bounds[0], bounds[axes] = across
+    value["bbox"] = bounds
+
+
+def _across(spans: FloatArray, half: float) -> tuple[float, float] | None:
+    """West and east bounds across the antimeridian, if that box is the smaller.
+
+    ``spans`` are each part's least and greatest longitude, within half a
+    turn of the prime meridian. A box across it, its west bound east of its
+    east one, leaves out the widest gap between parts: it is chosen where
+    that gap is half a turn or more and wider than the one at the
+    antimeridian, so positions all round the world keep the box between the
+    least and greatest longitude.
+    """
+    if len(spans) < 2:
+        return None
+    order = np.argsort(spans[:, 0], kind="stable")
+    low, high = spans[order, 0], spans[order, 1]
+    if low[0] < -half or high.max() > half:
+        return None
+    reach = np.maximum.accumulate(high)
+    gaps = low[1:] - reach[:-1]
+    at = int(np.argmax(gaps))
+    widest = float(gaps[at])
+    if widest >= half and widest > 2 * half - (float(reach[-1]) - float(low[0])):
+        return float(low[at + 1]), float(reach[at])
+    return None
+
+
+def _part_sizes(geometry: Geometry) -> list[int]:
+    """The positions in each of a geometry's parts: a point, a line or a polygon."""
+    if geometry.kind in (Kind.POINT, Kind.MULTI_POINT):
+        return [1] * geometry.count
+    if geometry.kind in (Kind.POLYGON, Kind.MULTI_POLYGON):
+        return [sum(rings) for rings in _ring_sizes(geometry)]
+    return _sizes(geometry.shape)
+
+
+def _part_spans(lon: FloatArray, sizes: Sequence[int]) -> FloatArray:
+    """Each part's least and greatest finite longitude.
+
+    ``sizes`` are the number of positions in each part, in order.
+    """
+    counts = [size for size in sizes if size]
+    if not counts:
+        return np.empty((0, 2))
+    starts = np.cumsum([0, *counts[:-1]])
+    spans = np.column_stack(
+        [np.fmin.reduceat(lon, starts), np.fmax.reduceat(lon, starts)]
+    )
+    finite: FloatArray = spans[np.isfinite(spans).all(axis=1)]
+    return finite
+
+
+def _shape_spans(shape: shapely.Geometry, column: int) -> FloatArray:
+    """Each part of a cut geometry's least and greatest longitude."""
+    import shapely
+
+    parts = shapely.get_parts(shape)
+    rows, owners = shapely.get_coordinates(
+        parts, include_z=bool(shapely.has_z(shape)), return_index=True
+    )
+    sizes = np.bincount(owners, minlength=len(parts)).tolist()
+    return _part_spans(rows[:, column], sizes)
+
+
+def _object_spans(value: Any) -> FloatArray:
+    """Each part of a WGS 84 geometry object's least and greatest longitude."""
+    spans: list[tuple[float, float]] = []
+
+    def add(positions: list[list[float]]) -> None:
+        lon = [p[0] for p in positions if math.isfinite(p[0])]
+        if lon:
+            spans.append((min(lon), max(lon)))
+
+    def walk(item: Any) -> None:
+        if not isinstance(item, dict):
+            return
+        for member in item.get("geometries") or ():
+            walk(member)
+        kind, coordinates = item.get("type"), item.get("coordinates")
+        if not isinstance(kind, str) or not isinstance(coordinates, list):
+            return
+        kind = kind.removeprefix(ANYCRS_PREFIX)
+        if kind in (Kind.POINT, Kind.LINE_STRING, Kind.POLYGON):
+            add(_json_positions(coordinates))
+        elif kind in (Kind.MULTI_POINT, Kind.MULTI_LINE_STRING, Kind.MULTI_POLYGON):
+            for part in coordinates:
+                add(_json_positions(part))
+
+    walk(value)
+    return np.array(spans, dtype=np.float64).reshape(-1, 2)
 
 
 def _object_rows(value: Any) -> list[FloatArray]:

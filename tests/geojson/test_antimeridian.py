@@ -162,6 +162,7 @@ def test_heights_are_carried_to_the_positions_on_the_antimeridian() -> None:
     line = [[*LINE[0], 100.0], [*LINE[1], 300.0]]
     document = _anycrs({"type": "AnyCrsLineString", "coordinates": line})
     document["VerticalUnitID"] = "osdu:reference-data--UnitOfMeasure:m:"
+    document["bbox"] = [0] * 6
     result = convert_geojson(document, "EPSG:4326", output="geojson")
     written = _geometries(result)[0]
     assert written["type"] == "MultiLineString"
@@ -169,6 +170,9 @@ def test_heights_are_carried_to_the_positions_on_the_antimeridian() -> None:
     assert first.shape[1] == second.shape[1] == 3
     assert (first[0, 2], second[-1, 2]) == (100.0, 300.0)
     assert 100 < first[-1, 2] == second[0, 2] < 300
+    west, south, low, east, north, high = result.document["bbox"]
+    assert (west, east) == (first[0, 0], second[-1, 0])
+    assert (south, low, north, high) == (first[0, 1], 100.0, second[-1, 1], 300.0)
 
 
 def test_a_member_of_a_geometry_collection_is_cut_on_its_own() -> None:
@@ -241,3 +245,122 @@ def test_an_unknown_antimeridian_is_refused() -> None:
             output="geojson",
             antimeridian="cut",  # type: ignore[arg-type]
         )
+
+
+def _points(*positions: list[float], bbox: list[float]) -> dict[str, Any]:
+    return {
+        "type": "FeatureCollection",
+        "bbox": bbox,
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {},
+                "geometry": {"type": "Point", "coordinates": position},
+            }
+            for position in positions
+        ],
+    }
+
+
+def test_a_bbox_crosses_the_antimeridian_as_rfc_7946_has_it() -> None:
+    # The example of RFC 7946 (5.2): points in Fiji, either side of it.
+    fiji = _points(
+        [177.0, -20.0], [178.5, -18.0], [-179.5, -17.0], [-178.0, -16.0], bbox=[0] * 4
+    )
+    result = convert_geojson(fiji, "EPSG:4326", output="geojson")
+    assert result.document["bbox"] == [177.0, -20.0, -178.0, -16.0]
+    kept = convert_geojson(fiji, "EPSG:4326", output="geojson", antimeridian=None)
+    assert kept.document["bbox"] == [-179.5, -20.0, 178.5, -16.0]
+
+
+def test_a_bbox_across_the_antimeridian_is_kept() -> None:
+    parts = [
+        [[[170.0, 60.0], [180.0, 60.0], [180.0, 65.0], [170.0, 65.0], [170.0, 60.0]]],
+        [
+            [
+                [-180.0, 60.0],
+                [-170.0, 60.0],
+                [-170.0, 65.0],
+                [-180.0, 65.0],
+                [-180.0, 60.0],
+            ]
+        ],
+    ]
+    feature = {
+        "type": "Feature",
+        "bbox": [170.0, 60.0, -170.0, 65.0],
+        "properties": {},
+        "geometry": {"type": "MultiPolygon", "coordinates": parts},
+    }
+    result = convert_geojson(feature, "EPSG:4326", output="geojson")
+    assert result.document["bbox"] == [170.0, 60.0, -170.0, 65.0]
+
+
+def test_the_bbox_of_a_cut_geometry_crosses_the_antimeridian() -> None:
+    document = _strip_and_line()
+    document["bbox"] = [0, 0, 0, 0]
+    document["features"][0]["bbox"] = [0, 0, 0, 0]
+    result = convert_geojson(document, "EPSG:4326", output="geojson")
+    corners = _corners_in_wgs84()
+    east = corners[corners[:, 0] > 0, 0].min()
+    west = corners[corners[:, 0] < 0, 0].max()
+    west_bound, south, east_bound, north = result.document["features"][0]["bbox"]
+    assert (west_bound, east_bound) == (east, west)
+    assert (south, north) == (corners[:, 1].min(), corners[:, 1].max())
+    assert result.document["bbox"][0] > result.document["bbox"][2]
+
+
+def test_a_bbox_round_a_pole_spans_every_longitude_up_to_it() -> None:
+    angles = np.linspace(0, 2 * np.pi, 13)
+    circle = np.column_stack([1e6 * np.cos(angles), 1e6 * np.sin(angles)])
+    circle[-1] = circle[0]
+    document = _anycrs(
+        {"type": "AnyCrsPolygon", "coordinates": [circle.tolist()]}, crs="EPSG:3413"
+    )
+    document["bbox"] = [0, 0, 0, 0]
+    result = convert_geojson(document, "EPSG:4326", output="geojson")
+    west, south, east, north = result.document["bbox"]
+    assert (west, east, north) == (-180.0, 180.0, 90.0)
+    assert 80 < south < 82
+
+
+def test_a_bbox_takes_in_a_segment_that_goes_the_long_way_round() -> None:
+    line = {"type": "LineString", "coordinates": [[179.0, 60.0], [-179.0, 61.0]]}
+    feature = {"type": "Feature", "bbox": [0] * 4, "properties": {}, "geometry": line}
+    result = convert_geojson(feature, "EPSG:4326", output="geojson")
+    assert result.document["bbox"] == [-179.0, 60.0, 179.0, 61.0]
+
+
+def test_a_bbox_of_positions_all_round_the_world_does_not_cross() -> None:
+    world = _points(
+        [-179.0, 0.0],
+        [-100.0, 0.0],
+        [0.0, 0.0],
+        [100.0, 0.0],
+        [179.0, 1.0],
+        bbox=[0] * 4,
+    )
+    result = convert_geojson(world, "EPSG:4326", output="geojson")
+    assert result.document["bbox"] == [-179.0, 0.0, 179.0, 1.0]
+
+
+def test_the_bboxes_of_a_place_and_its_wgs84_geometry_cross_in_their_orders() -> None:
+    document = _chatham_place()
+    feature = document["features"][0]
+    feature["bbox"] = [0, 0, 0, 0]
+    feature["place"]["bbox"] = [0, 0, 0, 0]
+    place = convert_geojson(document, "EPSG:4167", output="jsonfg", decimals=7)
+    written = place.document["features"][0]
+    # Latitude first, as NZGD2000 declares it.
+    assert written["bbox"] == [-44.5, 179.0, -44.0, -179.0]
+    assert written["place"]["bbox"] == [-44.5, 179.0, -44.0, -179.0]
+    plus = convert_geojson(
+        document,
+        "EPSG:3793",
+        output="jsonfg-plus",
+        decimals=7,
+        fallback_operation="EPSG:1565",
+    )
+    written = plus.document["features"][0]
+    assert written["bbox"] == [179.0, -44.5, -179.0, -44.0]
+    assert written["geometry"]["bbox"] == [179.0, -44.5, -179.0, -44.0]

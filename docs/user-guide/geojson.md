@@ -213,3 +213,13 @@ long way round in a geographic source is kept, as is a part with a position
 that failed. No position moves: a cut part gains vertices on the antimeridian,
 rounded like the others and not counted. The cut is that of
 {doc}`geometries </user-guide/geodesy/geometries>`, bit for bit.
+
+A `bbox` crosses the antimeridian too, its west bound east of its east one, as
+RFC 7946 (5.2) has it, where that box around the points, lines and polygons it
+bounds is the narrower, and no wider than half a turn of longitude. A polar
+cap's spans every longitude, up to the pole:
+
+```{code-cell} python
+crossing["bbox"] = [0, 0, 0, 0]
+convert_geojson(crossing, "EPSG:4326", output="geojson", decimals=4).document["bbox"]
+```

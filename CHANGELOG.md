@@ -57,7 +57,10 @@ All notable changes to this project are documented here. The format follows
   converted and counted with the others. In a geographic target CRS, a line
   or polygon crossing the antimeridian is cut there as for geometries, its
   `type` renamed to the multipart one, and a ring round a pole is closed
-  through it (`antimeridian="split"`; `"unwrap"` or None as for geometries).
+  through it (`antimeridian="split"`; `"unwrap"` or None as for geometries);
+  a `bbox` then crosses the antimeridian, its west bound east of its east
+  one, as RFC 7946 (5.2) has it, where that box is the narrower and no wider
+  than half a turn.
   `convert_geojson_request` takes and
   returns the OSDU service's `convertGeoJson` request and response, its
   positions never cut.
