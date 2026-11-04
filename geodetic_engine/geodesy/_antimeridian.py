@@ -8,8 +8,8 @@ path of a segment crosses the antimeridian, its two ends come out at the two
 ends of that range, and the segment between them, read as straight in
 longitude and latitude as Simple Features, RFC 7946 and Esri read it, goes the
 long way round instead. :func:`crossings` tells it from a segment that does go
-the long way round by where the middle of its source segment goes: between
-its ends, or past the antimeridian.
+the long way round by where the middle of its source segment goes, which
+:func:`middles` transforms: between its ends, or past the antimeridian.
 
 :func:`cut` then cuts a part that crosses into parts of a multipart geometry,
 as RFC 7946 (3.1.9) and ``ogr2ogr -wrapdateline`` do, or unwraps it, carrying
@@ -31,8 +31,13 @@ from typing import TYPE_CHECKING, Final, Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from geodetic_engine.geodesy._failures import failing_rows
+from geodetic_engine.geodesy.errors import GeodesyError
+
 if TYPE_CHECKING:
     import shapely
+
+    from geodetic_engine.geodesy.transformation import Transformation
 
 type FloatArray = NDArray[np.float64]
 type IndexArray = NDArray[np.intp]
@@ -57,7 +62,7 @@ def crossings(
         half: Half a turn, in the longitude's unit.
         middle: For the given positions, the longitude the middle of the
             source segment from each to the next goes to, NaN if unknown,
-            which counts as crossing.
+            which counts as crossing; :func:`middles` gives it.
     """
     crossing = np.zeros(len(lon), dtype=np.bool_)
     if len(lon) < 2:
@@ -73,6 +78,41 @@ def crossings(
     # The long way round passes between the ends; the short way, past them.
     crossing[candidates[~((mid >= low) & (mid <= high))]] = True
     return crossing
+
+
+def middles(
+    transformation: Transformation,
+    rows: FloatArray,
+    at: IndexArray,
+    epoch: float | None,
+) -> FloatArray:
+    """The longitude the middle of each source segment from ``at`` goes to, or NaN.
+
+    Args:
+        transformation: The transformation the positions went through.
+        rows: The source positions as given to it, in value order; a third
+            value of NaN stands for a position without a height.
+        at: The rows each segment starts at; it ends at the next.
+        epoch: The coordinate epoch they were transformed at.
+    """
+    middle = (rows[at] + rows[at + 1]) / 2
+    lon = np.full(len(at), np.nan)
+    flat = (
+        np.isnan(middle[:, 2])
+        if middle.shape[1] > 2
+        else np.ones(len(at), dtype=np.bool_)
+    )
+    for mask, width in ((flat, 2), (~flat, 3)):
+        if not mask.any():
+            continue
+        try:
+            columns, _ = failing_rows(
+                transformation, np.ascontiguousarray(middle[mask, :width]), epoch
+            )
+        except (GeodesyError, ValueError):
+            continue
+        lon[mask] = columns[0]
+    return lon
 
 
 def turns(

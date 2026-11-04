@@ -37,7 +37,7 @@ from typing import Any, Final, Literal
 
 from geodetic_engine._referencing.osdu_id import parse_osdu_id
 from geodetic_engine.geodesy import CoordinateReferenceSystem, UnresolvableCRSError
-from geodetic_engine.geodesy._crs_tools import compound, same_crs
+from geodetic_engine.geodesy._crs_tools import compound, label, same_crs
 from geodetic_engine.geodesy.errors import UnsupportedCRSError
 from geodetic_engine.geojson._jsonfg import coord_ref_sys, crs_name, read_coord_ref_sys
 from geodetic_engine.geojson._model import (
@@ -202,8 +202,7 @@ def read_source(document: Document, source_crs: object = None) -> Source:
         if given is not None and not same_crs(crs, given):
             raise GeoJsonCrsError(
                 stated_by,
-                f"the document's CRS, {_label(crs)}, is not source_crs, "
-                f"{_label(given)}",
+                f"the document's CRS, {label(crs)}, is not source_crs, {label(given)}",
             )
     elif given is not None:
         crs, stated_by = given, "source_crs"
@@ -218,14 +217,14 @@ def read_source(document: Document, source_crs: object = None) -> Source:
     if (found := _stated_crs(root, _VERTICAL_RECORD_ID, _VERTICAL_PAYLOAD)) is not None:
         vertical, path = found
         if not vertical.crs.is_vertical:
-            raise InvalidGeoJsonError(path, f"{_label(vertical)} is not a vertical CRS")
+            raise InvalidGeoJsonError(path, f"{label(vertical)} is not a vertical CRS")
         own = crs_parts(crs)[1]
         if own is not None:
             if not same_crs(own, vertical):
                 raise GeoJsonCrsError(
                     path,
-                    f"{_label(crs)} is compound with the vertical CRS "
-                    f"{_label(own)}, not {_label(vertical)}",
+                    f"{label(crs)} is compound with the vertical CRS "
+                    f"{label(own)}, not {label(vertical)}",
                 )
             # A compound CRS already states it; compounding it again would fail.
             vertical = None
@@ -352,7 +351,7 @@ def read_target(
     if output == "geojson" and not lonlat:
         raise ValueError(
             f"output='geojson' writes RFC 7946 GeoJSON, whose positions are WGS 84 "
-            f"longitude and latitude in degrees, which {_label(crs)} is not; "
+            f"longitude and latitude in degrees, which {label(crs)} is not; "
             "write output='jsonfg' or output='anycrs'"
         )
     if output == "anycrs" or (output == "auto" and source is Flavour.ANYCRS):
@@ -365,7 +364,7 @@ def read_target(
         flavour = Flavour.GEOJSON
     if flavour is Flavour.JSONFG and not lonlat and coord_ref_sys(crs, None) is None:
         raise ValueError(
-            f"JSON-FG states a CRS by its OGC URI, and {_label(crs)} has none: "
+            f"JSON-FG states a CRS by its OGC URI, and {label(crs)} has none: "
             "only EPSG and OGC CRSs do; write output='anycrs' to state it as an "
             "OSDU persistableReference"
         )
@@ -473,8 +472,8 @@ def _plain_source(
     ):
         raise GeoJsonCrsError(
             path,
-            f"the document's crs member names {'CRS84' if rfc_7946 else _label(crs)}"
-            f", not source_crs, {_label(given)}",
+            f"the document's crs member names {'CRS84' if rfc_7946 else label(crs)}"
+            f", not source_crs, {label(given)}",
         )
     if rfc_7946:
         return Source(None, METRE, path)
@@ -547,7 +546,7 @@ def _stated_scope(
     if given is not None and not same_crs(crs, given):
         raise GeoJsonCrsError(
             path,
-            f"the document's CRS, {_label(crs)}, is not source_crs, {_label(given)}",
+            f"the document's CRS, {label(crs)}, is not source_crs, {label(given)}",
         )
     # CRS84 or CRS84h as declared; EPSG:4326 keeps its own, latitude first.
     if _crs84_as_declared(crs):
@@ -648,10 +647,6 @@ def _document_unit(text: str, path: str) -> Unit:
         return length_unit(text)
     except UnitError as error:
         raise InvalidGeoJsonError(path, str(error)) from error
-
-
-def _label(crs: CoordinateReferenceSystem) -> str:
-    return crs.authority_code or repr(crs.name)
 
 
 def _shown(value: object) -> str:

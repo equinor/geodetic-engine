@@ -61,20 +61,23 @@ from geodetic_engine.geodesy._antimeridian import (
     Antimeridian,
     crossings,
     cut,
+    middles,
     turns,
 )
 from geodetic_engine.geodesy._crs_tools import (
+    axis_permutation,
     compound,
     integer_code,
+    label,
     longitude,
     same_crs,
 )
 from geodetic_engine.geodesy._failures import (
-    failing_rows,
     first_failure,
     probe,
     relocated,
 )
+from geodetic_engine.geodesy._geojson_objects import geojson_object
 from geodetic_engine.geodesy._rounding import axis_decimals, round_half_up
 from geodetic_engine.geodesy._segments import (
     SEGMENTS,
@@ -217,7 +220,7 @@ def read_geometry(
     given = None if crs is None else CoordinateReferenceSystem.from_user_input(crs)
     if stated is not None and given is not None and not same_crs(stated, given):
         raise GeometryError(
-            f"the geometry states {_label(stated)}, not crs, {_label(given)}"
+            f"the geometry states {label(stated)}, not crs, {label(given)}"
         )
     known = stated if stated is not None else given
     if axis_order == "crs" and geometry is not None:
@@ -554,8 +557,8 @@ def _transform(
     _require_source(stated, source)
     if stated_all is not None and not same_crs(stated_all, source):
         raise GeometryError(
-            f"the GeoSeries is in {_label(stated_all)}, but the transformation "
-            f"is from {_label(source)}"
+            f"the GeoSeries is in {label(stated_all)}, but the transformation "
+            f"is from {label(source)}"
         )
     if axis_order == "crs":
         geometries = _permute(geometries, source, True)
@@ -725,8 +728,8 @@ def _require_source(
             same = checked[id(crs)] = same_crs(crs, source)
         if not same:
             raise GeometryError(
-                f"geometry {index} is in {_label(crs)}, but the transformation "
-                f"is from {_label(source)}"
+                f"geometry {index} is in {label(crs)}, but the transformation "
+                f"is from {label(source)}"
             )
 
 
@@ -756,7 +759,7 @@ def _apply(
         )
         if len(columns) != width:
             raise GeometryError(
-                f"{_label(transformation.target_crs)} gives {len(columns)} values "
+                f"{label(transformation.target_crs)} gives {len(columns)} values "
                 f"per position for {width} given, which is not a geometry"
             )
         replaced = coordinates.copy()
@@ -1002,20 +1005,12 @@ def _permute(
     geometries: ObjectArray, crs: CoordinateReferenceSystem, to_values: bool
 ) -> ObjectArray:
     """Reorder coordinates between a CRS's declared order and value order."""
-    order = crs.value_axis_order
 
     def change(coordinates: FloatArray, has_z: bool, has_m: bool) -> FloatArray:
         width = 3 if has_z else 2
-        count = min(width, len(order))
-        moved = tuple(order[:count])
-        if sorted(moved) != list(range(count)):
-            raise ValueError(
-                f"positions of {width} values cannot be put in the declared order "
-                f"of {_label(crs)}, which has {len(order)} axes"
-            )
-        if not to_values:
-            moved = tuple(int(axis) for axis in np.argsort(moved))
-        columns = [*moved, *range(count, coordinates.shape[1])]
+        columns = axis_permutation(crs, width, to_values=to_values)
+        # An M value stays last.
+        columns += range(width, coordinates.shape[1])
         return np.ascontiguousarray(coordinates[:, columns])
 
     return _map_coordinates(geometries, change)
@@ -1222,7 +1217,7 @@ def _wrapped(
         rows[:, 0],
         parts,
         half,
-        lambda at: _middles(transformation, source_rows, at, coordinate_epoch),
+        lambda at: middles(transformation, source_rows, at, coordinate_epoch),
     )
     if not crossing.any():
         return moved
@@ -1247,37 +1242,12 @@ def _wrapped(
         if shapely.has_m(moved[index]):
             raise GeometryError(
                 f"geometry {int(indices[index])} crosses the antimeridian of "
-                f"{_label(transformation.target_crs)}, and has M values, which "
+                f"{label(transformation.target_crs)}, and has M values, which "
                 "cutting or unwrapping it would lose; give antimeridian=None to "
                 "keep it as transformed"
             )
         out[index] = cut(moved[index], iter(mine), mode, half, pole)
     return out
-
-
-def _middles(
-    transformation: Transformation,
-    rows: FloatArray,
-    at: NDArray[np.intp],
-    coordinate_epoch: float | None,
-) -> FloatArray:
-    """The longitude the middle of each source segment from ``at`` goes to, or NaN."""
-    middle = (rows[at] + rows[at + 1]) / 2
-    lon = np.full(len(at), np.nan)
-    flat = np.isnan(middle[:, 2])
-    for mask, width in ((flat, 2), (~flat, 3)):
-        if not mask.any():
-            continue
-        try:
-            columns, _ = failing_rows(
-                transformation,
-                np.ascontiguousarray(middle[mask, :width]),
-                coordinate_epoch,
-            )
-        except (GeodesyError, ValueError):
-            continue
-        lon[mask] = columns[0]
-    return lon
 
 
 def _round(
@@ -1394,7 +1364,7 @@ def _encode(
             )
         )
     if format == "geojson":
-        return [_geojson(geometry) for geometry in geometries]
+        return [geojson_object(geometry) for geometry in geometries]
     reference = None if crs is None else _esri_reference(crs)
     return [_esri(geometry, reference) for geometry in geometries]
 
@@ -1469,7 +1439,7 @@ def _srid(crs: CoordinateReferenceSystem | None, format: str) -> int:
     code = integer_code(crs)
     if code is None:
         raise GeometryError(
-            f"{_label(crs)} has no integer code to write as an SRID; write wkt "
+            f"{label(crs)} has no integer code to write as an SRID; write wkt "
             "or wkb, which state none"
         )
     return code[1]
@@ -1625,33 +1595,6 @@ def _from_geojson(data: Mapping[str, Any]) -> shapely.Geometry:
         raise GeometryError(f"not a GeoJSON geometry: {error}") from error
 
 
-def _geojson(geometry: shapely.Geometry | None) -> dict[str, Any] | None:
-    if geometry is None:
-        return None
-    if shapely.has_m(geometry):
-        raise GeometryError(
-            "GeoJSON positions have no place for M values; write wkt or wkb"
-        )
-    interface = cast("BaseGeometry", geometry).__geo_interface__
-    return cast("dict[str, Any]", _lists(interface))
-
-
-def _lists(value: Any) -> Any:
-    """``value`` with tuples as lists and a LinearRing as a LineString."""
-    kind = type(value)
-    if kind is tuple or kind is list:
-        # A coordinate is a float, read as it is: most values are.
-        return [item if type(item) is float else _lists(item) for item in value]
-    if isinstance(value, Mapping):
-        out = {key: _lists(item) for key, item in value.items()}
-        if out.get("type") == "LinearRing":
-            out["type"] = "LineString"
-        return out
-    if isinstance(value, tuple | list):
-        return [_lists(item) for item in value]
-    return value
-
-
 def _from_esri(
     data: Mapping[str, Any],
 ) -> tuple[shapely.Geometry, CoordinateReferenceSystem | None]:
@@ -1803,7 +1746,7 @@ def _esri_reference(crs: CoordinateReferenceSystem) -> dict[str, Any]:
     text = crs.crs.to_wkt("WKT1_ESRI")
     if not text:
         raise GeometryError(
-            f"{_label(crs)} has neither a WKID nor an Esri WKT to write as a "
+            f"{label(crs)} has neither a WKID nor an Esri WKT to write as a "
             "spatialReference"
         )
     return {"wkt": text}
@@ -1949,7 +1892,3 @@ def _require_crs(crs: CoordinateReferenceSystem | None) -> CoordinateReferenceSy
 def _require_choice(name: str, value: object, choices: Sequence[str]) -> None:
     if value not in choices:
         raise ValueError(f"{name} must be one of {tuple(choices)}, not {value!r}")
-
-
-def _label(crs: CoordinateReferenceSystem) -> str:
-    return crs.authority_code or repr(crs.name)

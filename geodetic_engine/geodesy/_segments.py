@@ -25,6 +25,7 @@ import numpy as np
 from numpy.typing import NDArray
 from pyproj import CRS, Geod, Transformer
 
+from geodetic_engine.geodesy._crs_tools import label
 from geodetic_engine.geodesy.crs import CoordinateReferenceSystem
 
 type FloatArray = NDArray[np.float64]
@@ -157,7 +158,7 @@ class _Geodesic:
             or not (horizontal.is_geographic or horizontal.is_projected)
         ):
             raise ValueError(
-                f"geodesics are drawn on an ellipsoid, and {_label(crs)} gives "
+                f"geodesics are drawn on an ellipsoid, and {label(crs)} gives "
                 "neither longitude and latitude nor a map projection of them"
             )
         self.geod: Geod = geod
@@ -204,7 +205,3 @@ def _horizontal(crs: CRS) -> CRS | None:
     if current is None or not (current.is_geographic or current.is_projected):
         return None
     return current
-
-
-def _label(crs: CoordinateReferenceSystem) -> str:
-    return crs.authority_code or repr(crs.name)

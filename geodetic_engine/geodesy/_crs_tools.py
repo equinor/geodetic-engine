@@ -1,9 +1,10 @@
-"""Comparing CRSs, combining them, and reading their integer codes and longitude.
+"""Comparing CRSs, combining them, and reading their codes, axes and longitude.
 
 Private to the package, shared by :mod:`geodetic_engine.geodesy.geometry` and
 :mod:`geodetic_engine.geojson`, which both check a CRS stated in data against
-the one a caller gives, both write a CRS back by its code, and both cut
-positions at a geographic CRS's antimeridian.
+the one a caller gives, both write a CRS back by its code, both put positions
+in a CRS's declared axis order, both name a CRS in their messages, and both
+cut positions at a geographic CRS's antimeridian.
 """
 
 from __future__ import annotations
@@ -62,10 +63,10 @@ def compound(
             ``horizontal`` is not two-dimensional.
     """
     if not vertical.crs.is_vertical:
-        raise UnsupportedCRSError(f"{_label(vertical)} is not a vertical CRS")
+        raise UnsupportedCRSError(f"{label(vertical)} is not a vertical CRS")
     if horizontal.dimension != 2:
         raise UnsupportedCRSError(
-            f"{_label(horizontal)} has {horizontal.dimension} axes; a compound "
+            f"{label(horizontal)} has {horizontal.dimension} axes; a compound "
             "CRS joins a two-dimensional horizontal CRS to a vertical one"
         )
     name = f"{horizontal.name} + {vertical.name}"
@@ -109,6 +110,36 @@ def integer_code(crs: CoordinateReferenceSystem) -> tuple[str, int] | None:
     if not code.isdigit():
         return None
     return authority, int(code)
+
+
+def axis_permutation(
+    crs: CoordinateReferenceSystem, width: int, *, to_values: bool
+) -> list[int]:
+    """Columns that reorder positions of ``width`` values for ``crs``.
+
+    From its declared axis order into value order, or back for ``to_values``
+    false. Values past the CRS's axes stay where they are.
+
+    Raises:
+        ValueError: If the CRS's first ``width`` axes are not its first
+            ``width`` values, so that the positions have no declared order.
+    """
+    order = crs.value_axis_order
+    count = min(width, len(order))
+    moved = list(order[:count])
+    if sorted(moved) != list(range(count)):
+        raise ValueError(
+            f"positions of {width} values cannot be put in the declared order of "
+            f"{label(crs)}, which has {len(order)} axes"
+        )
+    if not to_values:
+        moved = [moved.index(axis) for axis in range(count)]
+    return [*moved, *range(count, width)]
+
+
+def label(crs: CoordinateReferenceSystem) -> str:
+    """``crs`` as a message names it: by its authority and code, else its name."""
+    return crs.authority_code or repr(crs.name)
 
 
 def _in_value_order(crs: CRS) -> CRS:
@@ -159,7 +190,3 @@ def _value_order(node: dict[str, Any]) -> tuple[int, ...] | None:
     except CRSError:
         return None
     return CoordinateReferenceSystem(crs, crs.name).value_axis_order
-
-
-def _label(crs: CoordinateReferenceSystem) -> str:
-    return crs.authority_code or repr(crs.name)

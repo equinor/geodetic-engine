@@ -24,7 +24,6 @@ from numpy.typing import NDArray
 from geodetic_engine.geodesy import (
     ArrayTransformationResult,
     CoordinateReferenceSystem,
-    GeodesyError,
     Transformation,
     TransformationFailedError,
 )
@@ -33,9 +32,10 @@ from geodetic_engine.geodesy._antimeridian import (
     Antimeridian,
     crossings,
     cut,
+    middles,
     turns,
 )
-from geodetic_engine.geodesy._crs_tools import longitude
+from geodetic_engine.geodesy._crs_tools import axis_permutation, label, longitude
 from geodetic_engine.geodesy._failures import (
     failing_rows,
     first_failure,
@@ -43,6 +43,7 @@ from geodetic_engine.geodesy._failures import (
     probe,
     relocated,
 )
+from geodetic_engine.geodesy._geojson_objects import geojson_object
 from geodetic_engine.geodesy._rounding import Decimals, round_columns
 from geodetic_engine.geodesy._segments import (
     SEGMENTS,
@@ -457,7 +458,7 @@ class _Converter:
             order = (
                 list(range(width))
                 if source.axis_order == "xy"
-                else _permutation(crs, width, to_values=True)
+                else axis_permutation(crs, width, to_values=True)
             )
             sizes = _sizes(geometry.shape)
             parts = np.repeat(np.arange(len(sizes), dtype=np.intp), sizes)
@@ -550,7 +551,7 @@ class _Converter:
         columns = self._run(transformation, rows, epoch, group)
         if len(columns) != group.dimension:
             raise ValueError(
-                f"{_label(transformation.target_crs)} gives {len(columns)} values "
+                f"{label(transformation.target_crs)} gives {len(columns)} values "
                 f"per position for {group.dimension}, which is not a GeoJSON position"
             )
         out = np.column_stack(columns)
@@ -643,7 +644,7 @@ class _Converter:
             lon,
             parts,
             half,
-            lambda some: _middles(transformation, rows, at[some], epoch),
+            lambda some: middles(transformation, rows, at[some], epoch),
         )
         if not crossing.any():
             return {}
@@ -680,7 +681,7 @@ class _Converter:
         if crs is not None:
             rows = _positions(finished)
             finished = shapely.set_coordinates(
-                finished, rows[:, _permutation(crs, rows.shape[1], to_values=False)]
+                finished, rows[:, axis_permutation(crs, rows.shape[1], to_values=False)]
             )
         return finished
 
@@ -728,14 +729,14 @@ class _Converter:
             if self._place:
                 raise ValueError(
                     f"JSON-FG positions have as many values as their CRS has axes, "
-                    f"and these have two where {_label(target)} has three; give a "
+                    f"and these have two where {label(target)} has three; give a "
                     "two-dimensional target CRS, or write output='anycrs'"
                 )
             return CoordinateReferenceSystem.from_user_input(target.crs.to_2d())
         if dimension == 3 and target.dimension == 2 and self._place:
             raise ValueError(
                 f"JSON-FG positions have as many values as their CRS has axes, and "
-                f"{_label(target)} has no height; give a three-dimensional target "
+                f"{label(target)} has no height; give a three-dimensional target "
                 "CRS, such as a compound one, or write output='anycrs'"
             )
         rfc_7946 = self._target.flavour is not Flavour.ANYCRS
@@ -825,8 +826,8 @@ class _Converter:
         if operation.authority_code:
             name = f"{name} ({operation.authority_code})"
         line = (
-            f"{count} positions from {_label(transformation.source_crs)} to "
-            f"{_label(transformation.target_crs)} using {name}"
+            f"{count} positions from {label(transformation.source_crs)} to "
+            f"{label(transformation.target_crs)} using {name}"
         )
         if failed:
             line += f"; {failed} failed"
@@ -850,7 +851,7 @@ class _Converter:
     ) -> FloatArray:
         if axis_order == "xy":
             return rows.copy()
-        return rows[:, _permutation(crs, rows.shape[1], to_values=True)]
+        return rows[:, axis_permutation(crs, rows.shape[1], to_values=True)]
 
     def _heights(
         self,
@@ -909,7 +910,7 @@ class _Converter:
             if shape is None:
                 geometry.write(rows.tolist())
             else:
-                geometry.target["coordinates"] = _coordinates(shape)
+                geometry.target["coordinates"] = geojson_object(shape)["coordinates"]
                 # The copy keeps this type; the place is given its own back
                 # when every type is renamed.
                 geometry.target["type"] = _kind(shape).value
@@ -935,7 +936,7 @@ class _Converter:
             geometry = self._document.geometries[index]
             if index in group.cuts:
                 shape = self._finished(group.cuts[index], crs if self._place else None)
-                geometry.target["coordinates"] = _coordinates(shape)
+                geometry.target["coordinates"] = geojson_object(shape)["coordinates"]
                 self._document.rekind(geometry.target, _kind(shape))
                 self._written[index] = _positions(shape)
                 self._written_cuts[index] = shape
@@ -945,7 +946,9 @@ class _Converter:
             if self._orient is not None:
                 values = _oriented(geometry, values, self._orient)
             if self._place:
-                values = values[:, _permutation(crs, values.shape[1], to_values=False)]
+                values = values[
+                    :, axis_permutation(crs, values.shape[1], to_values=False)
+                ]
             self._written[index] = values
             geometry.write(values.tolist())
 
@@ -1130,7 +1133,7 @@ class _Converter:
             stated = ", ".join(sorted(str(epoch) for epoch in distinct))
             raise ValueError(
                 f"JSON-FG states one coordinate epoch for a document, and these "
-                f"positions in the dynamic CRS {_label(self._target.crs)} are at "
+                f"positions in the dynamic CRS {label(self._target.crs)} are at "
                 f"epochs {stated}; convert them separately, or to a static CRS"
             )
         epoch = next(iter(distinct), None)
@@ -1174,7 +1177,7 @@ class _Converter:
                 distinct.append(vertical)
         if len(distinct) > 1:
             raise ValueError(
-                f"heights carried through to {_label(self._target.crs)} are in "
+                f"heights carried through to {label(self._target.crs)} are in "
                 "different vertical CRSs, and an AnyCrs document states one; give "
                 "a compound target CRS, or convert them separately"
             )
@@ -1209,23 +1212,6 @@ def _drop_jsonfg_conformance(root: dict[str, Any]) -> None:
         root["conformsTo"] = kept
     else:
         root.pop("conformsTo")
-
-
-def _permutation(
-    crs: CoordinateReferenceSystem, width: int, *, to_values: bool
-) -> list[int]:
-    """Columns that reorder positions between declared and value order."""
-    order = crs.value_axis_order
-    count = min(width, len(order))
-    moved = list(order[:count])
-    if sorted(moved) != list(range(count)):
-        raise ValueError(
-            f"positions of {width} values cannot be put in the declared order of "
-            f"{_label(crs)}, which has {len(order)} axes"
-        )
-    if not to_values:
-        moved = [int(axis) for axis in np.argsort(moved)]
-    return [*moved, *range(count, width)]
 
 
 def _height_axis(crs: CoordinateReferenceSystem) -> int | None:
@@ -1264,7 +1250,7 @@ def _height_input(
     if source.z_unit is None:
         raise ValueError(
             f"{source.stated_by} does not state the unit of its heights, so they "
-            f"cannot be written as heights of {_label(produced)}"
+            f"cannot be written as heights of {label(produced)}"
         )
     unit = _third_unit(produced)
     if unit.scale == source.z_unit.scale:
@@ -1531,21 +1517,6 @@ def _ring_sizes(geometry: Geometry) -> list[list[int]]:
     ]
 
 
-def _middles(
-    transformation: Transformation,
-    rows: FloatArray,
-    at: NDArray[np.intp],
-    epoch: float | None,
-) -> FloatArray:
-    """The longitude the middle of each source segment from ``at`` goes to, or NaN."""
-    middle = np.ascontiguousarray((rows[at] + rows[at + 1]) / 2)
-    try:
-        columns, _ = failing_rows(transformation, middle, epoch)
-    except (GeodesyError, ValueError):
-        return np.full(len(at), np.nan)
-    return np.asarray(columns[0], dtype=np.float64)
-
-
 def _cut(
     geometry: Geometry,
     values: FloatArray,
@@ -1593,34 +1564,6 @@ def _positions(shape: shapely.Geometry) -> FloatArray:
     return rows
 
 
-def _coordinates(shape: shapely.Geometry) -> list[Any]:
-    """The GeoJSON ``coordinates`` of a line or polygon, or of several."""
-    import shapely
-
-    def positions(line: shapely.Geometry) -> list[Any]:
-        rows: list[Any] = _positions(line).tolist()
-        return rows
-
-    def rings(polygon: shapely.Polygon) -> list[Any]:
-        if polygon.is_empty:
-            return []
-        return [positions(polygon.exterior), *map(positions, polygon.interiors)]
-
-    if isinstance(shape, shapely.LineString):
-        return positions(shape)
-    if isinstance(shape, shapely.MultiLineString):
-        return [positions(line) for line in shape.geoms]
-    if isinstance(shape, shapely.Polygon):
-        return rings(shape)
-    if isinstance(shape, shapely.MultiPolygon):
-        return [rings(polygon) for polygon in shape.geoms]
-    raise TypeError(f"a {_kind(shape)} is not cut at the antimeridian")
-
-
 def _kind(shape: shapely.Geometry) -> Kind:
     """What a cut geometry is."""
     return Kind(cast("BaseGeometry", shape).geom_type)
-
-
-def _label(crs: CoordinateReferenceSystem) -> str:
-    return crs.authority_code or repr(crs.name)
