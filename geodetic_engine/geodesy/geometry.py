@@ -136,6 +136,10 @@ _VALIDATIONS: Final = ("off", "warn", "raise")
 _BYTE_ORDERS: Final = {"little": 1, "big": 0}
 _EWKT: Final = re.compile(r"\s*SRID\s*=\s*(-?\d+)\s*;(.*)\Z", re.IGNORECASE | re.DOTALL)
 _HEX: Final = re.compile(r"[0-9A-Fa-f]+\Z")
+# What repr writes and WKT here does not: a whole number's ".0", and an
+# exponent's sign and leading zeros, "1e+20" and "1.5e-05".
+_WHOLE: Final = re.compile(r"\.0(?=[ ,]|\Z)")
+_EXPONENT: Final = re.compile(r"e\+?(-?)0*(\d)")
 _GEOJSON_TYPES: Final = frozenset(
     {
         "Point",
@@ -1401,14 +1405,15 @@ def _wkt(geometries: ObjectArray) -> list[str | None]:
     GEOS's own writer gives at most 16 significant digits, so a value such as
     0.017453292519943295 would not read back as written.
     """
+    has_z = shapely.has_z(geometries).tolist()
+    has_m = shapely.has_m(geometries).tolist()
     return [
-        None if geometry is None else _wkt_text(geometry) for geometry in geometries
+        None if geometry is None else _wkt_text(geometry, z, m)
+        for geometry, z, m in zip(geometries, has_z, has_m, strict=True)
     ]
 
 
-def _wkt_text(geometry: BaseGeometry) -> str:
-    has_z = bool(shapely.has_z(geometry))
-    has_m = bool(shapely.has_m(geometry))
+def _wkt_text(geometry: BaseGeometry, has_z: bool, has_m: bool) -> str:
     name = type(geometry).__name__.upper()
     tag = _tag(has_z, has_m)
     if _without_parts(geometry):
@@ -1429,7 +1434,11 @@ def _wkt_body(geometry: BaseGeometry, has_z: bool, has_m: bool) -> str:
     if isinstance(geometry, shapely.GeometryCollection) and not isinstance(
         geometry, shapely.MultiPoint | shapely.MultiLineString | shapely.MultiPolygon
     ):
-        return f"({', '.join(_wkt_text(part) for part in geometry.geoms)})"
+        members = (
+            _wkt_text(part, bool(shapely.has_z(part)), bool(shapely.has_m(part)))
+            for part in geometry.geoms
+        )
+        return f"({', '.join(members)})"
     if isinstance(geometry, BaseMultipartGeometry):
         parts = (_wkt_body(part, has_z, has_m) for part in geometry.geoms)
         return f"({', '.join(parts)})"
@@ -1437,18 +1446,20 @@ def _wkt_body(geometry: BaseGeometry, has_z: bool, has_m: bool) -> str:
         rings = [geometry.exterior, *geometry.interiors]
         return f"({', '.join(_wkt_body(ring, has_z, has_m) for ring in rings)})"
     coordinates = shapely.get_coordinates(geometry, include_z=has_z, include_m=has_m)
-    positions = (" ".join(_number_text(value) for value in row) for row in coordinates)
-    return f"({', '.join(positions)})"
+    return f"({_positions_text(coordinates)})"
 
 
-def _number_text(value: float) -> str:
-    text = repr(float(value))
-    if text.endswith(".0"):
-        return text[:-2]
+def _positions_text(coordinates: FloatArray) -> str:
+    """Positions as WKT writes them, each number as :func:`repr` gives it.
+
+    Formatted all at once and trimmed after: ``1.0`` as ``1``, ``1e+20`` as
+    ``1e20`` and ``1.5e-05`` as ``1.5e-5``.
+    """
+    values = iter(map(repr, coordinates.ravel().tolist()))
+    text = ", ".join(map(" ".join, zip(*[values] * coordinates.shape[1], strict=True)))
     if "e" in text:
-        mantissa, exponent = text.split("e")
-        return f"{mantissa.removesuffix('.0')}e{int(exponent)}"
-    return text
+        text = _EXPONENT.sub(r"e\1\2", text)
+    return _WHOLE.sub("", text)
 
 
 def _srid(crs: CoordinateReferenceSystem | None, format: str) -> int:
