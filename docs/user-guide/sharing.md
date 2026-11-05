@@ -205,8 +205,13 @@ pip install --no-deps --index-url \
     "example-projdb==<PROJ release>.*"
 ```
 
-Nothing else needs setting. Your authority's codes then resolve like EPSG's,
-and the official OSDU catalogue's still do:
+The wheel holds no grid files. `validation.grids` in its `proj.db.report.json`
+lists every grid the register's transformations read, with the operations that
+read it (`used_by`). Install those your transformations need where PROJ finds
+them ({doc}`/getting-started/installation`), or set `PROJ_NETWORK=ON` to let
+PROJ download those it can fetch; a transformation whose grid is missing raises
+{class}`~geodetic_engine.geodesy.MissingGridError`. Your authority's codes
+resolve like EPSG's, and the official OSDU catalogue's still do:
 
 ```python
 from geodetic_engine.geodesy import transform
@@ -233,9 +238,10 @@ that provides it. Every result's provenance names the file
 ({doc}`/background/provenance`).
 
 The import passes it over, logs a warning, and reads the shipped database if
-it was built for another PROJ release than pyproj links, if more than one
-installed distribution provides a database, or if the entry point cannot be
-loaded or names no directory holding a `proj.db`.
+it was built for another PROJ release than pyproj links, if PROJ would refuse
+its database layout, if more than one installed distribution provides a
+database, or if the entry point cannot be loaded or names no directory
+holding a `proj.db`.
 
 ### Keeping it in step with PROJ
 

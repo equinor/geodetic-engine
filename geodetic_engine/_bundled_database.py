@@ -27,8 +27,8 @@ one's place, such as a wheel of an organisation's register that
 scripts/build_organisation_projdb.py writes: it names a directory that holds a
 ``proj.db`` alone under the entry point group ``geodetic_engine.proj_data``.
 It is passed over, with a warning, if it cannot be loaded, if it is for
-another PROJ release than pyproj links, or if more than one distribution
-provides one.
+another PROJ release than pyproj links, if PROJ would refuse its database
+layout as in rule c, or if more than one distribution provides one.
 
 That is the precedence of this project's pyproj wheels (``set_data_dir``, then
 a ``PROJ_DATA`` holding a database, then the database the wheel bundles) with
@@ -393,6 +393,13 @@ def _provided() -> _Provided:
             f"{proj_version_str} pyproj links, so it is not read: install its "
             f"build for PROJ {proj_version_str}"
         )
+    if (refused := _refused_layout(database, _split(_data_dir()))) is not None:
+        layout, _, expected = refused
+        return _Provided(
+            problem=f"{provider} provides a proj.db with {layout}, which PROJ "
+            f"cannot open: it needs {expected} or a later minor one, so it is "
+            "not read"
+        )
     return _Provided(database, provider)
 
 
@@ -470,11 +477,27 @@ def _database_first(entries: list[str]) -> list[str]:
 
 
 def _refusal(name: str, entry: str, current: list[str]) -> str | None:
-    """Why the proj.db a variable names is not applied, or None to apply it.
+    """Why the proj.db a variable names is not applied, or None to apply it."""
+    candidate = Path(entry) / _DATABASE
+    if (refused := _refused_layout(candidate, current)) is None:
+        return None
+    layout, reading, expected = refused
+    return (
+        f"{name} names {candidate}, with {layout}, so PROJ keeps reading "
+        f"{reading}, with {expected}"
+    )
+
+
+def _refused_layout(database: Path, current: list[str]) -> tuple[str, Path, str] | None:
+    """Why PROJ would refuse a proj.db for its layout, or None if it would not.
 
     PROJ refuses a database that records no layout version, another major one,
     or a minor one older than it was built for. The layout of the proj.db PROJ
     reads now stands in for that, being at least as new.
+
+    Returns:
+        The database's layout, the proj.db PROJ reads now, and that one's
+        layout.
     """
     reading = next(
         (
@@ -487,15 +510,11 @@ def _refusal(name: str, entry: str, current: list[str]) -> str | None:
     expected = None if reading is None else _layout(reading)
     if reading is None or expected is None:
         return None
-    candidate = Path(entry) / _DATABASE
-    found = _layout(candidate)
+    found = _layout(database)
     if found is not None and found[0] == expected[0] and found[1] >= expected[1]:
         return None
     layout = "no database layout" if found is None else _layout_name(found)
-    return (
-        f"{name} names {candidate}, with {layout}, so PROJ keeps reading "
-        f"{reading.resolve()}, with {_layout_name(expected)}"
-    )
+    return layout, reading.resolve(), _layout_name(expected)
 
 
 def _layout(database: Path) -> tuple[int, int] | None:

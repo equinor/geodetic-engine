@@ -848,6 +848,49 @@ def _other_release(installation: Installation, directory: Path) -> list[Path]:
     return [_provider(directory / "site", "example-projdb", database)]
 
 
+@pytest.mark.parametrize("layout", ["older", "missing"])
+def test_a_provider_with_an_incompatible_layout_falls_back_to_the_shipped_database(
+    installation: Installation, tmp_path: Path, layout: str
+) -> None:
+    """PROJ would refuse it, so new threads would find no database."""
+    database = _marked_copy(
+        installation.stock, tmp_path / "db" / "proj.db", "incompatible layout"
+    )
+    with closing(sqlite3.connect(database)) as connection, connection:
+        major, minor = (
+            int(value)
+            for (value,) in connection.execute(
+                "SELECT value FROM metadata "
+                "WHERE key LIKE 'DATABASE.LAYOUT.VERSION.%' ORDER BY key"
+            )
+        )
+        if layout == "older":
+            connection.execute(
+                "UPDATE metadata SET value = ? "
+                "WHERE key = 'DATABASE.LAYOUT.VERSION.MINOR'",
+                (str(minor - 1),),
+            )
+            found = f"database layout {major}.{minor - 1}"
+        else:
+            connection.execute(
+                "DELETE FROM metadata WHERE key = 'DATABASE.LAYOUT.VERSION.MINOR'"
+            )
+            found = "no database layout"
+
+    [state], log = _probe(
+        installation,
+        installed=(_provider(tmp_path / "site", "example-projdb", database),),
+    )
+    assert state["path"] == str(installation.bundled)
+    assert state["epsg"] == "bundled"
+    assert state["reason"] == "it is the default, and nothing chose another database"
+    assert (
+        "WARNING geodetic_engine._bundled_database: example-projdb 1.0 provides "
+        f"a proj.db with {found}, which PROJ cannot open: it needs database "
+        f"layout {major}.{minor} or a later minor one, so it is not read"
+    ) in log
+
+
 def _two(installation: Installation, directory: Path) -> list[Path]:
     return [
         _provider(directory / "one", "one-projdb", installation.stock),

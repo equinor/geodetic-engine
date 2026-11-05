@@ -93,7 +93,8 @@ under the entry point group `geodetic_engine.proj_data`. The rules above,
 `use_bundled_database()` and `active_database()` then treat its database as
 the shipped one, and the reason names the distribution. It is passed over,
 with a warning, if it was built for another PROJ release than pyproj links, if
-more than one distribution provides one, or if it cannot be loaded.
+PROJ would refuse its database layout, if more than one distribution provides
+one, or if it cannot be loaded.
 
 To see which database PROJ reads, and why:
 

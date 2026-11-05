@@ -13,8 +13,9 @@ All notable changes to this project are documented here. The format follows
   `use_bundled_database()` and `active_database()` treat it as the bundled
   database, and the reason names the distribution. It is passed over, with a
   warning, if it was built for another PROJ release than pyproj links, if
-  more than one distribution provides one, or if it cannot be loaded. It is
-  found, and its module imported, before the search path lock is taken.
+  PROJ would refuse its database layout, if more than one distribution
+  provides one, or if it cannot be loaded. It is found, and its module
+  imported, before the search path lock is taken.
 - `scripts/build_organisation_projdb.py` builds a Georepository register once,
   as a wheel its users `pip install` from a private package index, with no
   Georepository URL, authorities or credentials of their own. It builds the

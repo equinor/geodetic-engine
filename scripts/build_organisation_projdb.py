@@ -127,11 +127,15 @@ def module_name(name: str) -> str:
             geodetic_engine's own.
     """
     module = re.sub(r"[-_.]+", "_", name).lower()
+    if module in {"geodetic_engine", "pygeodetic_engine"}:
+        raise SystemExit(
+            f"--name {name!r} is geodetic-engine's own name, and installing the "
+            "wheel would replace geodetic-engine: choose another"
+        )
     if (
         not _NAME.fullmatch(name)
         or not module.isidentifier()
         or keyword.iskeyword(module)
-        or module == "geodetic_engine"
     ):
         raise SystemExit(
             f"--name {name!r} names no package that can be imported: use "
@@ -156,9 +160,10 @@ def build(
     python = pinned_environment(work / "venv", pins, str(REPO_ROOT))
     output = work / "output"
     output.mkdir()
+    # Stop the CLIs' upward dotenv search, even if TMPDIR is under a .env.
+    (output / ".env").touch()
     database = output / DATABASE
-    # Run outside the checkout, so no .env or settings file of the developer's
-    # is found, and the installed package, not the source tree, is imported.
+    # Run outside the checkout to import the installed package.
     environment = clean_environment() | {"GEODETIC_ENGINE_OSDU_DB": "0"}
     run(
         [

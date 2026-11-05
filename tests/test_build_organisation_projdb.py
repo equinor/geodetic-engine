@@ -29,6 +29,7 @@ from typing import Any
 import pytest
 
 from geodetic_engine._bundled_database import ENTRY_POINT_GROUP
+from geodetic_engine.projdb.settings import find_env_file
 from scripts import build_organisation_projdb as script
 from scripts.build_bundled_osdudb import clean_environment
 
@@ -124,10 +125,16 @@ def test_only_the_credentials_reach_the_register_import(
     for name, value in (credentials | steering).items():
         monkeypatch.setenv(name, value)
 
+    (tmp_path / ".env").write_text(
+        "GEODETIC_ENGINE_OSDU_DB=1\nGEODETIC_ENGINE_CONFIG=untrusted.toml\n"
+    )
     database, base = script.build(
         tmp_path, None, tmp_path / "settings.toml", credentials, grid_patch=True
     )
 
+    monkeypatch.chdir(database.parent)
+    assert find_env_file() == database.parent / ".env"
+    assert (database.parent / ".env").read_text() == ""
     assert (database, base) == (
         tmp_path / "output" / "proj.db",
         tmp_path / "reference.db",
@@ -360,11 +367,18 @@ def test_pip_installs_the_database_where_geodetic_engine_looks(
     assert (Path(found[2]) / "proj.db").read_bytes() == database.read_bytes()
 
 
-@pytest.mark.parametrize(
-    "name", ["-projdb", "1projdb", "example projdb", "class", "geodetic-engine"]
-)
+@pytest.mark.parametrize("name", ["-projdb", "1projdb", "example projdb", "class"])
 def test_a_name_no_package_can_be_imported_by_is_refused(name: str) -> None:
     with pytest.raises(SystemExit, match="names no package that can be imported"):
+        script.module_name(name)
+
+
+@pytest.mark.parametrize(
+    "name", ["geodetic-engine", "pygeodetic-engine", "PyGeodetic.Engine"]
+)
+def test_geodetic_engines_own_names_are_refused(name: str) -> None:
+    """Installing the wheel would replace geodetic-engine, which reads it."""
+    with pytest.raises(SystemExit, match="is geodetic-engine's own name"):
         script.module_name(name)
 
 
