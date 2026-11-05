@@ -239,9 +239,11 @@ that provides it. Every result's provenance names the file
 
 The import passes it over, logs a warning, and reads the shipped database if
 it was built for another PROJ release than pyproj links, if PROJ would refuse
-its database layout, if more than one installed distribution provides a
-database, or if the entry point cannot be loaded or names no directory
-holding a `proj.db`.
+its database layout, judged by the `proj.db` that came with that PROJ, if more
+than one installed distribution provides a database, or if the entry point
+cannot be loaded or names no directory holding a `proj.db`. It passes over
+every one if the installed distributions' entry points cannot be read, as when
+any of them, however unrelated, has a malformed `entry_points.txt`.
 
 ### Keeping it in step with PROJ
 

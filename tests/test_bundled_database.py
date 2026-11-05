@@ -907,6 +907,17 @@ def _empty(installation: Installation, directory: Path) -> list[Path]:
     return [_provider(directory / "site", "example-projdb", None)]
 
 
+def _malformed(installation: Installation, directory: Path) -> list[Path]:
+    """An unrelated distribution whose entry points cannot be parsed."""
+    info = directory / "site" / "malformed-1.0.dist-info"
+    info.mkdir(parents=True)
+    (info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: malformed\nVersion: 1.0\n"
+    )
+    (info / "entry_points.txt").write_text("[console_scripts]\nmalformed\n")
+    return [directory / "site"]
+
+
 @pytest.mark.parametrize(
     ("providers", "warning"),
     [
@@ -933,6 +944,12 @@ def _empty(installation: Installation, directory: Path) -> list[Path]:
             "example-projdb 1.0 provides no proj.db at ",
             id="no proj.db",
         ),
+        pytest.param(
+            _malformed,
+            "no proj.db under geodetic_engine.proj_data is read: reading the "
+            "installed distributions' entry points raised TypeError",
+            id="malformed entry points",
+        ),
     ],
 )
 def test_an_installed_database_that_cannot_be_read_leaves_the_shipped_one(
@@ -945,6 +962,69 @@ def test_an_installed_database_that_cannot_be_read_leaves_the_shipped_one(
     assert state["epsg"] == "bundled"
     assert state["reason"] == "it is the default, and nothing chose another database"
     assert f"WARNING geodetic_engine._bundled_database: {warning}" in log
+
+
+def test_malformed_entry_points_fail_no_import_that_turned_it_off(
+    installation: Installation, tmp_path: Path
+) -> None:
+    """Every distribution's are read, so any one could fail every import."""
+    [state], log = _probe(
+        installation,
+        installed=tuple(_malformed(installation, tmp_path)),
+        variables={"GEODETIC_ENGINE_OSDU_DB": "0"},
+    )
+    assert state["reason"] == "GEODETIC_ENGINE_OSDU_DB=0 turns it off"
+    assert "WARNING" not in log
+
+
+def test_a_provider_is_judged_by_the_layout_proj_needs_not_by_a_chosen_database(
+    installation: Installation, tmp_path: Path
+) -> None:
+    """A database the caller chose may be of a later minor layout than PROJ's.
+
+    The provider's, of PROJ's own layout, is still read once the caller
+    switches back to it.
+    """
+    newer = _marked_copy(installation.stock, tmp_path / "newer" / "proj.db", "user")
+    with closing(sqlite3.connect(newer)) as connection, connection:
+        connection.execute(
+            "UPDATE metadata SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
+            "WHERE key = 'DATABASE.LAYOUT.VERSION.MINOR'"
+        )
+    site = _installed_wheel(installation, tmp_path)
+    provided = (site / "example_projdb" / "proj_data" / "proj.db").resolve()
+    states, log = _probe(
+        installation,
+        installed=(site,),
+        variables={"PROJ_DATA": str(newer.parent)},
+        after="record(); pyproj.datadir.set_data_dir({stock!r}); use_bundled_database()",
+    )
+    assert [state["path"] for state in states] == [str(newer.resolve()), str(provided)]
+    assert [state["epsg"] for state in states] == ["user", "provided"]
+    assert "which PROJ cannot open" not in log
+
+
+def test_a_provider_naming_a_relative_directory_is_read_wherever_the_caller_moves(
+    installation: Installation, tmp_path: Path
+) -> None:
+    """PROJ would read a relative directory from the working directory of the moment."""
+    database = _marked_copy(installation.stock, tmp_path / "db" / "proj.db", "provided")
+    site = _provider(tmp_path / "site", "example-projdb", database)
+    directory = site / "example_projdb" / "proj_data"
+    relative = os.path.relpath(directory, installation.root.parent)
+    (site / "example_projdb" / "__init__.py").write_text(
+        f"from pathlib import Path\nPROJ_DATA = Path({relative!r})\n"
+    )
+    # Deeper than the directory the import ran in, so the relative one is gone.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    states, _ = _probe(
+        installation, installed=(site,), after=f"record(); os.chdir({str(elsewhere)!r})"
+    )
+    provided = str((directory / "proj.db").resolve())
+    assert [state["path"] for state in states] == [provided, provided]
+    assert [state["provenance"][0] for state in states] == [provided, provided]
+    assert [state["epsg"] for state in states] == ["provided", "provided"]
 
 
 @pytest.mark.parametrize(

@@ -94,7 +94,8 @@ under the entry point group `geodetic_engine.proj_data`. The rules above,
 the shipped one, and the reason names the distribution. It is passed over,
 with a warning, if it was built for another PROJ release than pyproj links, if
 PROJ would refuse its database layout, if more than one distribution provides
-one, or if it cannot be loaded.
+one, if it cannot be loaded, or if the installed distributions' entry points
+cannot be read.
 
 To see which database PROJ reads, and why:
 

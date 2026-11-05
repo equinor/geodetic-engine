@@ -28,7 +28,9 @@ scripts/build_organisation_projdb.py writes: it names a directory that holds a
 ``proj.db`` alone under the entry point group ``geodetic_engine.proj_data``.
 It is passed over, with a warning, if it cannot be loaded, if it is for
 another PROJ release than pyproj links, if PROJ would refuse its database
-layout as in rule c, or if more than one distribution provides one.
+layout, judged by the ``proj.db`` that came with that PROJ, or if more than one
+distribution provides one; and every one is, if the installed distributions'
+entry points cannot be read.
 
 That is the precedence of this project's pyproj wheels (``set_data_dir``, then
 a ``PROJ_DATA`` holding a database, then the database the wheel bundles) with
@@ -42,7 +44,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sqlite3
+import sys
 from contextlib import closing, suppress
 from dataclasses import dataclass
 from functools import cache
@@ -364,7 +368,15 @@ def _provided() -> _Provided:
     Loading an entry point imports its module, so this is first called
     before the lock is taken; see _search_path.
     """
-    points = sorted(entry_points(group=ENTRY_POINT_GROUP), key=_provider)
+    # Every installed distribution's metadata is read, and one that is
+    # malformed, however unrelated, must not fail this import either.
+    try:
+        points = sorted(entry_points(group=ENTRY_POINT_GROUP), key=_provider)
+    except Exception as error:
+        return _Provided(
+            problem=f"no proj.db under {ENTRY_POINT_GROUP} is read: reading the "
+            f"installed distributions' entry points raised {error!r}"
+        )
     if not points:
         return _Provided()
     if len(points) > 1:
@@ -376,8 +388,10 @@ def _provided() -> _Provided:
     (point,) = points
     provider = _provider(point)
     # Another distribution's code: whatever it raises must not fail this import.
+    # Resolved now: PROJ would read a relative one from the working directory
+    # of the moment.
     try:
-        database = Path(point.load()) / _DATABASE
+        database = (Path(point.load()) / _DATABASE).resolve()
     except Exception as error:
         return _Provided(
             problem=f"{provider} provides no proj.db that can be read: loading "
@@ -393,8 +407,14 @@ def _provided() -> _Provided:
             f"{proj_version_str} pyproj links, so it is not read: install its "
             f"build for PROJ {proj_version_str}"
         )
-    if (refused := _refused_layout(database, _split(_data_dir()))) is not None:
-        layout, _, expected = refused
+    # Not the proj.db PROJ reads now: one the caller chose may have a later
+    # minor layout than PROJ needs, and the answer is kept for good.
+    reference = _linked_database() or _first_database(_split(_data_dir()))
+    if (
+        reference is not None
+        and (refused := _refused_layout(database, reference)) is not None
+    ):
+        layout, expected = refused
         return _Provided(
             problem=f"{provider} provides a proj.db with {layout}, which PROJ "
             f"cannot open: it needs {expected} or a later minor one, so it is "
@@ -420,6 +440,29 @@ def _release(database: Path) -> str | None:
     except sqlite3.Error:
         return None
     return None if row is None else str(row[0])
+
+
+def _linked_database() -> Path | None:
+    """The proj.db that came with the PROJ pyproj links, or None if not found.
+
+    Looked for where pyproj looks when nothing chose its data directory, but
+    for PROJ_DATA and PROJ_LIB, which may name any database: in pyproj's wheel,
+    under the environment's prefix, then beside the proj program on PATH. It
+    must be for the PROJ release pyproj links.
+    """
+    directories = [
+        Path(datadir.__file__).absolute().parent / "proj_dir" / "share" / "proj",
+        Path(sys.prefix, "share", "proj"),
+        Path(sys.prefix, "Library", "share", "proj"),
+    ]
+    program = shutil.which("proj", path=sys.prefix) or shutil.which("proj")
+    if program is not None:
+        directories.append(Path(program).parent.parent / "share" / "proj")
+    for directory in directories:
+        database = directory / _DATABASE
+        if database.is_file() and _release(database) == proj_version_str:
+            return database.resolve()
+    return None
 
 
 def _user_data_dir() -> str | None:
@@ -479,42 +522,47 @@ def _database_first(entries: list[str]) -> list[str]:
 def _refusal(name: str, entry: str, current: list[str]) -> str | None:
     """Why the proj.db a variable names is not applied, or None to apply it."""
     candidate = Path(entry) / _DATABASE
-    if (refused := _refused_layout(candidate, current)) is None:
+    reading = _first_database(current)
+    if reading is None or (refused := _refused_layout(candidate, reading)) is None:
         return None
-    layout, reading, expected = refused
+    layout, expected = refused
     return (
         f"{name} names {candidate}, with {layout}, so PROJ keeps reading "
-        f"{reading}, with {expected}"
+        f"{reading.resolve()}, with {expected}"
     )
 
 
-def _refused_layout(database: Path, current: list[str]) -> tuple[str, Path, str] | None:
-    """Why PROJ would refuse a proj.db for its layout, or None if it would not.
-
-    PROJ refuses a database that records no layout version, another major one,
-    or a minor one older than it was built for. The layout of the proj.db PROJ
-    reads now stands in for that, being at least as new.
-
-    Returns:
-        The database's layout, the proj.db PROJ reads now, and that one's
-        layout.
-    """
-    reading = next(
+def _first_database(directories: list[str]) -> Path | None:
+    """The proj.db of the first directory that holds one, or None if none does."""
+    return next(
         (
             Path(directory) / _DATABASE
-            for directory in current
+            for directory in directories
             if (Path(directory) / _DATABASE).is_file()
         ),
         None,
     )
-    expected = None if reading is None else _layout(reading)
-    if reading is None or expected is None:
+
+
+def _refused_layout(database: Path, reference: Path) -> tuple[str, str] | None:
+    """Why PROJ would refuse a proj.db for its layout, or None if it would not.
+
+    PROJ refuses a database that records no layout version, another major one,
+    or a minor one older than it was built for. The layout of ``reference``, a
+    proj.db PROJ opens, stands in for that, being at least as new; if it
+    records none, nothing is refused.
+
+    Returns:
+        The database's layout, and the reference's.
+    """
+    expected = _layout(reference)
+    if expected is None:
         return None
     found = _layout(database)
     if found is not None and found[0] == expected[0] and found[1] >= expected[1]:
         return None
     layout = "no database layout" if found is None else _layout_name(found)
-    return layout, reading.resolve(), _layout_name(expected)
+    return layout, _layout_name(expected)
 
 
 def _layout(database: Path) -> tuple[int, int] | None:
