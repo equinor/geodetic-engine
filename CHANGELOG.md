@@ -35,7 +35,8 @@ All notable changes to this project are documented here. The format follows
   manifest naming the PROJ release, EPSG version and database layout it is
   for. The new page *Sharing a built database* explains why it belongs in a
   private index and not a public one, how to avoid dependency confusion with
-  uv and pip, and gives a workflow that builds and uploads it.
+  uv and pip, extra indexes in pip's configuration included, and gives a
+  workflow that builds and uploads it.
 
 ### Changed
 

@@ -28,10 +28,11 @@ Actions logs, which name objects from the register, and any GitHub user can
 download its workflow artifacts.
 
 Give the wheel a name no public index serves, and have installers look for it
-in your index alone. Given `--extra-index-url`, pip takes the highest version
-it finds on any index, so whoever publishes the same name on PyPI with a
-higher version would have their code installed instead: a dependency
-confusion attack. Install it as {ref}`installing-the-database` shows.
+in your index alone. Given an extra index, on the command line or in its
+configuration, pip takes the highest version it finds on any index, so
+whoever publishes the same name on PyPI with a higher version would have their
+code installed instead: a dependency confusion attack. Install it as
+{ref}`installing-the-database` shows.
 
 ## Building it
 
@@ -202,10 +203,19 @@ records.
 With pip, install it on its own, from your index only:
 
 ```bash
-pip install --no-deps --index-url \
+PIP_CONFIG_FILE=/dev/null pip install --isolated --no-deps --index-url \
     https://pkgs.dev.azure.com/<organisation>/<project>/_packaging/<feed>/pypi/simple/ \
     "example-projdb==<PROJ release>.*"
 ```
+
+`--index-url` replaces only pip's main index: pip still searches an extra
+index or `find-links` location set in a `PIP_` variable or in any pip
+configuration file, and would take a higher version from there. `--isolated`
+ignores the variables and your user configuration, and
+`PIP_CONFIG_FILE=/dev/null` (`nul` on Windows) every configuration file.
+Proxies in `HTTPS_PROXY`, and credentials in a keyring or `.netrc`, still
+apply; give anything else your index needs, such as `--cert`, on the command
+line.
 
 The wheel holds no grid files. `validation.grids` in its `proj.db.report.json`
 lists every grid the register's transformations read, with the operations that
