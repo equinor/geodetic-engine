@@ -63,11 +63,13 @@ uv run --env-file .env python scripts/build_organisation_projdb.py \
 ```
 
 The credentials come from the environment, here read from your `.env`; in CI,
-from your secret store. They are the only variables of yours that reach the
-build, and only the register import. Every other setting comes from the
-configuration file: no `PROJ_` or other `GEODETIC_ENGINE_` variable is passed
-on, so neither a local `PROJ_DATA` nor another setting in `.env` changes what
-is built. The script needs Python 3.13 or newer; network access to PyPI, this
+from your secret store. Only the register import gets them. Of the rest of
+your environment, the build gets only what Python, pip, `bash` and `sqlite3`
+need to run and to reach the network: `PATH`, `HOME`, the temporary
+directory, the locale, proxies and certificate bundles, and for pip alone its
+`PIP_` settings. Every other setting comes from the configuration file, so
+neither a local `PROJ_DATA` nor another setting or secret in `.env` reaches
+the build. The script needs Python 3.13 or newer; network access to PyPI, this
 project's pyproj index and the register; and `bash` and `sqlite3` for the grid
 patch, which `--skip-grid-patch` leaves out.
 

@@ -28,12 +28,15 @@ private package index, with no credentials of the register's:
    names that directory under the entry point group geodetic_engine.proj_data,
    where geodetic_engine finds it.
 
-GEODETIC_ENGINE_GEOREP_CLIENT_ID and GEODETIC_ENGINE_GEOREP_CLIENT_SECRET are
-the only variables of the caller's that reach the build, and only the register
-import: every other PROJ_ and GEODETIC_ENGINE_ variable is left out, and every
-other setting comes from --config. The wheel holds the register's definitions:
-publish it only to an index that the register's users, and no one else, can
-read. See docs/user-guide/sharing.md.
+Of the caller's environment, the build gets only what Python, pip, bash and
+sqlite3 need to run and to reach the network, as clean_environment() in
+scripts/build_bundled_osdudb.py lists it, and pip alone its PIP_ settings.
+GEODETIC_ENGINE_GEOREP_CLIENT_ID and GEODETIC_ENGINE_GEOREP_CLIENT_SECRET
+reach the register import, and nothing else: no other PROJ_ or
+GEODETIC_ENGINE_ variable, and no other secret of the caller's, reaches the
+build, and every other setting comes from --config. The wheel holds the
+register's definitions: publish it only to an index that the register's
+users, and no one else, can read. See docs/user-guide/sharing.md.
 
 Needs the Python the package requires; network access to PyPI, the project's
 pyproj index and the register; and, unless --skip-grid-patch, bash and sqlite3.

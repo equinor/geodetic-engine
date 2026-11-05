@@ -2,9 +2,10 @@
 
 scripts/build_organisation_projdb.py builds a Georepository register and the
 official OSDU catalogue into the pinned pyproj wheel's own proj.db, so that
-the register's users need no credentials of their own. Only the credentials
-reach the build, and only the register import; a database not fit to share
-is refused; and the wheel written installs it where geodetic_engine looks.
+the register's users need no credentials of their own. Of the caller's
+secrets only the credentials reach the build, and only the register import; a
+database not fit to share is refused; and the wheel written installs it where
+geodetic_engine looks.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ import pytest
 from geodetic_engine._bundled_database import ENTRY_POINT_GROUP
 from geodetic_engine.projdb.settings import find_env_file
 from scripts import build_organisation_projdb as script
-from scripts.build_bundled_osdudb import clean_environment
+from scripts.build_bundled_osdudb import clean_environment, pip_environment
 
 METADATA = {
     "PROJ.VERSION": "9.9.0",
@@ -122,7 +123,13 @@ def test_only_the_credentials_reach_the_register_import(
         "GEODETIC_ENGINE_BASE_PROJ_DB": "the caller's",
         "GEODETIC_ENGINE_OSDU_DB": "1",
     }
-    for name, value in (credentials | steering).items():
+    # Another secret, and pip's index, which may hold one: no process here
+    # needs either.
+    unrelated = {
+        "TWINE_PASSWORD": "the caller's",
+        "PIP_INDEX_URL": "https://token@mirror.example/simple",
+    }
+    for name, value in (credentials | steering | unrelated).items():
         monkeypatch.setenv(name, value)
 
     (tmp_path / ".env").write_text(
@@ -156,6 +163,7 @@ def test_only_the_credentials_reach_the_register_import(
     for env in (register_env, osdu_env, patch_env):
         assert env["GEODETIC_ENGINE_OSDU_DB"] == "0"
         assert not (steering.keys() - {"GEODETIC_ENGINE_OSDU_DB"}) & env.keys()
+        assert not unrelated.keys() & env.keys()
     for env in (osdu_env, patch_env):
         assert not set(script.CREDENTIALS) & env.keys()
 
@@ -347,7 +355,7 @@ def test_pip_installs_the_database_where_geodetic_engine_looks(
     install = ["install", "--quiet", "--no-deps", "--no-index", "--target"]
     subprocess.run(
         [str(python), "-m", "pip", *install, str(target), str(wheel)],
-        env=clean_environment(),
+        env=pip_environment(),
         check=True,
     )
     found = subprocess.run(

@@ -24,17 +24,27 @@ All notable changes to this project are documented here. The format follows
   as a wheel its users `pip install` from a private package index, with no
   Georepository URL, authorities or credentials of their own. It builds the
   register, the official OSDU catalogue and the grid filename patches into
-  the pinned pyproj wheel's own `proj.db`, in a new environment that no
-  variable of the caller's reaches but the two credentials, and refuses a
-  database that does not open read-only, carries other metadata than the
-  wheel's `proj.db`, or holds nothing of an authority it imported. The wheel
-  is versioned as the PROJ release and the minute of the build, so
+  the pinned pyproj wheel's own `proj.db`, in a new environment that gets
+  only what Python, pip, bash and sqlite3 need of the caller's to run and to
+  reach the network, the register import alone also the two credentials. It
+  refuses a database that does not open read-only, carries other metadata
+  than the wheel's `proj.db`, or holds nothing of an authority it imported.
+  The wheel is versioned as the PROJ release and the minute of the build, so
   `<name>==<PROJ release>.*` installs the newest build for that release, and
   holds the database alone in its directory, the build reports, and a
   manifest naming the PROJ release, EPSG version and database layout it is
   for. The new page *Sharing a built database* explains why it belongs in a
   private index and not a public one, how to avoid dependency confusion with
   uv and pip, and gives a workflow that builds and uploads it.
+
+### Changed
+
+- `scripts/build_bundled_osdudb.py` and `scripts/check_installed_wheel.py`
+  pass their processes only what they need of the caller's environment:
+  `PATH`, `HOME`, the temporary directories, the locale, proxies and
+  certificate bundles, and pip alone also its `PIP_` settings. They passed
+  every variable but `PROJ_` and `GEODETIC_ENGINE_` ones, so a secret such as
+  an upload token reached pip, the builds and the check.
 
 ## 0.2.0 - 2026-11-04
 
