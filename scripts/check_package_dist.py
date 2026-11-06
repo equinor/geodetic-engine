@@ -22,14 +22,21 @@ import sqlite3
 import tarfile
 import tempfile
 import zipfile
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 try:
-    from sync_pins import pins_module
+    from sync_pins import package_module, pins_module
 except ImportError:  # imported as scripts.check_package_dist, by the tests
-    from scripts.sync_pins import pins_module
+    from scripts.sync_pins import package_module, pins_module
+
+# geodetic_engine/_sqlite.py's, which puts a path into the URI as it is:
+# Path.as_uri() makes a UNC path's server the URI's authority, which SQLite
+# refuses, so a database on a network share could not be read.
+_sqlite = package_module("_sqlite")
+read_only: Callable[[str | os.PathLike[str]], sqlite3.Connection] = _sqlite.read_only
 
 _DATA = "geodetic_engine/osdudb/_data/"
 _CATALOG = _DATA + "CRS_CT_osdu_official_crs_catalog.json"
@@ -69,7 +76,7 @@ def stock_proj_db(search_path: str) -> Path:
     for directory in search_path.split(os.pathsep):
         candidate = Path(directory) / "proj.db"
         if candidate.is_file():
-            with closing(_read_only(candidate)) as connection:
+            with closing(read_only(candidate)) as connection:
                 if not _has_table(connection, _HISTORY_TABLE):
                     return candidate.resolve()
     raise ValueError(f"no proj.db this package did not build on {search_path}")
@@ -118,7 +125,7 @@ def check_database(
             PROJ release's own database, or cannot be read where installed.
     """
     try:
-        with closing(_read_only(reference)) as connection:
+        with closing(read_only(reference)) as connection:
             expected = dict(connection.execute("SELECT key, value FROM metadata"))
     except sqlite3.Error as error:
         raise ValueError(f"{reference} cannot be read: {error}") from error
@@ -128,16 +135,12 @@ def check_database(
             f"pinned {proj_version}"
         )
     try:
-        with closing(_read_only(database)) as connection:
+        with closing(read_only(database)) as connection:
             return _check_contents(
                 connection, provenance=provenance, expected=expected
             ) | {"reference": str(reference)}
     except sqlite3.Error as error:
         raise ValueError(f"the bundled proj.db cannot be read: {error}") from error
-
-
-def _read_only(database: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
 
 
 def _has_table(connection: sqlite3.Connection, table: str) -> bool:

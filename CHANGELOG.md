@@ -52,6 +52,14 @@ All notable changes to this project are documented here. The format follows
   reached pip, the builds and the check. `ensurepip` is now run as `venv`
   runs it, with the narrower environment.
 
+### Fixed
+
+- `scripts/check_package_dist.py`, and with it `scripts/build_bundled_osdudb.py`
+  and `scripts/check_installed_wheel.py`, could not read a database on a UNC
+  path, such as one in a temporary directory on a network share:
+  `Path.as_uri()` made the server the URI's authority, which SQLite refuses.
+  They now open a database as `geodetic_engine` does.
+
 ## 0.2.0 - 2026-11-04
 
 ### Added

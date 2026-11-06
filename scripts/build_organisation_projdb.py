@@ -55,7 +55,6 @@ import keyword
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 import tomllib
@@ -72,6 +71,7 @@ try:
         pinned_environment,
         run,
     )
+    from check_package_dist import read_only
     from sync_pins import read_pins
 except ImportError:  # imported as scripts.build_organisation_projdb, by the tests
     from scripts.build_bundled_osdudb import (
@@ -80,6 +80,7 @@ except ImportError:  # imported as scripts.build_organisation_projdb, by the tes
         pinned_environment,
         run,
     )
+    from scripts.check_package_dist import read_only
     from scripts.sync_pins import read_pins
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -219,9 +220,9 @@ def check_database(database: Path, reference: Path) -> dict[str, Any]:
             OSDU catalogue's, both validated and started from the reference,
             or cannot be read where it is installed.
     """
-    with closing(_read_only(reference)) as connection:
+    with closing(read_only(reference)) as connection:
         expected = dict(connection.execute("SELECT key, value FROM metadata"))
-    with closing(_read_only(database)) as connection:
+    with closing(read_only(database)) as connection:
         # A WAL database needs a writable directory even to be read, and a
         # container image or a shared drive often is not one.
         (journal,) = connection.execute("PRAGMA journal_mode").fetchone()
@@ -413,10 +414,6 @@ def write_wheel(
 def _digest(data: bytes) -> str:
     """A file's hash as a wheel's RECORD states it."""
     return base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
-
-
-def _read_only(database: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
 
 
 def _project_version() -> str:

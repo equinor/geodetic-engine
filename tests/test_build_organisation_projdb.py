@@ -32,6 +32,7 @@ import pytest
 from geodetic_engine._bundled_database import ENTRY_POINT_GROUP
 from geodetic_engine.projdb.settings import find_env_file
 from scripts import build_organisation_projdb as script
+from scripts import check_package_dist
 from scripts.build_bundled_osdudb import clean_environment, pip_environment
 
 METADATA = {
@@ -392,6 +393,15 @@ def test_the_commit_is_read_with_nothing_more_of_the_callers(
     assert script._commit() == "0123abc"
     assert [command[3] for command, _ in calls] == ["rev-parse", "status"]
     assert all(env == clean_environment() for _, env in calls)
+
+
+def test_databases_are_opened_as_geodetic_engine_opens_them() -> None:
+    """Path.as_uri() made a UNC path's server a URI authority, which SQLite
+    refuses; tests/test_package_dist.py opens one on Windows."""
+    assert script.read_only is check_package_dist.read_only
+    assert check_package_dist.read_only.__code__.co_filename == str(
+        Path(script.REPO_ROOT, "geodetic_engine", "_sqlite.py")
+    )
 
 
 @pytest.mark.parametrize("name", ["-projdb", "1projdb", "example projdb", "class"])
