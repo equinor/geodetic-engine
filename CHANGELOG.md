@@ -15,9 +15,11 @@ All notable changes to this project are documented here. The format follows
   warning, if it was built for another PROJ release than pyproj links, if
   PROJ would refuse its database layout, judged by the `proj.db` that came
   with that PROJ rather than the one PROJ reads, if more than one
-  distribution provides one, or if it cannot be loaded; and every one is if
-  the installed distributions' entry points cannot be read, so that a
-  malformed `entry_points.txt` in any of them fails no import. It is found,
+  distribution provides one, or if it cannot be loaded, its module raising
+  an exception or calling `sys.exit()`; and every one is if the installed
+  distributions' entry points cannot be read, so that a malformed
+  `entry_points.txt` in any of them fails no import.
+  `GEODETIC_ENGINE_OSDU_DB=0` keeps the import from loading any. It is found,
   its module imported and its directory made absolute, before the search
   path lock is taken.
 - `scripts/build_organisation_projdb.py` builds a Georepository register once,

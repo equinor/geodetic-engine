@@ -5,7 +5,8 @@ proj.db of the pinned pyproj wheel with the official OSDU catalogue built into
 it. When ``geodetic_engine`` is first imported, the first of these rules that
 matches decides whether PROJ reads it:
 
-a. ``GEODETIC_ENGINE_OSDU_DB=0``: nothing is changed.
+a. ``GEODETIC_ENGINE_OSDU_DB=0``: nothing is changed, and no installed
+   distribution's database is looked for.
 b. ``pyproj.datadir.set_data_dir()`` or ``append_data_dir()`` was called
    before the import: nothing is changed.
 c. ``PROJ_DATA``, or ``PROJ_LIB`` when ``PROJ_DATA`` is unset, names a
@@ -26,11 +27,12 @@ An installed distribution can provide the bundled database in the shipped
 one's place, such as a wheel of an organisation's register that
 scripts/build_organisation_projdb.py writes: it names a directory that holds a
 ``proj.db`` alone under the entry point group ``geodetic_engine.proj_data``.
-It is passed over, with a warning, if it cannot be loaded, if it is for
-another PROJ release than pyproj links, if PROJ would refuse its database
-layout, judged by the ``proj.db`` that came with that PROJ, or if more than one
-distribution provides one; and every one is, if the installed distributions'
-entry points cannot be read.
+It is passed over, with a warning, if it cannot be loaded, its module raising
+an exception or calling ``sys.exit()``, if it is for another PROJ release than
+pyproj links, if PROJ would refuse its database layout, judged by the
+``proj.db`` that came with that PROJ, or if more than one distribution
+provides one; and every one is, if the installed distributions' entry points
+cannot be read.
 
 That is the precedence of this project's pyproj wheels (``set_data_dir``, then
 a ``PROJ_DATA`` holding a database, then the database the wheel bundles) with
@@ -79,6 +81,9 @@ _CHANGED: Final = (
     "pyproj.datadir.set_data_dir() changed PROJ's search path after "
     "geodetic_engine chose the database"
 )
+# What another distribution's code may raise without ending this import:
+# sys.exit() included, KeyboardInterrupt not.
+_FOREIGN: Final = (Exception, SystemExit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,18 +135,22 @@ def activate_at_import() -> None:
     global _choice
     # Logged once the lock is released; see _search_path.
     warnings: list[str] = []
-    _provided()
+    raw = os.environ.get(ENVIRONMENT_VARIABLE)
+    # Loading a provider imports its module, so it is found before the lock is
+    # taken; and not at all under rule a, so that no code of another
+    # distribution's runs on an import that turned the bundled database off.
+    database = _shipped_database() if _off(raw) else _bundled_database()
     with _search_path.lock:
         if _choice is not None:
             return
-        reason, search = _decide(warnings)
+        reason, search = _decide(raw, warnings)
         before = _data_dir()
         if search is not None:
             _search_path.set_search_path(os.pathsep.join(search))
         _choice = _Choice(
             reason, _data_dir(), restore=before if search is not None else None
         )
-        active = _active()
+        active = _active(database)
     for warning in warnings:
         logger.warning("%s", warning)
     _log(active)
@@ -247,28 +256,33 @@ def _reading() -> ActiveDatabase:
     The thread re-points without the lock, so the report is taken under it
     only once no switch has landed in between.
     """
-    _provided()
+    database = _bundled_database()
     while True:
         with suppress(DataDirError):
             _search_path.database_identity()
         with _search_path.lock:
             if _search_path.followed():
-                return _active()
+                return _active(database)
 
 
-def _decide(warnings: list[str]) -> tuple[str, list[str] | None]:
+def _off(raw: str | None) -> bool:
+    """Whether a value of the variable turns the bundled database off."""
+    return (raw or "").strip().casefold() in _OFF
+
+
+def _decide(raw: str | None, warnings: list[str]) -> tuple[str, list[str] | None]:
     """Why the bundled database is or is not used, and the search path to set.
 
-    What to warn about is added to ``warnings``, for the caller to log.
+    Args:
+        raw: The value of the variable that turns it off, None if unset.
+        warnings: What to warn about is added here, for the caller to log.
     """
     # Read first: once this package has called set_data_dir() itself, a call
     # of the caller's own can no longer be told apart from it.
     explicit = _user_data_dir()
-    raw = os.environ.get(ENVIRONMENT_VARIABLE)
-    setting = (raw or "").strip().casefold()
-    if setting in _OFF:
+    if _off(raw):
         return f"{ENVIRONMENT_VARIABLE}={raw} turns it off", None
-    if setting not in _ON:
+    if (raw or "").strip().casefold() not in _ON:
         warnings.append(
             f"{ENVIRONMENT_VARIABLE}={raw!r} is not a boolean; the bundled OSDU "
             "database stays on by default"
@@ -324,13 +338,13 @@ def _decide(warnings: list[str]) -> tuple[str, list[str] | None]:
     return f"{default}, and nothing chose another database", search
 
 
-def _active() -> ActiveDatabase:
+def _active(database: Path | None) -> ActiveDatabase:
+    """What PROJ reads, ``database`` being the bundled database, if any."""
     current = _data_dir()
     directories = tuple(Path(entry) for entry in _split(current))
     path = None
     if directories and (candidate := directories[0] / _DATABASE).is_file():
         path = candidate.resolve()
-    database = _bundled_database()
     bundled = path is not None and database is not None and path == database.resolve()
     if _choice is None:
         reason = "geodetic_engine has not chosen a database"
@@ -355,8 +369,13 @@ def _log(active: ActiveDatabase) -> None:
 
 
 def _bundled_database() -> Path | None:
+    """The bundled database: an installed distribution's, or else the shipped one."""
     if (provided := _provided()).path is not None:
         return provided.path
+    return _shipped_database()
+
+
+def _shipped_database() -> Path | None:
     path = BUNDLED_DIRECTORY / _DATABASE
     return path if path.is_file() else None
 
@@ -372,7 +391,7 @@ def _provided() -> _Provided:
     # malformed, however unrelated, must not fail this import either.
     try:
         points = sorted(entry_points(group=ENTRY_POINT_GROUP), key=_provider)
-    except Exception as error:
+    except _FOREIGN as error:
         return _Provided(
             problem=f"no proj.db under {ENTRY_POINT_GROUP} is read: reading the "
             f"installed distributions' entry points raised {error!r}"
@@ -392,7 +411,7 @@ def _provided() -> _Provided:
     # of the moment.
     try:
         database = (Path(point.load()) / _DATABASE).resolve()
-    except Exception as error:
+    except _FOREIGN as error:
         return _Provided(
             problem=f"{provider} provides no proj.db that can be read: loading "
             f"{point.value} raised {error!r}"

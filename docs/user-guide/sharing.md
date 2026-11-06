@@ -243,7 +243,8 @@ database: PROJ reads the `proj.db` in that directory in place of the OSDU
 database the wheel ships. Everything {doc}`/getting-started/installation` says
 of the shipped database applies to it. A database you chose with
 `pyproj.datadir.set_data_dir()` or `PROJ_DATA` still wins,
-`GEODETIC_ENGINE_OSDU_DB=0` turns it off,
+`GEODETIC_ENGINE_OSDU_DB=0` turns it off, and keeps the import from loading
+the distribution's module at all,
 {func}`~geodetic_engine.osdudb.use_bundled_database` switches it, and
 {func}`~geodetic_engine.osdudb.active_database` names it and the distribution
 that provides it. Every result's provenance names the file
@@ -253,9 +254,10 @@ The import passes it over, logs a warning, and reads the shipped database if
 it was built for another PROJ release than pyproj links, if PROJ would refuse
 its database layout, judged by the `proj.db` that came with that PROJ, if more
 than one installed distribution provides a database, or if the entry point
-cannot be loaded or names no directory holding a `proj.db`. It passes over
-every one if the installed distributions' entry points cannot be read, as when
-any of them, however unrelated, has a malformed `entry_points.txt`.
+cannot be loaded, its module raising an exception or calling `sys.exit()`, or
+names no directory holding a `proj.db`. It passes over every one if the
+installed distributions' entry points cannot be read, as when any of them,
+however unrelated, has a malformed `entry_points.txt`.
 
 ### Keeping it in step with PROJ
 

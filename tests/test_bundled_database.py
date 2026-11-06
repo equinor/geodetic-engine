@@ -918,6 +918,16 @@ def _malformed(installation: Installation, directory: Path) -> list[Path]:
     return [directory / "site"]
 
 
+def _exiting(installation: Installation, directory: Path) -> list[Path]:
+    """A provider whose module, once it has left a file to say so, exits."""
+    site = _provider(directory / "site", "example-projdb", installation.stock)
+    (site / "example_projdb" / "__init__.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "Path(__file__).with_name('loaded').touch()\nsys.exit(3)\n"
+    )
+    return [site]
+
+
 @pytest.mark.parametrize(
     ("providers", "warning"),
     [
@@ -938,6 +948,12 @@ def _malformed(installation: Installation, directory: Path) -> list[Path]:
             "example-projdb 1.0 provides no proj.db that can be read: loading "
             "missing:PROJ_DATA raised ModuleNotFoundError",
             id="cannot be loaded",
+        ),
+        pytest.param(
+            _exiting,
+            "example-projdb 1.0 provides no proj.db that can be read: loading "
+            "example_projdb:PROJ_DATA raised SystemExit(3)",
+            id="exits on loading",
         ),
         pytest.param(
             _empty,
@@ -975,6 +991,43 @@ def test_malformed_entry_points_fail_no_import_that_turned_it_off(
     )
     assert state["reason"] == "GEODETIC_ENGINE_OSDU_DB=0 turns it off"
     assert "WARNING" not in log
+
+
+def test_an_import_that_turned_it_off_loads_no_provider(
+    installation: Installation, tmp_path: Path
+) -> None:
+    """So that a provider that misbehaves can be kept from running at all."""
+    [site] = _exiting(installation, tmp_path)
+    loaded = site / "example_projdb" / "loaded"
+    [state], log = _probe(
+        installation,
+        installed=(site,),
+        variables={"GEODETIC_ENGINE_OSDU_DB": "0"},
+        after=f"extra['loaded'] = os.path.exists({str(loaded)!r})",
+    )
+    assert state["extra"]["loaded"] is False
+    assert state["reason"] == "GEODETIC_ENGINE_OSDU_DB=0 turns it off"
+    assert not state["bundled"]
+    assert "WARNING" not in log
+
+
+def test_an_interrupt_while_a_provider_loads_still_interrupts_the_import(
+    installation: Installation, tmp_path: Path
+) -> None:
+    site = _provider(tmp_path / "site", "example-projdb", installation.stock)
+    (site / "example_projdb" / "__init__.py").write_text("raise KeyboardInterrupt\n")
+    result = subprocess.run(
+        [sys.executable, "-c", "import geodetic_engine"],
+        env=_clean_environment(
+            PYTHONPATH=os.pathsep.join([str(installation.root), str(site)])
+        ),
+        cwd=installation.root.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert result.stderr.rstrip().endswith("KeyboardInterrupt")
 
 
 def test_a_provider_is_judged_by_the_layout_proj_needs_not_by_a_chosen_database(

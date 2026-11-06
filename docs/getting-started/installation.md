@@ -94,8 +94,9 @@ under the entry point group `geodetic_engine.proj_data`. The rules above,
 the shipped one, and the reason names the distribution. It is passed over,
 with a warning, if it was built for another PROJ release than pyproj links, if
 PROJ would refuse its database layout, if more than one distribution provides
-one, if it cannot be loaded, or if the installed distributions' entry points
-cannot be read.
+one, if it cannot be loaded, its module raising an exception or calling
+`sys.exit()`, or if the installed distributions' entry points cannot be read.
+With `GEODETIC_ENGINE_OSDU_DB=0`, the import does not load it at all.
 
 To see which database PROJ reads, and why:
 
