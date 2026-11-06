@@ -26,11 +26,12 @@ All notable changes to this project are documented here. The format follows
   as a wheel its users `pip install` from a private package index, with no
   Georepository URL, authorities or credentials of their own. It builds the
   register, the official OSDU catalogue and the grid filename patches into
-  the pinned pyproj wheel's own `proj.db`, in a new environment that gets
-  only what Python, pip, bash and sqlite3 need of the caller's to run and to
-  reach the network, the register import alone also the two credentials. It
-  refuses a database that does not open read-only, carries other metadata
-  than the wheel's `proj.db`, or holds nothing of an authority it imported.
+  the pinned pyproj wheel's own `proj.db`, in a new environment. Every
+  process it starts, `ensurepip` and `git` included, gets only what it needs
+  of the caller's environment to run and to reach the network, and the
+  register import alone also the two credentials. It refuses a database that
+  does not open read-only, carries other metadata than the wheel's
+  `proj.db`, or holds nothing of an authority it imported.
   The wheel is versioned as the PROJ release and the minute of the build, so
   `<name>==<PROJ release>.*` installs the newest build for that release, and
   holds the database alone in its directory, the build reports, and a
@@ -46,8 +47,10 @@ All notable changes to this project are documented here. The format follows
   pass their processes only what they need of the caller's environment:
   `PATH`, `HOME`, the temporary directories, the locale, proxies and
   certificate bundles, and pip alone also its `PIP_` settings. They passed
-  every variable but `PROJ_` and `GEODETIC_ENGINE_` ones, so a secret such as
-  an upload token reached pip, the builds and the check.
+  every variable but `PROJ_` and `GEODETIC_ENGINE_` ones, and `venv` passed
+  every one to the `ensurepip` it runs, so a secret such as an upload token
+  reached pip, the builds and the check. `ensurepip` is now run as `venv`
+  runs it, with the narrower environment.
 
 ## 0.2.0 - 2026-11-04
 

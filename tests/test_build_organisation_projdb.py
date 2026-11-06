@@ -375,6 +375,25 @@ def test_pip_installs_the_database_where_geodetic_engine_looks(
     assert (Path(found[2]) / "proj.db").read_bytes() == database.read_bytes()
 
 
+def test_the_commit_is_read_with_nothing_more_of_the_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """git needs neither the credentials nor any other secret of the caller's."""
+    for name in (*script.CREDENTIALS, "TWINE_PASSWORD"):
+        monkeypatch.setenv(name, "the caller's")
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def run(command: list[str], **options: Any) -> subprocess.CompletedProcess[str]:
+        calls.append((command, options.get("env")))
+        stdout = "0123abc\n" if "rev-parse" in command else ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(script.subprocess, "run", run)
+    assert script._commit() == "0123abc"
+    assert [command[3] for command, _ in calls] == ["rev-parse", "status"]
+    assert all(env == clean_environment() for _, env in calls)
+
+
 @pytest.mark.parametrize("name", ["-projdb", "1projdb", "example projdb", "class"])
 def test_a_name_no_package_can_be_imported_by_is_refused(name: str) -> None:
     with pytest.raises(SystemExit, match="names no package that can be imported"):

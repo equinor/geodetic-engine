@@ -154,8 +154,16 @@ def pinned_environment(directory: Path, pins: Any, *packages: str) -> Path:
     Returns:
         Its Python.
     """
-    venv.create(directory, with_pip=True)
+    # venv runs ensurepip itself with the whole calling environment, so it is
+    # run here instead, as venv runs it, with no more than the build needs.
+    venv.create(directory, with_pip=False)
     python = directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    run(
+        [str(python), "-m", "ensurepip", "--upgrade", "--default-pip"],
+        env=clean_environment(),
+        cwd=directory,
+        capture=True,
+    )
     run(
         [
             str(python),

@@ -28,9 +28,10 @@ private package index, with no credentials of the register's:
    names that directory under the entry point group geodetic_engine.proj_data,
    where geodetic_engine finds it.
 
-Of the caller's environment, the build gets only what Python, pip, bash and
-sqlite3 need to run and to reach the network, as clean_environment() in
-scripts/build_bundled_osdudb.py lists it, and pip alone its PIP_ settings.
+Of the caller's environment, every process the build starts, ensurepip and git
+included, gets only what Python, pip, git, bash and sqlite3 need to run and to
+reach the network, as clean_environment() in scripts/build_bundled_osdudb.py
+lists it, and pip alone its PIP_ settings.
 GEODETIC_ENGINE_GEOREP_CLIENT_ID and GEODETIC_ENGINE_GEOREP_CLIENT_SECRET
 reach the register import, and nothing else: no other PROJ_ or
 GEODETIC_ENGINE_ variable, and no other secret of the caller's, reaches the
@@ -429,6 +430,7 @@ def _commit() -> str | None:
         commit, changes = (
             subprocess.run(
                 ["git", "-C", str(REPO_ROOT), *command],
+                env=clean_environment(),
                 check=True,
                 capture_output=True,
                 text=True,

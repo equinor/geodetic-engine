@@ -111,8 +111,13 @@ def test_the_new_environment_is_made_with_nothing_more(
         calls.append((command, env))
         return str(tmp_path)
 
+    created: dict[str, Any] = {}
     monkeypatch.setattr(build_bundled_osdudb, "run", run)
-    monkeypatch.setattr(build_bundled_osdudb.venv, "create", lambda *_, **__: None)
+    monkeypatch.setattr(
+        build_bundled_osdudb.venv,
+        "create",
+        lambda _, **options: created.update(options),
+    )
     monkeypatch.setattr(
         build_bundled_osdudb, "stock_proj_db", lambda path: Path(path) / "proj.db"
     )
@@ -122,11 +127,40 @@ def test_the_new_environment_is_made_with_nothing_more(
     )
     python = build_bundled_osdudb.pinned_environment(tmp_path / "venv", pins, "it")
     build_bundled_osdudb.own_proj_db(python)
-    (install, install_env), (_, probe_env) = calls
+    # venv would run ensurepip itself, with the whole calling environment.
+    assert created["with_pip"] is False
+    (ensurepip, ensurepip_env), (install, install_env), (_, probe_env) = calls
+    assert ensurepip[1:3] == ["-m", "ensurepip"]
+    assert ensurepip_env == build_bundled_osdudb.clean_environment()
     assert install[1:4] == ["-m", "pip", "install"]
     assert install_env == build_bundled_osdudb.pip_environment()
     assert probe_env == build_bundled_osdudb.clean_environment()
-    assert "TWINE_PASSWORD" not in install_env.keys() | probe_env.keys()
+    assert "TWINE_PASSWORD" not in (
+        ensurepip_env.keys() | install_env.keys() | probe_env.keys()
+    )
+
+
+def test_the_new_environment_gets_pip_with_nothing_more(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ensurepip runs for real; the install from the index does not."""
+    real = build_bundled_osdudb.run
+
+    def run(command: list[str], **options: Any) -> str:
+        return real(command, **options) if "ensurepip" in command else ""
+
+    monkeypatch.setattr(build_bundled_osdudb, "run", run)
+    pins = SimpleNamespace(pyproj_wheel_index="unused", pyproj_requirement="unused")
+    python = build_bundled_osdudb.pinned_environment(tmp_path / "venv", pins)
+    result = subprocess.run(
+        [str(python), "-m", "pip", "--version"],
+        env=build_bundled_osdudb.clean_environment(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert str(tmp_path / "venv") in result.stdout
 
 
 def test_the_callers_auxiliary_database_is_not_read(
