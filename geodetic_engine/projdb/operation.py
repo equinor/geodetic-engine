@@ -164,7 +164,9 @@ def collect_concatenated(context: BuildContext) -> None:
 
     A concatenated operation without its steps is not a transformation, so an
     operation whose steps cannot all be resolved is skipped rather than written
-    with a partial chain.
+    with a partial chain. So is one with a step that proj.db runs between other
+    CRSs than the register declares for it: it fails validation, because the
+    chain the register defines is not the one proj.db would build.
     """
     rows: list[dict[str, Any]] = []
     step_rows: list[dict[str, Any]] = []
@@ -182,6 +184,9 @@ def collect_concatenated(context: BuildContext) -> None:
         steps = obj.get("CoordOperations") or []
         resolved_steps = _resolve_steps(context, steps, auth, code)
         if resolved_steps is None:
+            continue
+        if conflict := _step_endpoint_conflict(context, steps, resolved_steps):
+            context.skip("concatenated_operation", auth, code, obj, conflict)
             continue
 
         rows.append(
@@ -260,6 +265,86 @@ def _resolve_steps(
         )
         return None
     return resolved
+
+
+def _step_endpoint_conflict(
+    context: BuildContext,
+    steps: list[dict[str, Any]],
+    resolved: list[dict[str, Any]],
+) -> str | None:
+    """Say why a step is not the operation the register chains, if it is not.
+
+    A step names its operation by code, and an operation proj.db already
+    defines, an EPSG transformation say, is used as proj.db defines it. When
+    EPSG restates such an operation from another CRS, the register and proj.db
+    can hold different versions of it.
+
+    Returns:
+        Why the concatenated operation fails validation, or None when every
+        step runs between the CRSs the register declares for it. A conversion
+        has no CRSs of its own, in proj.db or the register, so it never
+        conflicts.
+    """
+    for step, row in zip(steps, resolved, strict=True):
+        name = f"{row['step_auth_name']}:{row['step_code']}"
+        installed = _installed_endpoints(
+            context, row["step_auth_name"], row["step_code"]
+        )
+        if installed is None:
+            continue
+        stated = context.client.resolve(step)
+        referenced_by = f"step {row['step_number']} operation {name}"
+        declared = (
+            _declared_endpoint(
+                context, stated.get("SourceCrs"), f"{referenced_by} source CRS"
+            ),
+            _declared_endpoint(
+                context, stated.get("TargetCrs"), f"{referenced_by} target CRS"
+            ),
+        )
+        if None in declared or declared == installed:
+            continue
+        return (
+            f"fails validation: step {row['step_number']} uses {name}, which runs "
+            f"from {installed[0]} to {installed[1]} in proj.db but from "
+            f"{declared[0]} to {declared[1]} in the register. The register and "
+            "proj.db hold different versions of that operation."
+        )
+    return None
+
+
+def _installed_endpoints(
+    context: BuildContext, auth: str, code: str
+) -> tuple[str, str] | None:
+    """The CRSs an operation runs between in proj.db; None for a conversion."""
+    row = context.writer.connection.execute(
+        "SELECT source_crs_auth_name, source_crs_code, target_crs_auth_name, "
+        "target_crs_code FROM coordinate_operation_view "
+        "WHERE auth_name = ? AND code = ?",
+        (auth, code),
+    ).fetchone()
+    if row is None:
+        return None
+    return f"{row[0]}:{row[1]}", f"{row[2]}:{row[3]}"
+
+
+def _declared_endpoint(
+    context: BuildContext, link: dict[str, Any] | None, referenced_by: str
+) -> str | None:
+    """The CRS the register states at one end of an operation, as AUTH:CODE."""
+    code = tr.link_code(link)
+    if code is None:
+        return None
+    try:
+        owner, resolved = context.resolve_link(
+            link, tables=CRS_TABLES, referenced_by=referenced_by
+        )
+    except MissingReferencedObjectError:
+        # A CRS proj.db does not hold cannot be an end of an operation it holds,
+        # so it is only named here.
+        stated = tr.auth_name(link or {}) or tr.auth_name(context.client.resolve(link))
+        return f"{stated}:{code}" if stated else f"code {code}"
+    return f"{owner}:{resolved}"
 
 
 def _parameters(obj: dict[str, Any]) -> list[pm.Parameter]:

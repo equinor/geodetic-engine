@@ -282,6 +282,21 @@ equivalent Helmert step, and skipped with a reason if that is not possible.
 {doc}`/background/bound-crs` explains both, and why reading them back by code
 needs a workaround.
 
+### Concatenated operations
+
+A concatenated operation names its steps by code. A step `proj.db` already
+defines, such as an EPSG transformation, is used as `proj.db` defines it, not
+as the register restates it. When EPSG restates such an operation between
+other CRSs, the register and `proj.db` can hold different versions of it: EPSG
+v13.102, which PROJ 9.9.0 ships, runs `EPSG:10854` from ETRS89 (`EPSG:4258`),
+where v12.029 ran it from ETRS89-NOR [EUREF89] (`EPSG:10875`). The chain the
+register defines is then not the one `proj.db` would build. Such a
+concatenated operation fails validation. It is skipped, logged as a warning,
+and listed in the build report with both pairs of CRSs, and the rest of the
+register is imported. A conversion step states no CRSs, in `proj.db` or the
+register, so it is never compared. To import the operation, bring its
+definition in the register in line with the EPSG version in `proj.db`.
+
 ### Methods PROJ cannot run
 
 Operations whose EPSG method code is in `unsupported_method_codes` are skipped
