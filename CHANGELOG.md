@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## 0.3.1 - 2026-11-09
+
 ### Fixed
 
 - `geodetic-projdb build` no longer fails as a whole when a register's
