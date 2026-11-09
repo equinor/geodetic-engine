@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-09
+
 ### Added
 
 - An installed distribution can provide the database PROJ reads in place of
