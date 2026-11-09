@@ -83,7 +83,8 @@ jobs:
           - os: ubuntu-22.04-arm
             arch: aarch64
             manylinux-image: quay.io/pypa/manylinux_2_28_aarch64@sha256:0333f44c4eb759ec8f47b27bc9dc27b1c929932a267cf13ce0cff1a4b758cccb
-          - { os: macos-15, arch: arm64, macos-target: "14.0" }
+          # The runner's Homebrew libraries, which delocate bundles, target its macOS.
+          - { os: macos-15, arch: arm64, macos-target: "15.0" }
           - { os: macos-15-intel, arch: x86_64, macos-target: "15.0" }
           - { os: windows-2022, arch: AMD64, triplet: x64-windows }
     env:
