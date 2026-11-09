@@ -143,13 +143,16 @@ def run(
     )
 
 
-def pinned_environment(directory: Path, pins: Any, *packages: str) -> Path:
+def pinned_environment(
+    directory: Path, pins: Any, *packages: str, constraints: Path | None = None
+) -> Path:
     """Create a virtual environment with packages and the pyproj wheel pinned.
 
     Args:
         directory: Where to create it.
         pins: The pins that apply, as geodetic_engine/_pins.py reads them.
         packages: What else to install.
+        constraints: A pip constraints file the install must also satisfy.
 
     Returns:
         Its Python.
@@ -175,6 +178,7 @@ def pinned_environment(directory: Path, pins: Any, *packages: str) -> Path:
             "pyproj",
             "--extra-index-url",
             pins.pyproj_wheel_index,
+            *(["--constraint", str(constraints)] if constraints else []),
             *packages,
             pins.pyproj_requirement,
         ],

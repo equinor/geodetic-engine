@@ -140,6 +140,27 @@ def test_the_new_environment_is_made_with_nothing_more(
     )
 
 
+@pytest.mark.parametrize("given", [True, False], ids=["given", "none"])
+def test_the_install_satisfies_the_constraints_given(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, given: bool
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        build_bundled_osdudb, "run", lambda command, **_: commands.append(command) or ""
+    )
+    monkeypatch.setattr(build_bundled_osdudb.venv, "create", lambda *_, **__: None)
+    pins = SimpleNamespace(pyproj_wheel_index="unused", pyproj_requirement="unused")
+    constraints = tmp_path / "constraints.txt"
+    build_bundled_osdudb.pinned_environment(
+        tmp_path / "venv", pins, "it", constraints=constraints if given else None
+    )
+    _, install = commands
+    if given:
+        assert install[install.index("--constraint") + 1] == str(constraints)
+    else:
+        assert "--constraint" not in install
+
+
 def test_the_new_environment_gets_pip_with_nothing_more(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -17,9 +17,11 @@ import io
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
+import tomllib
 import venv
 import zipfile
 from contextlib import closing
@@ -108,12 +110,17 @@ def test_only_the_credentials_reach_the_register_import(
     """Nothing else of the caller's steers the build, and the OSDU build and
     the grid patch get no credentials at all."""
     calls: list[tuple[list[str], dict[str, str]]] = []
+    installed: dict[str, Path] = {}
 
     def run(command: list[str], *, env: dict[str, str], **_: Any) -> str:
         calls.append((command, env))
         return ""
 
-    monkeypatch.setattr(script, "pinned_environment", lambda *_: Path("python"))
+    def pinned_environment(*_: Any, constraints: Path) -> Path:
+        installed["constraints"] = constraints
+        return Path("python")
+
+    monkeypatch.setattr(script, "pinned_environment", pinned_environment)
     monkeypatch.setattr(script, "run", run)
     monkeypatch.setattr(script, "own_proj_db", lambda _: tmp_path / "reference.db")
     credentials = dict.fromkeys(script.CREDENTIALS, "the caller's")
@@ -147,7 +154,11 @@ def test_only_the_credentials_reach_the_register_import(
         tmp_path / "output" / "proj.db",
         tmp_path / "reference.db",
     )
-    (register, register_env), (osdu, osdu_env), (patch, patch_env) = calls
+    (export, export_env), *imports = calls
+    (register, register_env), (osdu, osdu_env), (patch, patch_env) = imports
+    assert export[:2] == ["uv", "export"]
+    assert export[export.index("--output-file") + 1] == str(installed["constraints"])
+    assert export_env == clean_environment()
     assert register[1:4] == ["-m", "geodetic_engine.projdb", "build"]
     assert "--no-cache" in register
     assert osdu[1:] == [
@@ -173,7 +184,8 @@ def test_the_grid_patch_is_left_out_when_asked(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     commands: list[list[str]] = []
-    monkeypatch.setattr(script, "pinned_environment", lambda *_: Path("python"))
+    monkeypatch.setattr(script, "pinned_environment", lambda *_, **__: Path("python"))
+    monkeypatch.setattr(script, "locked_constraints", lambda path: path)
     monkeypatch.setattr(
         script, "run", lambda command, **_: commands.append(command) or ""
     )
@@ -452,3 +464,102 @@ def test_nothing_is_built_for_a_name_that_would_be_refused(
     with pytest.raises(SystemExit, match="names no package that can be imported"):
         script.main()
     assert not (tmp_path / "dist").exists()
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_the_build_installs_the_dependency_versions_uv_lock_pins(
+    tmp_path: Path,
+) -> None:
+    """The register import, which gets the credentials, runs only code the
+    checkout pins; pyproj's wheel is pinned apart."""
+    constraints = script.locked_constraints(tmp_path / "constraints.txt")
+    pinned: dict[str, str] = {}
+    for line in constraints.read_text().splitlines():
+        if line and not line.startswith((" ", "#")):
+            name, version = line.split(" ;")[0].split("==")
+            pinned[name] = version
+    with (script.REPO_ROOT / "uv.lock").open("rb") as stream:
+        locked = {
+            package["name"]: package["version"]
+            for package in tomllib.load(stream)["package"]
+        }
+    with (script.REPO_ROOT / "pyproject.toml").open("rb") as stream:
+        dependencies = {
+            re.split(r"[^A-Za-z0-9._-]", requirement, maxsplit=1)[0].lower()
+            for requirement in tomllib.load(stream)["project"]["dependencies"]
+        }
+    assert "pyproj" not in pinned
+    assert dependencies - {"pyproj"} <= pinned.keys()
+    assert all(locked[name] == version for name, version in pinned.items())
+
+
+class _Built(Exception):
+    """Raised in place of the build, once nothing refused it."""
+
+
+def _main(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *arguments: str,
+    system: str,
+    tools: set[str],
+) -> None:
+    settings = tmp_path / "settings.toml"
+    settings.write_text("[projdb]\n")
+    for name in script.CREDENTIALS:
+        monkeypatch.setenv(name, "set")
+
+    def build(*_: Any, **__: Any) -> None:
+        raise _Built
+
+    monkeypatch.setattr(script, "build", build)
+    monkeypatch.setattr(script, "os", SimpleNamespace(**(vars(os) | {"name": system})))
+    monkeypatch.setattr(
+        script,
+        "shutil",
+        SimpleNamespace(which=lambda tool: tool if tool in tools else None),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_organisation_projdb.py",
+            "--config",
+            str(settings),
+            "--name",
+            "example-projdb",
+            "--output",
+            str(tmp_path / "dist"),
+            *arguments,
+        ],
+    )
+    script.main()
+
+
+@pytest.mark.parametrize(
+    ("system", "tools", "refusal"),
+    [
+        ("nt", {"uv", "bash", "sqlite3"}, "takes POSIX paths only"),
+        ("posix", {"bash", "sqlite3"}, "the build needs uv"),
+        ("posix", {"uv"}, "the grid patch needs bash and sqlite3"),
+    ],
+    ids=["windows", "no uv", "no bash or sqlite3"],
+)
+def test_a_build_that_could_not_finish_is_refused_before_it_starts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    system: str,
+    tools: set[str],
+    refusal: str,
+) -> None:
+    """The grid patch reads a Windows path as relative, after the import."""
+    with pytest.raises(SystemExit, match=refusal):
+        _main(monkeypatch, tmp_path, system=system, tools=tools)
+    assert not (tmp_path / "dist").exists()
+
+
+def test_windows_builds_without_the_grid_patch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(_Built):
+        _main(monkeypatch, tmp_path, "--skip-grid-patch", system="nt", tools={"uv"})

@@ -40,9 +40,9 @@ code installed instead: a dependency confusion attack. Install it as
 wheel's OSDU database is built ({doc}`/development/index`), checks it before
 it writes anything, and writes a wheel:
 
-1. A new virtual environment gets this checkout and the pyproj wheel it pins,
-   so the base is that wheel's own `proj.db`: the EPSG content your users
-   install.
+1. A new virtual environment gets this checkout, its dependencies at the
+   versions its `uv.lock` pins, and the pyproj wheel it pins, so the base is
+   that wheel's own `proj.db`: the EPSG content your users install.
 2. `geodetic-projdb build` imports the register your configuration file
    describes, every response fetched afresh. `geodetic-osdudb build --official
    --append` adds the official OSDU catalogue, because the installed database
@@ -65,14 +65,16 @@ uv run --env-file .env python scripts/build_organisation_projdb.py \
 
 The credentials come from the environment, here read from your `.env`; in CI,
 from your secret store. Only the register import gets them. Of the rest of
-your environment, every process of the build gets only what Python, pip, `git`,
-`bash` and `sqlite3` need to run and to reach the network: `PATH`, `HOME`, the
-temporary directory, the locale, proxies and certificate bundles, and for pip
-alone its `PIP_` settings. Every other setting comes from the configuration
-file, so neither a local `PROJ_DATA` nor another setting or secret in `.env`
-reaches the build. The script needs Python 3.13 or newer; network access to
-PyPI, this project's pyproj index and the register; and `bash` and `sqlite3`
-for the grid patch, which `--skip-grid-patch` leaves out.
+your environment, every process of the build gets only what Python, pip, uv,
+`git`, `bash` and `sqlite3` need to run and to reach the network: `PATH`,
+`HOME`, the temporary directory, the locale, proxies and certificate bundles,
+and for pip alone its `PIP_` settings. Every other setting comes from the
+configuration file, so neither a local `PROJ_DATA` nor another setting or
+secret in `.env` reaches the build. The script needs Python 3.13 or newer;
+uv; network access to PyPI, this project's pyproj index and the register; and
+`bash` and `sqlite3` for the grid patch, which `--skip-grid-patch` leaves
+out. The grid patch takes POSIX paths only: on Windows, build under WSL or
+pass `--skip-grid-patch`.
 
 The wheel installs a package that holds:
 
@@ -118,7 +120,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # The credentials reach this code: move the commit deliberately.
+      # The credentials reach this code, and the dependency versions its
+      # uv.lock pins: move the commit deliberately.
       - uses: actions/checkout@v4
         with:
           repository: equinor/geodetic-engine
@@ -130,6 +133,12 @@ jobs:
         with:
           python-version: "3.13"
 
+      # Reads the lock for the build, and uploads with the index token.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "<uv release>"
+          enable-cache: false
+
       - name: Build the wheel
         env:
           GEODETIC_ENGINE_GEOREP_CLIENT_ID: ${{ secrets.GEODETIC_ENGINE_GEOREP_CLIENT_ID }}
@@ -140,12 +149,10 @@ jobs:
 
       - name: Upload it to the package index
         env:
-          TWINE_REPOSITORY_URL: ${{ vars.PACKAGE_INDEX_UPLOAD_URL }}
-          TWINE_USERNAME: ${{ secrets.PACKAGE_INDEX_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.PACKAGE_INDEX_TOKEN }}
-        run: |
-          python -m pip install --quiet twine
-          python -m twine upload --non-interactive dist/*.whl
+          UV_PUBLISH_URL: ${{ vars.PACKAGE_INDEX_UPLOAD_URL }}
+          UV_PUBLISH_USERNAME: ${{ secrets.PACKAGE_INDEX_USERNAME }}
+          UV_PUBLISH_PASSWORD: ${{ secrets.PACKAGE_INDEX_TOKEN }}
+        run: uv publish dist/*.whl
 ```
 
 Set it up once:

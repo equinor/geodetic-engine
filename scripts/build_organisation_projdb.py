@@ -8,9 +8,10 @@ into, not the register: only the build needs Georepository credentials. This
 builds that database once, as a wheel that everyone else installs from a
 private package index, with no credentials of the register's:
 
-1. A new virtual environment gets this checkout and the pyproj wheel
-   .devcontainer/pins.env pins, as for scripts/build_bundled_osdudb.py, so the
-   base database is that wheel's own proj.db: the EPSG content users install.
+1. A new virtual environment gets this checkout, its dependencies at the
+   versions uv.lock pins, and the pyproj wheel .devcontainer/pins.env pins,
+   as for scripts/build_bundled_osdudb.py, so the base database is that
+   wheel's own proj.db: the EPSG content users install.
 2. ``geodetic-projdb build`` imports the register --config describes, every
    response fetched afresh. ``geodetic-osdudb build --official --append`` adds
    the official OSDU catalogue, which users would otherwise lose: the database
@@ -28,10 +29,10 @@ private package index, with no credentials of the register's:
    names that directory under the entry point group geodetic_engine.proj_data,
    where geodetic_engine finds it.
 
-Of the caller's environment, every process the build starts, ensurepip and git
-included, gets only what Python, pip, git, bash and sqlite3 need to run and to
-reach the network, as clean_environment() in scripts/build_bundled_osdudb.py
-lists it, and pip alone its PIP_ settings.
+Of the caller's environment, every process the build starts, ensurepip, uv
+and git included, gets only what Python, pip, uv, git, bash and sqlite3 need
+to run and to reach the network, as clean_environment() in
+scripts/build_bundled_osdudb.py lists it, and pip alone its PIP_ settings.
 GEODETIC_ENGINE_GEOREP_CLIENT_ID and GEODETIC_ENGINE_GEOREP_CLIENT_SECRET
 reach the register import, and nothing else: no other PROJ_ or
 GEODETIC_ENGINE_ variable, and no other secret of the caller's, reaches the
@@ -39,8 +40,9 @@ build, and every other setting comes from --config. The wheel holds the
 register's definitions: publish it only to an index that the register's
 users, and no one else, can read. See docs/user-guide/sharing.md.
 
-Needs the Python the package requires; network access to PyPI, the project's
-pyproj index and the register; and, unless --skip-grid-patch, bash and sqlite3.
+Needs the Python the package requires; uv; network access to PyPI, the
+project's pyproj index and the register; and, unless --skip-grid-patch, bash
+and sqlite3 on Linux or macOS.
 """
 
 from __future__ import annotations
@@ -149,6 +151,32 @@ def module_name(name: str) -> str:
     return module
 
 
+def locked_constraints(path: Path) -> Path:
+    """Write the runtime dependency versions uv.lock pins, as pip constraints.
+
+    pyproj is left out: .devcontainer/pins.env pins its wheel.
+    """
+    run(
+        [
+            "uv",
+            "export",
+            "--quiet",
+            "--frozen",
+            "--no-hashes",
+            "--no-dev",
+            "--no-emit-project",
+            "--no-emit-package",
+            "pyproj",
+            "--project",
+            str(REPO_ROOT),
+            "--output-file",
+            str(path),
+        ],
+        env=clean_environment(),
+    )
+    return path
+
+
 def build(
     work: Path,
     pins: Any,
@@ -162,7 +190,12 @@ def build(
     Returns:
         The database, and the proj.db it was built on.
     """
-    python = pinned_environment(work / "venv", pins, str(REPO_ROOT))
+    python = pinned_environment(
+        work / "venv",
+        pins,
+        str(REPO_ROOT),
+        constraints=locked_constraints(work / "constraints.txt"),
+    )
     output = work / "output"
     output.mkdir()
     # Stop the CLIs' upward dotenv search, even if TMPDIR is under a .env.
@@ -472,7 +505,7 @@ def main() -> None:
         action="store_true",
         help=(
             "leave out the grid filename mappings "
-            "scripts/patch-grid-alternatives.sh adds"
+            "scripts/patch-grid-alternatives.sh adds; needed on Windows"
         ),
     )
     args = parser.parse_args()
@@ -486,6 +519,16 @@ def main() -> None:
         parser.error(f"{args.output} is not a directory")
     module_name(args.name)
     credentials = read_credentials()
+    if not shutil.which("uv"):
+        raise SystemExit(
+            "the build needs uv, to install the dependency versions uv.lock "
+            "pins: install it"
+        )
+    if grid_patch and os.name == "nt":
+        raise SystemExit(
+            "the grid patch, scripts/patch-grid-alternatives.sh, takes POSIX "
+            "paths only: build on Linux, macOS or WSL, or pass --skip-grid-patch"
+        )
     if grid_patch and (
         missing := [tool for tool in ("bash", "sqlite3") if not shutil.which(tool)]
     ):

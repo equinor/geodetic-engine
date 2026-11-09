@@ -26,8 +26,10 @@ All notable changes to this project are documented here. The format follows
   as a wheel its users `pip install` from a private package index, with no
   Georepository URL, authorities or credentials of their own. It builds the
   register, the official OSDU catalogue and the grid filename patches into
-  the pinned pyproj wheel's own `proj.db`, in a new environment. Every
-  process it starts, `ensurepip` and `git` included, gets only what it needs
+  the pinned pyproj wheel's own `proj.db`, in a new environment holding the
+  dependency versions `uv.lock` pins; on Windows, where the grid patch cannot
+  run, it refuses to start without `--skip-grid-patch`. Every process it
+  starts, `ensurepip`, uv and `git` included, gets only what it needs
   of the caller's environment to run and to reach the network, and the
   register import alone also the two credentials. It refuses a database that
   does not open read-only, carries other metadata than the wheel's
