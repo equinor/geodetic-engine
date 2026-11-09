@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import os
 import re
 import sqlite3
 import tarfile
@@ -24,6 +25,7 @@ from scripts.check_package_dist import (
     check_sdist,
     check_wheel,
     installed_proj_db,
+    stock_proj_db,
 )
 from tests.support import installed_proj_db as stock_database
 
@@ -210,6 +212,21 @@ def test_the_reference_defaults_to_the_installed_pyprojs_own_database() -> None:
     assert found == stock_database().resolve()
     with pytest.raises(ValueError, match=re.escape("not the pinned 0.0.0")):
         installed_proj_db("0.0.0")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a Windows path")
+def test_a_database_on_a_unc_path_is_read(tmp_path: Path) -> None:
+    """As a temporary directory on a network share puts every database.
+
+    Path.as_uri() made the server the URI's authority, which SQLite refuses.
+    """
+    with closing(sqlite3.connect(tmp_path / "proj.db")) as connection, connection:
+        connection.execute("CREATE TABLE metadata (key TEXT, value TEXT)")
+    drive, rest = os.path.splitdrive(tmp_path)
+    share = f"\\\\localhost\\{drive[0]}${rest}"
+    if not os.path.exists(share):
+        pytest.skip(f"no administrative share reaches {tmp_path}")
+    assert stock_proj_db(share) == Path(share, "proj.db").resolve()
 
 
 @pytest.mark.parametrize("missing", [_CATALOG, _DATABASE])

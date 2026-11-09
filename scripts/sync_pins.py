@@ -45,16 +45,25 @@ _INSTALL_COMMANDS = (
 )
 
 
-def pins_module() -> ModuleType:
-    """geodetic_engine/_pins.py, loaded without importing the package."""
-    path = REPO_ROOT / "geodetic_engine" / "_pins.py"
-    spec = importlib.util.spec_from_file_location("geodetic_engine_pins", path)
+def package_module(name: str) -> ModuleType:
+    """A module of geodetic_engine's, loaded without importing the package.
+
+    The package needs pyproj to be imported, and the scripts run where none is
+    installed. The module must import nothing of the package's itself.
+    """
+    path = REPO_ROOT / "geodetic_engine" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"geodetic_engine{name}", path)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def pins_module() -> ModuleType:
+    """geodetic_engine/_pins.py, loaded without importing the package."""
+    return package_module("_pins")
 
 
 def read_pins(root: Path = REPO_ROOT) -> Any:

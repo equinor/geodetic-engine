@@ -5,8 +5,9 @@
 Runs ``geodetic-osdudb build --official`` in a new virtual environment holding
 this checkout and the pyproj wheel .devcontainer/pins.env pins, from the
 project's index, so the base database is that wheel's own proj.db: exactly
-the EPSG content users install. Nothing of the calling environment's PROJ setup
-reaches the build. The result is checked as scripts/check_package_dist.py
+the EPSG content users install. Of the calling environment, the build gets
+only what it needs to run and to reach the network: none of its PROJ setup,
+and none of its secrets. The result is checked as scripts/check_package_dist.py
 checks a release, against that same proj.db, then written to
 geodetic_engine/osdudb/_data/proj_data/proj.db, alone in its directory, where
 the build backend includes it in the sdist and the wheel. It is gitignored.
@@ -47,6 +48,51 @@ _PARTIAL = ".proj.db.partial"
 # as a wheel, so PROJ_DIR and PROJ_WHEEL, which say how to compile it, have
 # nothing to do either.
 _SETTING_PREFIXES = ("PROJ_", "GEODETIC_ENGINE_")
+# All a build's processes get of the caller's environment: what Python, bash
+# and sqlite3 need to run on Linux, macOS and Windows, and to reach the network
+# through a proxy, one that inspects TLS included. Matched in any case, as the
+# proxy variables are set. No other variable reaches a build: no setting of
+# PROJ's or this package's, which would change what is built, and no secret,
+# such as an upload token.
+_PASSED = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "LANG",
+        "LANGUAGE",
+        # For a Python built to find its own library through it.
+        "LD_LIBRARY_PATH",
+        # Windows: Python needs SYSTEMROOT to start, pip finds its
+        # configuration and cache under the profile's directories.
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+    }
+)
+_PASSED_PREFIXES = ("LC_",)
+# pip's own, for pip alone: an index mirror, its certificate, its configuration
+# and cache.
+_PIP_PASSED = frozenset({"XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_CACHE_HOME"})
+_PIP_PREFIX = "PIP_"
 
 
 def is_setting(name: str) -> bool:
@@ -55,15 +101,25 @@ def is_setting(name: str) -> bool:
 
 
 def clean_environment() -> dict[str, str]:
-    """The calling environment without anything that steers PROJ or the package."""
-    removed = {"PYTHONPATH", "VIRTUAL_ENV"}
-    environment = {
+    """What a build's processes need of the calling environment, and no more."""
+    return {
         key: value
         for key, value in os.environ.items()
-        if key not in removed and not is_setting(key)
+        if key.upper() in _PASSED or key.startswith(_PASSED_PREFIXES)
     }
-    environment["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
-    return environment
+
+
+def pip_environment() -> dict[str, str]:
+    """:func:`clean_environment`, with pip's own settings, for pip alone."""
+    return (
+        clean_environment()
+        | {
+            key: value
+            for key, value in os.environ.items()
+            if key.startswith(_PIP_PREFIX) or key in _PIP_PASSED
+        }
+        | {"PIP_DISABLE_PIP_VERSION_CHECK": "1"}
+    )
 
 
 def run(
@@ -87,19 +143,30 @@ def run(
     )
 
 
-def pinned_environment(directory: Path, pins: Any, *packages: str) -> Path:
+def pinned_environment(
+    directory: Path, pins: Any, *packages: str, constraints: Path | None = None
+) -> Path:
     """Create a virtual environment with packages and the pyproj wheel pinned.
 
     Args:
         directory: Where to create it.
         pins: The pins that apply, as geodetic_engine/_pins.py reads them.
         packages: What else to install.
+        constraints: A pip constraints file the install must also satisfy.
 
     Returns:
         Its Python.
     """
-    venv.create(directory, with_pip=True)
+    # venv runs ensurepip itself with the whole calling environment, so it is
+    # run here instead, as venv runs it, with no more than the build needs.
+    venv.create(directory, with_pip=False)
     python = directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    run(
+        [str(python), "-m", "ensurepip", "--upgrade", "--default-pip"],
+        env=clean_environment(),
+        cwd=directory,
+        capture=True,
+    )
     run(
         [
             str(python),
@@ -111,10 +178,11 @@ def pinned_environment(directory: Path, pins: Any, *packages: str) -> Path:
             "pyproj",
             "--extra-index-url",
             pins.pyproj_wheel_index,
+            *(["--constraint", str(constraints)] if constraints else []),
             *packages,
             pins.pyproj_requirement,
         ],
-        env=clean_environment(),
+        env=pip_environment(),
     )
     return python
 

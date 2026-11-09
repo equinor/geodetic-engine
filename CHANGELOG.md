@@ -3,6 +3,65 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- An installed distribution can provide the database PROJ reads in place of
+  the shipped OSDU one, by naming a directory that holds a `proj.db` under the
+  entry point group `geodetic_engine.proj_data`. The import's rules,
+  `use_bundled_database()` and `active_database()` treat it as the bundled
+  database, and the reason names the distribution. It is passed over, with a
+  warning, if it was built for another PROJ release than pyproj links, if
+  PROJ would refuse its database layout, judged by the `proj.db` that came
+  with that PROJ rather than the one PROJ reads, if more than one
+  distribution provides one, or if it cannot be loaded, its module raising
+  an exception or calling `sys.exit()`; and every one is if the installed
+  distributions' entry points cannot be read, so that a malformed
+  `entry_points.txt` in any of them fails no import.
+  `GEODETIC_ENGINE_OSDU_DB=0` keeps the import from loading any. It is found,
+  its module imported and its directory made absolute, before the search
+  path lock is taken.
+- `scripts/build_organisation_projdb.py` builds a Georepository register once,
+  as a wheel its users `pip install` from a private package index, with no
+  Georepository URL, authorities or credentials of their own. It builds the
+  register, the official OSDU catalogue and the grid filename patches into
+  the pinned pyproj wheel's own `proj.db`, in a new environment holding the
+  dependency versions `uv.lock` pins; on Windows, where the grid patch cannot
+  run, it refuses to start without `--skip-grid-patch`. Every process it
+  starts, `ensurepip`, uv and `git` included, gets only what it needs
+  of the caller's environment to run and to reach the network, and the
+  register import alone also the two credentials. It refuses a database that
+  does not open read-only, carries other metadata than the wheel's
+  `proj.db`, or holds nothing of an authority it imported.
+  The wheel is versioned as the PROJ release and the minute of the build, so
+  `<name>==<PROJ release>.*` installs the newest build for that release, and
+  holds the database alone in its directory, the build reports, and a
+  manifest naming the PROJ release, EPSG version and database layout it is
+  for. The new page *Sharing a built database* explains why it belongs in a
+  private index and not a public one, how to avoid dependency confusion with
+  uv and pip, extra indexes in pip's configuration included, and gives a
+  workflow that builds and uploads it.
+
+### Changed
+
+- `scripts/build_bundled_osdudb.py` and `scripts/check_installed_wheel.py`
+  pass their processes only what they need of the caller's environment:
+  `PATH`, `HOME`, the temporary directories, the locale, proxies and
+  certificate bundles, and pip alone also its `PIP_` settings. They passed
+  every variable but `PROJ_` and `GEODETIC_ENGINE_` ones, and `venv` passed
+  every one to the `ensurepip` it runs, so a secret such as an upload token
+  reached pip, the builds and the check. `ensurepip` is now run as `venv`
+  runs it, with the narrower environment.
+
+### Fixed
+
+- `scripts/check_package_dist.py`, and with it `scripts/build_bundled_osdudb.py`
+  and `scripts/check_installed_wheel.py`, could not read a database on a UNC
+  path, such as one in a temporary directory on a network share:
+  `Path.as_uri()` made the server the URI's authority, which SQLite refuses.
+  They now open a database as `geodetic_engine` does.
+
 ## 0.2.0 - 2026-11-04
 
 ### Added

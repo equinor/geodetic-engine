@@ -12,6 +12,9 @@ with plain PROJ.
 **You do not need it** for EPSG definitions. The official `proj.db` already
 has them.
 
+**Using the database it writes needs no credentials.** Build it once and share
+it: {doc}`sharing`.
+
 ```{admonition} Not executed
 :class: note
 
