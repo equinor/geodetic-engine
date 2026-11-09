@@ -198,10 +198,15 @@ def build(
     )
     output = work / "output"
     output.mkdir()
+    # The CLIs run outside the checkout, to import the installed package, and
+    # outside the output: with PROJ_DATA unset, pyproj takes a proj.db in the
+    # working directory for its data directory, and the register build writes
+    # one into the output before the OSDU build starts.
+    run_dir = work / "run"
+    run_dir.mkdir()
     # Stop the CLIs' upward dotenv search, even if TMPDIR is under a .env.
-    (output / ".env").touch()
+    (run_dir / ".env").touch()
     database = output / DATABASE
-    # Run outside the checkout to import the installed package.
     environment = clean_environment() | {"GEODETIC_ENGINE_OSDU_DB": "0"}
     run(
         [
@@ -216,7 +221,7 @@ def build(
             "--no-cache",
         ],
         env=environment | credentials,
-        cwd=output,
+        cwd=run_dir,
     )
     run(
         [
@@ -230,7 +235,7 @@ def build(
             "--append",
         ],
         env=environment,
-        cwd=output,
+        cwd=run_dir,
     )
     if grid_patch:
         run(["bash", str(GRID_PATCH), "--db", str(database)], env=environment)

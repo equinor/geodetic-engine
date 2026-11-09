@@ -110,10 +110,14 @@ def test_only_the_credentials_reach_the_register_import(
     """Nothing else of the caller's steers the build, and the OSDU build and
     the grid patch get no credentials at all."""
     calls: list[tuple[list[str], dict[str, str]]] = []
+    directories: list[Path | None] = []
     installed: dict[str, Path] = {}
 
-    def run(command: list[str], *, env: dict[str, str], **_: Any) -> str:
+    def run(
+        command: list[str], *, env: dict[str, str], cwd: Path | None = None, **_: Any
+    ) -> str:
         calls.append((command, env))
+        directories.append(cwd)
         return ""
 
     def pinned_environment(*_: Any, constraints: Path) -> Path:
@@ -147,9 +151,11 @@ def test_only_the_credentials_reach_the_register_import(
         tmp_path, None, tmp_path / "settings.toml", credentials, grid_patch=True
     )
 
-    monkeypatch.chdir(database.parent)
-    assert find_env_file() == database.parent / ".env"
-    assert (database.parent / ".env").read_text() == ""
+    _, register_dir, osdu_dir, _ = directories
+    assert register_dir == osdu_dir == tmp_path / "run"
+    monkeypatch.chdir(register_dir)
+    assert find_env_file() == register_dir / ".env"
+    assert (register_dir / ".env").read_text() == ""
     assert (database, base) == (
         tmp_path / "output" / "proj.db",
         tmp_path / "reference.db",
@@ -178,6 +184,34 @@ def test_only_the_credentials_reach_the_register_import(
         assert not unrelated.keys() & env.keys()
     for env in (osdu_env, patch_env):
         assert not set(script.CREDENTIALS) & env.keys()
+
+
+def test_the_osdu_build_does_not_run_beside_the_register_database(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With PROJ_DATA unset, pyproj takes a proj.db in the working directory
+    for its data directory: the OSDU build would then find only the register's
+    database on PROJ's path, and no official one to start from."""
+    osdu_dirs: list[Path] = []
+
+    def run(command: list[str], *, cwd: Path | None = None, **_: Any) -> str:
+        if command[1:3] == ["-m", "geodetic_engine.projdb"]:
+            Path(command[command.index("--output") + 1]).touch()
+        elif command[1:3] == ["-m", "geodetic_engine.osdudb"]:
+            assert cwd is not None
+            osdu_dirs.append(cwd)
+        return ""
+
+    monkeypatch.setattr(script, "pinned_environment", lambda *_, **__: Path("python"))
+    monkeypatch.setattr(script, "locked_constraints", lambda path: path)
+    monkeypatch.setattr(script, "run", run)
+    monkeypatch.setattr(script, "own_proj_db", lambda _: tmp_path / "reference.db")
+    database, _ = script.build(
+        tmp_path, None, tmp_path / "settings.toml", {}, grid_patch=False
+    )
+    assert database.is_file()
+    assert len(osdu_dirs) == 1
+    assert not (osdu_dirs[0] / "proj.db").exists()
 
 
 def test_the_grid_patch_is_left_out_when_asked(

@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
   validation on its own: it is skipped, logged as a warning and listed in the
   build report with both pairs of CRSs, and the rest of the register is
   imported.
+- `scripts/build_organisation_projdb.py` could not add the official OSDU
+  catalogue to a register's database: it ran the OSDU build in the directory
+  holding the register's `proj.db`, which pyproj, with `PROJ_DATA` unset, takes
+  for its data directory, so the build found no official database to start
+  from. Both builds now run in a directory of their own.
 
 ## 0.3.0 - 2026-11-09
 
