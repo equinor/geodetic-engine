@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- `geodetic-projdb build` no longer fails as a whole when a register's
+  concatenated operation uses an operation `proj.db` already defines, such as
+  an EPSG transformation, that `proj.db` runs between other CRSs than the
+  register declares for it. EPSG v13.102 restated `EPSG:10854` from ETRS89
+  (`EPSG:4258`), where v12.029 ran it from ETRS89-NOR [EUREF89]
+  (`EPSG:10875`), so a register on an earlier EPSG version that chains it
+  defines a chain PROJ 9.9.0 cannot build, and PROJ's validation of the
+  finished database refused the whole build. Such an operation now fails
+  validation on its own: it is skipped, logged as a warning and listed in the
+  build report with both pairs of CRSs, and the rest of the register is
+  imported.
+- `scripts/build_organisation_projdb.py` could not add the official OSDU
+  catalogue to a register's database: it ran the OSDU build in the directory
+  holding the register's `proj.db`, which pyproj, with `PROJ_DATA` unset, takes
+  for its data directory, so the build found no official database to start
+  from. Both builds now run in a directory of their own.
+
 ## 0.3.0 - 2026-11-09
 
 ### Added

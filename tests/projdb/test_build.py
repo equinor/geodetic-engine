@@ -779,3 +779,180 @@ def test_skipped_objects_record_whether_they_are_deprecated(
     assert len(skipped) == 1
     assert skipped[0]["deprecated"] is True
     assert report.as_dict()["counts"]["skipped_active"] == 0
+
+
+CONCATENATED = 3000
+# NAD83 to WGS 84 (1), which proj.db runs from EPSG:4269 to EPSG:4326.
+EPSG_NAD83_TO_WGS84 = 1188
+EPSG_NAD83 = 4269
+EPSG_ETRS89 = 4258
+NOT_IN_PROJ_DB = 999999
+EPSG_UTM_31N = 16031
+EPSG_WGS84_UTM_31N = 32631
+
+
+def _link(endpoint: str, code: int) -> dict[str, Any]:
+    """A reference as the register makes it: a code and an href, no authority."""
+    return {"Code": code, "href": f"{API}/api/v1/{endpoint}/{code}"}
+
+
+def _with_concatenated(
+    fake: FakeGeorepository,
+    step: tuple[str, int],
+    stated: dict[str, Any],
+    *,
+    target: int,
+) -> FakeGeorepository:
+    """Chain the custom Helmert with one operation proj.db already defines.
+
+    Args:
+        fake: The instance to add the concatenated operation to.
+        step: Endpoint and code of the second step's operation.
+        stated: That operation as the register states it.
+        target: Target CRS of the concatenated operation.
+    """
+    endpoint, code = step
+    fake.collections["ConcatenatedOperation"] = [
+        _summary("ConcatenatedOperation", CONCATENATED)
+    ]
+    fake.add_object(
+        f"/api/v1/ConcatenatedOperation/{CONCATENATED}",
+        {
+            "Code": CONCATENATED,
+            "DataSource": AUTHORITY,
+            "Name": "Example Geographic 2D to target",
+            "SourceCrs": {"Code": CURRENT_CRS, "DataSource": AUTHORITY},
+            "TargetCrs": {"Code": target},
+            "CoordOperations": [
+                _link("Transformation", TRANSFORMATION),
+                _link(endpoint, code),
+            ],
+            "Accuracy": 2.0,
+            "Usage": _usage(),
+            "Deprecations": [],
+        },
+    )
+    fake.add_object(f"/api/v1/{endpoint}/{code}", stated)
+    return fake
+
+
+def _nad83_to_wgs84(source: dict[str, Any]) -> dict[str, Any]:
+    """EPSG:1188 as a register states it, from the given source CRS."""
+    return {
+        "Code": EPSG_NAD83_TO_WGS84,
+        "DataSource": "EPSG",
+        "Name": "NAD83 to WGS 84 (1)",
+        "SourceCrs": source,
+        "TargetCrs": {"Code": EPSG_WGS84_2D},
+    }
+
+
+def test_concatenated_operation_through_an_epsg_step_is_imported(
+    config: ProjDbBuildConfig, fake_instance: FakeGeorepository
+) -> None:
+    """A step the register states as proj.db does chains as the register says.
+
+    EPSG:1188 runs to WGS 84, so PROJ applies it in reverse to reach NAD83, and
+    validation constructs the operation from the finished database.
+    """
+    _with_concatenated(
+        fake_instance,
+        ("Transformation", EPSG_NAD83_TO_WGS84),
+        _nad83_to_wgs84({"Code": EPSG_NAD83}),
+        target=EPSG_NAD83,
+    )
+    client = GeorepositoryClient(
+        config.georepository, transport=fake_instance.transport()
+    )
+    report = build(config, client=client)
+
+    assert [s for s in report.skipped if s["table"] == "concatenated_operation"] == []
+    assert report.rows_by_table["concatenated_operation"] == 1
+    assert report.rows_by_table["concatenated_operation_step"] == 2
+    assert report.validation["status"] == "passed"
+
+
+@pytest.mark.parametrize(
+    ("stated_source", "declared"),
+    [
+        ({"Code": EPSG_ETRS89}, f"EPSG:{EPSG_ETRS89}"),
+        (_link("GeodeticCoordRefSystem", NOT_IN_PROJ_DB), f"EPSG:{NOT_IN_PROJ_DB}"),
+    ],
+    ids=["another-crs-in-proj-db", "crs-not-in-proj-db"],
+)
+def test_concatenated_operation_with_a_restated_epsg_step_fails_validation(
+    config: ProjDbBuildConfig,
+    fake_instance: FakeGeorepository,
+    stated_source: dict[str, Any],
+    declared: str,
+) -> None:
+    """The register's EPSG:1188 starts elsewhere than proj.db's.
+
+    As when EPSG restates an operation from another CRS and the register holds
+    another EPSG version than proj.db: the chain the register defines is not the
+    one proj.db would build. The operation is skipped and reported, and the
+    rest of the build is published.
+    """
+    _with_concatenated(
+        fake_instance,
+        ("Transformation", EPSG_NAD83_TO_WGS84),
+        _nad83_to_wgs84(stated_source),
+        target=EPSG_ETRS89,
+    )
+    fake_instance.add_object(
+        f"/api/v1/GeodeticCoordRefSystem/{NOT_IN_PROJ_DB}",
+        {"Code": NOT_IN_PROJ_DB, "DataSource": "EPSG", "Name": "Not in proj.db"},
+    )
+    client = GeorepositoryClient(
+        config.georepository, transport=fake_instance.transport()
+    )
+    report = build(config, client=client)
+
+    skipped = [s for s in report.skipped if s["table"] == "concatenated_operation"]
+    assert [(s["auth_name"], s["code"]) for s in skipped] == [
+        (AUTHORITY, str(CONCATENATED))
+    ]
+    assert skipped[0]["name"] == "Example Geographic 2D to target"
+    assert skipped[0]["reason"] == (
+        f"fails validation: step 2 uses EPSG:{EPSG_NAD83_TO_WGS84}, which runs "
+        f"from EPSG:{EPSG_NAD83} to EPSG:{EPSG_WGS84_2D} in proj.db but from "
+        f"{declared} to EPSG:{EPSG_WGS84_2D} in the register. The register and "
+        "proj.db hold different versions of that operation."
+    )
+    assert report.as_dict()["counts"]["skipped_active"] == 1
+    assert report.rows_by_table.get("concatenated_operation", 0) == 0
+    assert report.rows_by_table["helmert_transformation_table"] == 1
+    assert report.validation["status"] == "passed"
+    with closing(
+        sqlite3.connect(f"file:{config.output_db}?mode=ro", uri=True)
+    ) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM concatenated_operation_step "
+            "WHERE operation_auth_name = ?",
+            (AUTHORITY,),
+        ).fetchone() == (0,)
+
+
+def test_concatenated_operation_through_a_conversion_is_imported(
+    config: ProjDbBuildConfig, fake_instance: FakeGeorepository
+) -> None:
+    """A conversion has no CRSs of its own, so there is nothing to compare."""
+    _with_concatenated(
+        fake_instance,
+        ("Conversion", EPSG_UTM_31N),
+        {
+            "Code": EPSG_UTM_31N,
+            "DataSource": "EPSG",
+            "Name": "UTM zone 31N",
+            "Method": {"Code": 9807, "Name": "Transverse Mercator"},
+        },
+        target=EPSG_WGS84_UTM_31N,
+    )
+    client = GeorepositoryClient(
+        config.georepository, transport=fake_instance.transport()
+    )
+    report = build(config, client=client)
+
+    assert [s for s in report.skipped if s["table"] == "concatenated_operation"] == []
+    assert report.rows_by_table["concatenated_operation"] == 1
+    assert report.validation["status"] == "passed"
