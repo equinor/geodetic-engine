@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `geodetic_engine.catalog` lists what the active PROJ database holds (#3):
+  `crs()`, `operations()`, `datums()`, `ellipsoids()`, `prime_meridians()`,
+  `units()`, `methods()`, `coordinate_systems()` and `grids()`, with
+  `authorities()` and `database()` for provenance. Every listing takes the
+  same `authority`, `name` (substring, alias or pattern), `code`,
+  `deprecated`, `limit` and `offset` filters, the located ones also
+  `area_of_interest`, `contains` and `area_name`, decided exactly as PROJ's
+  own CRS search decides them, and each its own: CRS kind, datum, unit and
+  projection method; source and target CRS, method, accuracy, grid use, grid
+  availability and supersession; ensembles, dynamic frames and members;
+  ellipsoid axes; and more. A filter is checked at the call, and a reference
+  that names nothing of its kind, such as a CRS code given as a datum, is an
+  error. Listings are lazy, read through pyproj wherever pyproj answers and
+  from `proj.db` otherwise, once per database, and export as DataFrames or
+  as JSON. Each entry's `to_json_dict()` is the object's official PROJJSON;
+  a listing's JSON wraps PROJJSON-shaped items, with deprecation,
+  replacements, OSDU record ids and grid availability beside them, in an
+  envelope described by `listing_schema()`. Deprecated operations, which PROJ
+  never offers, can now be listed.
+
 ## 0.3.1 - 2026-11-09
 
 ### Fixed
@@ -30,25 +52,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `geodetic_engine.catalog` lists what the active PROJ database holds (#3):
-  `crs()`, `operations()`, `datums()`, `ellipsoids()`, `prime_meridians()`,
-  `units()`, `methods()`, `coordinate_systems()` and `grids()`, with
-  `authorities()` and `database()` for provenance. Every listing takes the
-  same `authority`, `name` (substring, alias or pattern), `code`,
-  `deprecated`, `limit` and `offset` filters, the located ones also
-  `area_of_interest`, `contains` and `area_name`, decided exactly as PROJ's
-  own CRS search decides them, and each its own: CRS kind, datum, unit and
-  projection method; source and target CRS, method, accuracy, grid use, grid
-  availability and supersession; ensembles, dynamic frames and members;
-  ellipsoid axes; and more. A filter is checked at the call, and a reference
-  that names nothing of its kind, such as a CRS code given as a datum, is an
-  error. Listings are lazy, read through pyproj wherever pyproj answers and
-  from `proj.db` otherwise, once per database, and export as DataFrames or
-  as JSON. Each entry's `to_json_dict()` is the object's official PROJJSON;
-  a listing's JSON wraps PROJJSON-shaped items, with deprecation,
-  replacements, OSDU record ids and grid availability beside them, in an
-  envelope described by `listing_schema()`. Deprecated operations, which PROJ
-  never offers, can now be listed.
 - An installed distribution can provide the database PROJ reads in place of
   the shipped OSDU one, by naming a directory that holds a `proj.db` under the
   entry point group `geodetic_engine.proj_data`. The import's rules,
