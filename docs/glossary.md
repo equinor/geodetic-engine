@@ -56,6 +56,23 @@ Concatenated operation
   datum transformation `EPSG:8047` =
   `EPSG:1147` + `EPSG:1146`.
 
+Datum ensemble
+  A group of realisations of one datum that are treated as the same datum
+  when accuracy at the ensemble's level is enough. `WGS 84` and `ETRS89` are
+  ensembles; `ETRF2000` is one member of `ETRS89`. A CRS on an ensemble
+  inherits its stated accuracy, typically metres for WGS 84.
+
+Deprecated
+  Withdrawn by the authority because the object was wrong or duplicated.
+  A deprecated object keeps its code and can still be named, and the
+  authority often names its replacement. PROJ leaves deprecated objects
+  out of its own searches; {func}`geodetic_engine.catalog.crs` and the other
+  listings include them on request.
+
+Superseded
+  Replaced by a newer operation for the same purpose, without being wrong.
+  A superseded operation is not deprecated, and PROJ still offers it.
+
 Area of use
   The region an operation is published as valid for, as a bounding box and
   a description. Reported on every
@@ -207,6 +224,12 @@ OSDU record id
 persistableReference
   OSDU's JSON envelope around ESRI WKT, stating a CRS, transformation or unit.
   See {doc}`/persistable-reference/index`.
+
+PROJJSON
+  PROJ's JSON encoding of CRSs, datums, ellipsoids and coordinate operations,
+  equivalent to WKT2 and defined by a published JSON Schema
+  (<https://proj.org/specifications/projjson.html>). Every catalog entry's
+  `to_json_dict()` is the object's PROJJSON.
 
 Pipeline
   PROJ's explicit, step-by-step description of a coordinate operation. Each step

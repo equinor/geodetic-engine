@@ -42,6 +42,10 @@ exactly as specified is refused with an error rather than approximated.
   keeping structure and properties; a drop-in for the OSDU `convertGeoJson`.
 - **Custom PROJ databases.** Add a Georepository register's or an OSDU
   catalogue's own CRSs and transformations to a copy of PROJ's `proj.db`.
+- **Catalog of the database.** List and filter the CRSs, transformations,
+  datums, ellipsoids, prime meridians, units, methods, coordinate systems and
+  grid files `proj.db` holds, by area, datum, accuracy, deprecation and more,
+  with `geodetic_engine.catalog`; export them as DataFrames or PROJJSON.
 - **Projection factors.** Grid convergence and scale factor of any projected
   CRS, with `geodetic_engine.geodesy.projection_factors`.
 - **Well trajectories.** Minimum-curvature trajectories from directional
@@ -67,7 +71,16 @@ result.pipeline           # the PROJ pipeline that ran, replayable in plain pypr
 
 Leave out `operation=` and the call raises `AmbiguousOperationError`, because
 several ED50 to WGS 84 transformations exist and they disagree by metres. Use
-`available_operations("EPSG:4230", "EPSG:4326")` to choose one.
+`available_operations("EPSG:4230", "EPSG:4326")` to choose one, or list what
+EPSG publishes with the catalog:
+
+```python
+from geodetic_engine import catalog
+
+catalog.operations(
+    source_crs="EPSG:4230", target_crs="EPSG:4326", max_accuracy=1.0, area_name="Norway"
+).to_dataframe()
+```
 
 ## Installation
 
@@ -122,7 +135,7 @@ for details.
 | | |
 |---|---|
 | [Getting started](https://equinor.github.io/geodetic-engine/dev/getting-started/index.html) | Installation, quickstart, core concepts |
-| [User guide](https://equinor.github.io/geodetic-engine/dev/user-guide/index.html) | Transformations, OSDU payloads, the Georepository client, custom `proj.db` builds, seismic bin grids |
+| [User guide](https://equinor.github.io/geodetic-engine/dev/user-guide/index.html) | Transformations, the catalog, OSDU payloads, the Georepository client, custom `proj.db` builds, seismic bin grids |
 | [Examples](https://equinor.github.io/geodetic-engine/dev/examples/index.html) | Executed notebooks |
 | [API reference](https://equinor.github.io/geodetic-engine/dev/api/index.html) | Every public class and function |
 | [Command-line tools](https://equinor.github.io/geodetic-engine/dev/cli/index.html) | `geodetic-projdb`, `geodetic-osdudb` |

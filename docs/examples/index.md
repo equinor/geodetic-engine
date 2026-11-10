@@ -33,6 +33,17 @@ operations named by OSDU record id, resolved against a small OSDU database the
 notebook builds first.
 :::
 
+:::{grid-item-card} Catalog
+:link: notebooks/catalog_examples
+:link-type: doc
+
+Discovery with `geodetic_engine.catalog`: projected CRSs on a datum for an
+area, the transformations EPSG publishes between two datums and picking one
+for a point, registered versus assembled operations, deprecated operations,
+datum ensembles, following references from a CRS to its ellipsoid, units,
+methods, northing-first coordinate systems, missing grids, and JSON export.
+:::
+
 :::{grid-item-card} Well trajectories
 :link: notebooks/welltrajectory_examples
 :link-type: doc
@@ -59,6 +70,11 @@ examples:
 | Provenance | {doc}`/user-guide/geodesy/results` | Applied operation, route, pipeline replay in plain pyproj, database fingerprints, JSON |
 | Refusals | {doc}`/user-guide/geodesy/errors` | Triggering every `GeodesyError` subclass, including a simulated missing grid |
 | Helmert algebra | {doc}`/user-guide/geodesy/helmert` | Reading, composing and collapsing Helmerts; restating ppb scales |
+| Finding CRSs | {doc}`/user-guide/catalog/crs` | By area, datum, kind, unit, projection and name; deprecated CRSs; reading and using an entry |
+| Finding operations | {doc}`/user-guide/catalog/operations` | Transformations between two CRSs, accuracy, registered versus assembled, methods, grids, deprecated and superseded |
+| Datums and building blocks | {doc}`/user-guide/catalog/datums`, {doc}`/user-guide/catalog/building-blocks` | Ensembles and members, dynamic frames, ellipsoids, prime meridians, units, methods, coordinate systems |
+| Grid files | {doc}`/user-guide/catalog/grids` | One entry per file, installed or missing, kinds |
+| Catalog output | {doc}`/user-guide/catalog/output` | Lazy listings, DataFrames, PROJJSON, the listing schema, provenance |
 | Projection factors | {doc}`/user-guide/geodesy/projection-factors` | Grid convergence and scale factor at one point and many, turning azimuths, scaling distances, figures across a UTM zone, a non-conformal projection |
 | OSDU payloads | {doc}`/persistable-reference/usage` | All six payload kinds, transforming with payloads, stated operations, units, writing payloads, method support tables |
 | Building the input | {doc}`/user-guide/welltrajectory/input` | A trajectory input from arrays, rows, a DataFrame, a survey file and an OSDU request body; the survey file format; checks; changing and saving an input |
@@ -74,5 +90,6 @@ examples:
 
 notebooks/geodesy_quickstart
 notebooks/geodetic-engine-examples
+notebooks/catalog_examples
 notebooks/welltrajectory_examples
 ```

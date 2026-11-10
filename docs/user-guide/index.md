@@ -19,6 +19,16 @@ coordinates, read provenance, and get the grid convergence and scale factor.
 The module most users need.
 :::
 
+:::{grid-item-card} Catalog
+:link: catalog/index
+:link-type: doc
+
+`geodetic_engine.catalog`: find CRSs, transformations, datums, ellipsoids,
+units, methods, coordinate systems and grid files in the PROJ database, filter
+them by area, datum, accuracy and more, and export them as a table or
+PROJJSON.
+:::
+
 :::{grid-item-card} GeoJSON documents
 :link: geojson
 :link-type: doc

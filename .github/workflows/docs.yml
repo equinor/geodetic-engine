@@ -84,6 +84,8 @@ jobs:
           mkdir -p site
           cp -r docs/_build/html site/dev
           cp docs/_static/switcher.json site/switcher.json
+          mkdir -p site/schemas
+          cp geodetic_engine/catalog/listing.schema.json site/schemas/catalog-listing-v1.schema.json
           cat > site/index.html <<'EOF'
           <!DOCTYPE html>
           <meta charset="utf-8">

@@ -29,6 +29,8 @@ Each issue links to its full entry below.
 | [A grid is reported missing when PROJ reads a renamed copy](#a-grid-is-reported-missing-when-proj-reads-a-renamed-copy) | Checks the grid files the compiled pipeline will read |
 | [PROJ reads no ESRI `GEOGTRAN`, and writes none](#proj-reads-no-esri-geogtran-and-writes-none) | Parses and writes ESRI WKT itself |
 | [PROJJSON drops nested identifiers and unit codes](#projjson-drops-nested-identifiers-and-unit-codes) | Reads the codes from pyproj's sub-objects instead |
+| [pyproj reports an engineering CRS as a plain CRS](#pyproj-reports-an-engineering-crs-as-a-plain-crs) | Reads each CRS's kind from `proj.db` |
+| [The CRS search lists a CRS once per usage](#the-crs-search-lists-a-crs-once-per-usage) | Lists each CRS once, with every area of use |
 | [Build configuration](#build-configuration) | Builds PROJ and pyproj from source so the pinned database is used |
 
 **PROJ data**
@@ -57,7 +59,7 @@ Each issue links to its full entry below.
 | [Projected CRSs with south or west axes keep their declared order](#projected-crss-with-south-or-west-axes-keep-their-declared-order) | Read `value_axis_abbreviations` for the order used |
 | [A Similarity transformation into a northing-first engineering CRS](#a-similarity-transformation-into-a-northing-first-engineering-crs) | State the operation out of the grid instead |
 | [Area of use is not enforced](#area-of-use-is-not-enforced) | Check points against `area_of_use` yourself |
-| [Deprecated operations cannot be listed](#deprecated-operations-cannot-be-listed) | Name a deprecated operation by its code |
+| [Deprecated operations cannot be listed by PROJ](#deprecated-operations-cannot-be-listed-by-proj) | List them with `catalog.operations(deprecated=True)` |
 
 ## PROJ and pyproj
 
@@ -413,6 +415,57 @@ Upstream
 Remove when
 : PROJJSON export includes these identifiers. They are still omitted.
 
+### pyproj reports an engineering CRS as a plain CRS
+
+Symptom
+: {func}`pyproj.database.query_crs_info` gives an engineering CRS such as
+  `EPSG:5800` the type `PJType.CRS`, and asked for
+  `pj_types=PJType.ENGINEERING_CRS` it returns nothing.
+
+Cause
+: PROJ's CRS search maps the types it knows to `PJ_TYPE_*` values and leaves
+  every other one, engineering included, as the generic `PJ_TYPE_CRS`.
+
+What the package does
+: {func}`geodetic_engine.catalog.crs` reads each CRS's kind from `proj.db`'s
+  `crs_view`, so `kind="engineering"` finds them, and filters kinds itself
+  rather than through pyproj.
+
+Code
+: `geodetic_engine/catalog/_crs.py` (`_KINDS`, `structures`).
+
+Upstream
+: None referenced.
+
+Remove when
+: `query_crs_info(pj_types=PJType.ENGINEERING_CRS)` returns the engineering
+  CRSs. It returns none.
+
+### The CRS search lists a CRS once per usage
+
+Symptom
+: {func}`pyproj.database.query_crs_info` returns a CRS with several usages,
+  such as `EPSG:25832`, once for each, so a count of its results counts
+  usages, not CRSs.
+
+Cause
+: PROJ joins each CRS with its usages and returns every row.
+
+What the package does
+: {func}`geodetic_engine.catalog.crs` lists each CRS once, with every area of
+  use in {attr}`~geodetic_engine.catalog.LocatedEntry.areas_of_use`, the one
+  PROJ reports first as `area_of_use`. An area of interest selects a CRS when
+  any of its usages qualifies, as in PROJ.
+
+Code
+: `geodetic_engine/catalog/_crs.py` (`entries`).
+
+Upstream
+: None referenced.
+
+Remove when
+: Permanent; PROJ returns one row per usage by design.
+
 ### Build configuration
 
 `-DEMBED_RESOURCE_FILES=OFF`
@@ -504,8 +557,10 @@ An operation is applied wherever PROJ can compute it. Check points against the
 operation's `area_of_use` yourself
 ({doc}`/user-guide/geodesy/choosing-operations`).
 
-### Deprecated operations cannot be listed
+### Deprecated operations cannot be listed by PROJ
 
 PROJ's operation search always excludes deprecated EPSG operations, so
 {func}`~geodetic_engine.geodesy.available_operations` has no option to include
-them. A deprecated operation can still be named explicitly by code.
+them. {func}`catalog.operations(deprecated=True) <geodetic_engine.catalog.operations>`
+lists them from the database, and a deprecated operation can still be named
+explicitly by code.

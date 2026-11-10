@@ -56,7 +56,10 @@ for c in precise:
 ```
 
 PROJ never offers deprecated EPSG operations, so there is no
-`allow_deprecated` option.
+`allow_deprecated` option. To see them, and every other operation the registry
+publishes whether or not PROJ would choose it, use
+{func}`catalog.operations <geodetic_engine.catalog.operations>`; see
+{doc}`/user-guide/catalog/operations`.
 
 ## Picking by area of use
 
