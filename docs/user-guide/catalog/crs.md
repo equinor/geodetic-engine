@@ -72,10 +72,51 @@ vertical_in_norway = catalog.crs(
 [str(entry) for entry in vertical_in_norway]
 ```
 
+Every engineering CRS -- the local CRSs of plants, sites and seismic surveys --
+of every authority:
+
+```{code-cell} python
+engineering = catalog.crs(kind="engineering")
+print(len(engineering), "engineering CRSs:", Counter(e.auth_name for e in engineering))
+engineering.to_dataframe()[["authority_code", "name", "datums", "area_of_use"]]
+```
+
 ```{note}
 pyproj reports an engineering CRS as a plain `CRS`, and its own engineering
 filter finds none. The kind here is read from `proj.db`, so
 `kind="engineering"` finds them; see {doc}`/workarounds`.
+```
+
+## By authority
+
+`authority` takes any authority {func}`~geodetic_engine.catalog.authorities`
+lists, or several:
+
+```{code-cell} python
+[str(authority) for authority in catalog.authorities()]
+```
+
+The CRSs the OSDU catalogue defines itself are under the authority `OSDU` in
+the database the released package ships (see {doc}`/user-guide/osdudb`). They
+are {term}`bound CRSs <bound CRS>`, each carrying the transformation the
+catalogue binds it to, and each lists the
+{term}`OSDU record ids <OSDU record id>` that publish it:
+
+```{code-cell} python
+osdu = catalog.crs(authority="OSDU")
+print(len(osdu), "CRSs of authority OSDU:", Counter(e.kind.value for e in osdu))
+print(sum(e.bound for e in osdu), "of them bound")
+osdu.to_dataframe()[["authority_code", "name", "kind", "bound", "osdu_ids"]].head(10)
+```
+
+The catalogue also publishes plain EPSG CRSs under record ids of their own,
+and those stay under the authority `EPSG`. So every CRS the OSDU catalogue
+publishes, whatever its authority, is every entry with `osdu_ids`:
+
+```{code-cell} python
+published = [entry for entry in catalog.crs(deprecated=None) if entry.osdu_ids]
+print(len(published), "CRSs have an OSDU record id:", Counter(e.auth_name for e in published))
+catalog.crs(code="EPSG:23031").one().osdu_ids
 ```
 
 ## By unit, coordinate system and projection
