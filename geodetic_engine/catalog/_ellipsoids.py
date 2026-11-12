@@ -209,7 +209,6 @@ def ellipsoids(
         return names is None or names((entry.name, *entry.aliases))
 
     def produce() -> Iterator[EllipsoidEntry]:
-        _registry.unchanged(databases)
         yield from filter(admits, entries(databases))
 
     filters = _filters.echo(
@@ -230,6 +229,7 @@ def ellipsoids(
         filters,
         produce,
         columns=columns(EllipsoidEntry),
+        databases=databases,
         limit=limit,
         offset=offset,
     )

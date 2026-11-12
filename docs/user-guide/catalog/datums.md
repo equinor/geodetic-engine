@@ -35,6 +35,9 @@ print(len(etrs89.members), "members, the first", etrs89.members[0])
 [str(d) for d in catalog.datums(member_of="WGS 84", deprecated=None)]
 ```
 
+It takes ensembles only. A single datum has no members, so naming one is an
+error rather than an empty listing.
+
 A dynamic reference frame has a reference epoch; `dynamic` and
 `frame_reference_epoch` filter on it:
 

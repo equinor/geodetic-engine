@@ -160,7 +160,6 @@ def prime_meridians(
         return names is None or names((entry.name, *entry.aliases))
 
     def produce() -> Iterator[PrimeMeridianEntry]:
-        _registry.unchanged(databases)
         yield from filter(admits, entries(databases))
 
     filters = _filters.echo(
@@ -178,6 +177,7 @@ def prime_meridians(
         filters,
         produce,
         columns=columns(PrimeMeridianEntry),
+        databases=databases,
         limit=limit,
         offset=offset,
     )

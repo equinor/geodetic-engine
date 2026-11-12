@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import math
 import os
+import shutil
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +23,8 @@ from geodetic_engine.catalog import (
     _grids,
 )
 from geodetic_engine.catalog._coordinate_systems import _users, direction
-from geodetic_engine.catalog._registry import identity
+from geodetic_engine.catalog._registry import identity, reading
+from tests.support import installed_proj_db
 
 
 def _codes(listing: catalog.Listing[Any]) -> set[str]:
@@ -137,9 +140,57 @@ def test_a_crs_points_at_its_coordinate_system() -> None:
 def test_a_nadcon_pair_is_one_grid_file() -> None:
     conus = catalog.grids(operation="EPSG:15851").one()
     assert conus.name == "us_noaa_conus.tif"
-    assert {"conus.las", "conus.los"} <= set(conus.original_names)
+    assert conus.original_names == ("conus.las", "conus.los")
     assert conus.kind is GridKind.HORIZONTAL
     assert "EPSG:15851" in conus.used_by
+
+
+def test_a_chain_does_not_lend_its_grids_to_another_file() -> None:
+    # NAD27 to NAD83(HARN) by way of NAD83: two NADCON steps, four names.
+    chain = catalog.operations(code="EPSG:8460").one()
+    assert set(chain.grid_names) == {
+        "conus.las",
+        "conus.los",
+        "alhpgn.las",
+        "alhpgn.los",
+    }
+    listed = {grid.name: grid for grid in catalog.grids(operation=chain)}
+    assert set(listed) == {"us_noaa_conus.tif", "us_noaa_alhpgn.tif"}
+    assert listed["us_noaa_conus.tif"].original_names == ("conus.las", "conus.los")
+    assert listed["us_noaa_alhpgn.tif"].original_names == ("alhpgn.las", "alhpgn.los")
+
+
+def test_a_grid_takes_in_only_the_names_proj_maps_to_it() -> None:
+    # Stated independently of the index: a name is listed under another file
+    # where grid_alternatives says so, or where it is the second file of a
+    # pair whose first file grid_alternatives maps there.
+    with reading(identity()) as connection:
+        proj_name = {
+            str(original): str(proj)
+            for original, proj in connection.execute(
+                "SELECT original_grid_name, proj_grid_name FROM grid_alternatives"
+            )
+        }
+        pairs = [
+            (str(first), str(second))
+            for first, second in connection.execute(
+                "SELECT DISTINCT grid_name, grid2_name FROM grid_transformation "
+                "WHERE grid2_name IS NOT NULL"
+            )
+        ]
+    taken_in = 0
+    for grid in catalog.grids():
+        for stated in grid.original_names:
+            taken_in += 1
+            if proj_name.get(stated) == grid.name:
+                continue
+            firsts = {first for first, second in pairs if second == stated}
+            assert firsts, (grid.name, stated)
+            assert {proj_name.get(first) for first in firsts} == {grid.name}, (
+                grid.name,
+                stated,
+            )
+    assert taken_in > 300
 
 
 def test_grid_kinds() -> None:
@@ -171,6 +222,100 @@ def test_installed_reads_the_search_path(extra_grid_directory: Path) -> None:
     (extra_grid_directory / missing.name).write_bytes(b"")
     found = catalog.grids(name=missing.name).to_list()
     assert any(g.name == missing.name and g.installed for g in found)
+
+
+@pytest.fixture(scope="module")
+def database_alone(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A directory holding PROJ's database and no grid."""
+    directory = tmp_path_factory.mktemp("database")
+    shutil.copyfile(installed_proj_db(), directory / "proj.db")
+    return directory
+
+
+@pytest.fixture
+def lone_grid_directory(
+    database_alone: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Path]:
+    """PROJ's search path cut down to its database and one empty directory."""
+    grids = tmp_path / "grids"
+    grids.mkdir()
+    monkeypatch.setattr(
+        _grids.datadir, "get_user_data_dir", lambda *_: str(tmp_path / "user")
+    )
+    monkeypatch.setattr(_grids, "is_network_enabled", lambda: False)
+    previous = pyproj.datadir.get_data_dir()
+    pyproj.datadir.set_data_dir(f"{database_alone}{os.pathsep}{grids}")
+    try:
+        yield grids
+    finally:
+        pyproj.datadir.set_data_dir(previous)
+
+
+def test_a_grid_is_installed_only_under_a_name_proj_reads(
+    lone_grid_directory: Path,
+) -> None:
+    def conus() -> tuple[bool, bool]:
+        grid = catalog.grids(operation="EPSG:1241").one()
+        operation = catalog.operations(code="EPSG:1241").one()
+        return grid.installed, operation.grids_available()
+
+    assert conus() == (False, False)
+    # The files NADCON publishes, which PROJ cannot read, singly or together.
+    (lone_grid_directory / "conus.las").write_bytes(b"")
+    assert conus() == (False, False)
+    (lone_grid_directory / "conus.los").write_bytes(b"")
+    assert conus() == (False, False)
+    # PROJ's older release of the grid, which PROJ falls back to.
+    (lone_grid_directory / "conus").write_bytes(b"")
+    assert conus() == (True, True)
+    (lone_grid_directory / "conus").unlink()
+    assert conus() == (False, False)
+    (lone_grid_directory / "us_noaa_conus.tif").write_bytes(b"")
+    assert conus() == (True, True)
+
+
+def test_an_operation_names_the_file_proj_reads_and_where_it_is(
+    lone_grid_directory: Path,
+) -> None:
+    operation = catalog.operations(code="EPSG:1241").one()
+    (missing,) = operation.grids()
+    assert (missing.name, missing.available, missing.full_name) == (
+        "us_noaa_conus.tif",
+        False,
+        "",
+    )
+    assert missing.url.endswith("us_noaa_conus.tif")
+    installed = lone_grid_directory / "us_noaa_conus.tif"
+    installed.write_bytes(b"")
+    (found,) = operation.grids()
+    assert (found.available, found.full_name) == (True, str(installed))
+
+
+def test_a_grid_the_database_does_not_know_is_looked_for_not_assumed(
+    lone_grid_directory: Path,
+) -> None:
+    # An entry outlives a database switch, so it may name a grid the active
+    # database states nowhere.
+    kept = replace(
+        catalog.operations(code="EPSG:1241").one(), grid_names=("elsewhere.gsb",)
+    )
+    (unknown,) = kept.grids()
+    assert (unknown.name, unknown.available) == ("elsewhere.gsb", False)
+    assert not kept.grids_available()
+    (lone_grid_directory / "elsewhere.gsb").write_bytes(b"")
+    assert kept.grids_available()
+
+
+def test_with_proj_networking_a_downloadable_grid_is_available_not_installed(
+    lone_grid_directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_grids, "is_network_enabled", lambda: True)
+    assert catalog.operations(code="EPSG:1241").one().grids_available()
+    assert "EPSG:1241" in {
+        e.authority_code
+        for e in catalog.operations(method="NADCON", grids_available=True)
+    }
+    assert not catalog.grids(operation="EPSG:1241").one().installed
 
 
 def test_check_remote_reads_the_cdn_list_once(monkeypatch: pytest.MonkeyPatch) -> None:

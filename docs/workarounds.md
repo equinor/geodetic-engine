@@ -355,11 +355,15 @@ What the package does
   stated operation PROJ cannot build for want of a file is refused the same
   way, naming the grids its definition cites. With PROJ's network access
   enabled a file may be fetched on demand, so its absence is then not held
-  against it.
+  against it. The catalog does not ask PROJ about a registered operation
+  either: `OperationEntry.grids()` and the `grids_available` filter map each
+  name the database states to PROJ's file through `grid_alternatives`, and
+  look for that file on disk the same way.
 
 Code
 : `_confirm_installed`, `_installed_grid` and `_stated_transformer` in
-  `geodetic_engine/geodesy/transformation.py`.
+  `geodetic_engine/geodesy/transformation.py`; `usages` and `availability`
+  in `geodetic_engine/catalog/_grids.py`.
 
 Upstream
 : None referenced.
@@ -368,7 +372,9 @@ Remove when
 : PROJ reports availability for the substituted file and refuses to compile a
   step whose file is gone. `test_a_superseded_grid_filename_is_not_reported_missing`
   and the three `*_names_its_missing_grid` tests in
-  `tests/geodesy/test_rules.py` cover both directions. `conus.las` and
+  `tests/geodesy/test_rules.py` cover both directions, and
+  `test_grids_available_is_whether_geodesy_can_build_the_operation` in
+  `tests/catalog/test_operations.py` the catalog. `conus.las` and
   `conus.los` are still reported unavailable, and a compiled pipeline still
   outlives its grid file.
 

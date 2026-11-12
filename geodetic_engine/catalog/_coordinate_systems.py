@@ -373,7 +373,6 @@ def coordinate_systems(
         return names is None or names((entry.name,))
 
     def produce() -> Iterator[CoordinateSystemEntry]:
-        _registry.unchanged(databases)
         yield from filter(admits, entries(databases))
 
     filters = _filters.echo(
@@ -392,6 +391,7 @@ def coordinate_systems(
         filters,
         produce,
         columns=columns(CoordinateSystemEntry),
+        databases=databases,
         limit=limit,
         offset=offset,
     )

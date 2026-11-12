@@ -102,7 +102,11 @@ def test_dataframe_columns_are_the_same_whatever_the_rows(kind: str) -> None:
     frame = listing.to_dataframe()
     assert len(frame) == len(listing)
     empty = type(listing)(
-        listing.kind, {}, lambda: iter(()), columns=listing._columns
+        listing.kind,
+        {},
+        lambda: iter(()),
+        columns=listing._columns,
+        databases=listing._databases,
     ).to_dataframe()
     assert list(frame.columns) == list(empty.columns)
 
@@ -138,6 +142,15 @@ def test_the_export_echoes_the_filters_as_json() -> None:
     json.dumps(listing.to_json_dict())
 
 
+def test_an_open_range_is_echoed_with_its_open_end() -> None:
+    listing = catalog.datums(authority="EPSG", frame_reference_epoch=(2015, None))
+    assert listing.filters["frame_reference_epoch"] == [2015, None]
+    exported = json.loads(listing.to_json())["filters"]["frame_reference_epoch"]
+    assert exported == [2015, None]
+    again = catalog.datums(authority="EPSG", frame_reference_epoch=tuple(exported))
+    assert again.to_list() == listing.to_list()
+
+
 def test_the_export_names_the_database_that_answered() -> None:
     info = catalog.database()
     assert info.epsg_version == get_database_metadata("EPSG.VERSION")
@@ -169,6 +182,24 @@ def test_a_listing_refuses_a_database_switched_under_it(
     pyproj.datadir.set_data_dir(f"{previous}{os.pathsep}{tmp_path}")
     with pytest.raises(CatalogError, match="database changed"):
         len(listing)
+
+
+def test_a_listing_already_read_refuses_to_be_exported_after_a_switch(
+    switched_database: None, tmp_path: Path
+) -> None:
+    listing = catalog.crs(code="EPSG:4326")
+    entries = listing.to_list()
+    previous = pyproj.datadir.get_data_dir()
+    pyproj.datadir.set_data_dir(f"{previous}{os.pathsep}{tmp_path}")
+    # The export would name, and resolve definitions against, another database.
+    with pytest.raises(CatalogError, match="database changed"):
+        listing.to_json_dict()
+    with pytest.raises(CatalogError, match="database changed"):
+        listing.to_json(include_definitions=True)
+    assert listing.to_list() == entries
+    assert len(listing.to_dataframe()) == 1
+    pyproj.datadir.set_data_dir(previous)
+    assert listing.to_json_dict()["count"] == 1
 
 
 _LONGITUDES = st.floats(-180, 180, allow_nan=False)

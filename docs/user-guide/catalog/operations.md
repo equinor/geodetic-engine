@@ -112,8 +112,10 @@ print(chain.kind, [str(step) for step in chain.steps])
 ```
 
 `grid_based` keeps the operations that read grid files, and `grids_available`
-asks PROJ whether every grid each reads can be found now. It builds each
-grid-based operation, so it is the one slow filter and is applied last:
+those whose every grid PROJ can read now: the file is on this machine or,
+with PROJ networking enabled, PROJ knows where to download it.
+`grid_names` are the names the database states, which are often not the
+files PROJ reads:
 
 ```{code-cell} python
 norway_grids = catalog.operations(grid_based=True, area_name="Norway")
@@ -126,10 +128,20 @@ missing = catalog.operations(authority="EPSG", grids_available=False, area_name=
 [str(entry) for entry in missing]
 ```
 
-{meth}`~geodetic_engine.catalog.OperationEntry.grids` says which grid PROJ
-found where, as {class}`~geodetic_engine.geodesy.GridUsage`. The grid files
-themselves are listed by {func}`~geodetic_engine.catalog.grids`; see
-{doc}`grids`.
+{meth}`~geodetic_engine.catalog.OperationEntry.grids` names the files PROJ
+reads for an operation, and where each was found, as
+{class}`~geodetic_engine.geodesy.GridUsage`:
+
+```{code-cell} python
+for grid in catalog.operations(code="EPSG:15851").one().grids():
+    print(grid.name, grid.available, grid.url)
+```
+
+The files are looked for on disk. PROJ's own account of a registered
+operation is not used, because it tests the names the authority published
+and so reports a grid missing that PROJ reads under its own name
+({doc}`/workarounds`). The grid files themselves are listed by
+{func}`~geodetic_engine.catalog.grids`; see {doc}`grids`.
 
 ## Deprecated and superseded operations
 

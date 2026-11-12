@@ -7,6 +7,8 @@ import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, overload
 
+from geodetic_engine._referencing.database import DatabaseIdentity
+from geodetic_engine.catalog import _registry
 from geodetic_engine.catalog._entry import CatalogEntry
 from geodetic_engine.catalog.errors import NotFoundError, NotUniqueError
 
@@ -33,6 +35,11 @@ class Listing[E: CatalogEntry](Sequence[E]):
     Entries are ordered by authority, then by code, numerically where the code
     is a number.
 
+    A listing belongs to the database it was made for. Once PROJ's database
+    has been switched, a listing not yet read refuses to be read, and any
+    listing refuses to be exported as JSON, since the export names the
+    database that answered. Entries already read stay as they were read.
+
     Example:
         >>> from geodetic_engine import catalog
         >>> found = catalog.crs(authority="EPSG", name="UTM zone 32N", kind="projected")
@@ -42,7 +49,14 @@ class Listing[E: CatalogEntry](Sequence[E]):
         True
     """
 
-    __slots__ = ("_columns", "_entries", "_filters", "_kind", "_produce")
+    __slots__ = (
+        "_columns",
+        "_databases",
+        "_entries",
+        "_filters",
+        "_kind",
+        "_produce",
+    )
 
     def __init__(
         self,
@@ -51,6 +65,7 @@ class Listing[E: CatalogEntry](Sequence[E]):
         produce: Callable[[], Iterator[E]],
         *,
         columns: tuple[str, ...],
+        databases: DatabaseIdentity,
         limit: int | None = None,
         offset: int = 0,
     ) -> None:
@@ -61,12 +76,14 @@ class Listing[E: CatalogEntry](Sequence[E]):
             filters: The filters asked for, as JSON values.
             produce: Yields every entry that passes the filters, in order.
             columns: The columns of :meth:`to_dataframe`.
+            databases: The databases PROJ read when the filters were checked.
             limit: At most this many entries.
             offset: Skip this many entries first.
         """
         self._kind = kind
         self._filters = dict(filters)
         self._columns = columns
+        self._databases = databases
         stop = None if limit is None else offset + limit
         self._produce: Callable[[], Iterator[E]] = lambda: itertools.islice(
             produce(), offset, stop
@@ -85,6 +102,7 @@ class Listing[E: CatalogEntry](Sequence[E]):
 
     def _all(self) -> tuple[E, ...]:
         if self._entries is None:
+            _registry.unchanged(self._databases)
             self._entries = tuple(self._produce())
         return self._entries
 
@@ -162,9 +180,15 @@ class Listing[E: CatalogEntry](Sequence[E]):
             include_definitions: Add each entry's full PROJJSON as
                 ``definition``. Builds every object through PROJ, so it takes
                 longer on a large listing.
+
+        Raises:
+            CatalogError: If PROJ's database was switched after the listing
+                was made, whether or not its entries were read before. The
+                export would name a database that did not answer.
         """
         from geodetic_engine.catalog._database import database
 
+        _registry.unchanged(self._databases)
         items = []
         for entry in self._all():
             item = entry.to_summary_dict()

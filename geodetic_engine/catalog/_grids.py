@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from functools import lru_cache
@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pyproj import datadir
+from pyproj.network import is_network_enabled
 from pyproj.sync import get_transform_grid_list
 
 from geodetic_engine._referencing.database import DatabaseIdentity
@@ -25,7 +26,7 @@ from geodetic_engine.catalog._filters import AreaFilter, ReferenceFilter, TextFi
 from geodetic_engine.catalog._listing import Listing
 from geodetic_engine.catalog._operations import entries as operation_entries
 from geodetic_engine.catalog.errors import GridIndexUnavailableError, InvalidFilterError
-from geodetic_engine.geodesy import AreaOfUse
+from geodetic_engine.geodesy import AreaOfUse, GridUsage
 
 
 class GridKind(StrEnum):
@@ -87,7 +88,9 @@ class GridEntry(CatalogEntry):
     reads: an authority's name for a grid, such as EPSG's
     ``"A66 National (13.09.01).gsb"``, is listed under the file PROJ reads
     for it, ``"au_icsm_A66_National_13_09_01.tif"``, where PROJ's
-    ``grid_alternatives`` table maps one to the other.
+    ``grid_alternatives`` table maps one to the other. NADCON states two
+    files, such as ``"conus.las"`` and ``"conus.los"``, where PROJ reads one
+    that holds both, so both are listed under it.
 
     A grid file has no authority code, so this is no
     :class:`RegistryEntry`.
@@ -104,8 +107,11 @@ class GridEntry(CatalogEntry):
         url: Where PROJ downloads it from, if known.
         direct_download: Whether it can be downloaded without registering.
         open_license: Whether its licence is open, or None if unknown.
-        installed: Whether a file of one of its names is in a directory on
-            PROJ's search path or in PROJ's user data directory.
+        installed: Whether PROJ finds the file on this machine: under
+            :attr:`name`, or under :attr:`old_proj_name`, which PROJ falls
+            back to, in a directory on PROJ's search path or in PROJ's user
+            data directory. A file under one of :attr:`original_names` does
+            not count, since PROJ does not read it under that name.
         remote_available: Whether PROJ's content delivery network lists it;
             None unless the listing was made with ``check_remote=True``.
         used_by: ``"AUTH:CODE"`` of the operations that read it, deprecated
@@ -198,10 +204,19 @@ def _kind(proj_method: str | None, method_names: Iterable[str]) -> GridKind:
     return GridKind.UNKNOWN
 
 
+@dataclass(frozen=True, slots=True)
+class _Index:
+    """Every grid of a database, and the grid each stated name is listed under."""
+
+    entries: tuple[GridEntry, ...]
+    by_stated: Mapping[str, GridEntry]
+
+
 @lru_cache(maxsize=4)
-def entries(databases: DatabaseIdentity) -> tuple[GridEntry, ...]:
+def index(databases: DatabaseIdentity) -> _Index:
     """Every grid in the database, without what can change on disk."""
     alternatives: dict[str, tuple[Any, ...]] = {}
+    companions: dict[str, set[str]] = {}
     with _registry.reading(databases) as connection:
         if _registry.has_table(connection, "grid_alternatives"):
             for row in connection.execute(
@@ -210,32 +225,53 @@ def entries(databases: DatabaseIdentity) -> tuple[GridEntry, ...]:
                 "FROM grid_alternatives"
             ):
                 alternatives[str(row[0])] = row
+        for first, second in connection.execute(
+            "SELECT DISTINCT grid_name, grid2_name FROM grid_transformation "
+            "WHERE grid2_name IS NOT NULL"
+        ):
+            companions.setdefault(str(second), set()).add(str(first))
+
+    def proj_file(stated: str) -> str:
+        row = alternatives.get(stated)
+        return str(row[1]) if row and row[1] else stated
+
+    # NADCON states a latitude and a longitude file where PROJ reads one file
+    # holding both, which grid_alternatives maps the first of the two to. Only
+    # the second file of such a pair is listed under another file's name.
+    listed_under: dict[str, str] = {}
+    for second, firsts in companions.items():
+        if second in alternatives or not all(f in alternatives for f in firsts):
+            continue
+        shared = {proj_file(first) for first in firsts}
+        if len(shared) == 1:
+            listed_under[second] = shared.pop()
+
     files: dict[str, dict[str, Any]] = {}
+    stated_under: dict[str, str] = {}
 
     def file_of(stated: str) -> dict[str, Any]:
         row = alternatives.get(stated)
-        name = str(row[1]) if row and row[1] else stated
+        name = listed_under.get(stated) or proj_file(stated)
         found = files.setdefault(
             name,
-            {"originals": [], "row": row, "operations": [], "methods": [], "areas": []},
+            {
+                "originals": [],
+                "row": None,
+                "operations": [],
+                "methods": [],
+                "areas": [],
+            },
         )
         if found["row"] is None and row is not None:
             found["row"] = row
         if stated != name and stated not in found["originals"]:
             found["originals"].append(stated)
+        stated_under[stated] = name
         return found
 
     for operation in operation_entries(databases):
-        # A NADCON pair (".las", ".los") is one GeoTIFF in PROJ, which
-        # grid_alternatives records against the first name only.
-        mapped = next((g for g in operation.grid_names if g in alternatives), None)
         for stated in operation.grid_names:
-            if mapped is not None and stated not in alternatives:
-                found = file_of(mapped)
-                if stated not in found["originals"]:
-                    found["originals"].append(stated)
-            else:
-                found = file_of(stated)
+            found = file_of(stated)
             if operation.authority_code not in found["operations"]:
                 found["operations"].append(operation.authority_code)
             if operation.method is not None:
@@ -246,25 +282,34 @@ def entries(databases: DatabaseIdentity) -> tuple[GridEntry, ...]:
     for stated in alternatives:
         file_of(stated)
 
-    built = []
+    built = {}
     for name, found in files.items():
         row = found["row"]
-        built.append(
-            GridEntry(
-                name=name,
-                original_names=tuple(found["originals"]),
-                old_proj_name=_registry.text(row[2]) if row else None,
-                format=_registry.text(row[3]) if row else None,
-                proj_method=_registry.text(row[4]) if row else None,
-                kind=_kind(row[4] if row else None, found["methods"]),
-                url=_registry.text(row[5]) if row else None,
-                direct_download=bool(row[6]) if row else False,
-                open_license=None if not row or row[7] is None else bool(row[7]),
-                used_by=tuple(found["operations"]),
-                areas_of_use=tuple(found["areas"]),
-            )
+        built[name] = GridEntry(
+            name=name,
+            original_names=tuple(found["originals"]),
+            old_proj_name=_registry.text(row[2]) if row else None,
+            format=_registry.text(row[3]) if row else None,
+            proj_method=_registry.text(row[4]) if row else None,
+            kind=_kind(row[4] if row else None, found["methods"]),
+            url=_registry.text(row[5]) if row else None,
+            direct_download=bool(row[6]) if row else False,
+            open_license=None if not row or row[7] is None else bool(row[7]),
+            used_by=tuple(found["operations"]),
+            areas_of_use=tuple(found["areas"]),
         )
-    return tuple(sorted(built, key=lambda e: e.name.casefold()))
+    by_stated = {stated: built[name] for stated, name in stated_under.items()}
+    for name, entry in built.items():
+        by_stated.setdefault(name, entry)
+    return _Index(
+        entries=tuple(sorted(built.values(), key=lambda e: e.name.casefold())),
+        by_stated=by_stated,
+    )
+
+
+def entries(databases: DatabaseIdentity) -> tuple[GridEntry, ...]:
+    """Every grid in the database, without what can change on disk."""
+    return index(databases).entries
 
 
 def _directories() -> tuple[Path, ...]:
@@ -274,13 +319,87 @@ def _directories() -> tuple[Path, ...]:
     return tuple(found)
 
 
-def _installed(entry: GridEntry, directories: tuple[Path, ...]) -> bool:
-    names = {entry.name, *entry.original_names}
-    if entry.old_proj_name:
-        names.add(entry.old_proj_name)
-    return any(
-        (directory / name).is_file() for directory in directories for name in names
-    )
+def _located(entry: GridEntry, directories: tuple[Path, ...]) -> Path | None:
+    """The file PROJ would read for a grid, if it is on this machine.
+
+    Looked for under PROJ's name for it, then under the name of PROJ's older
+    release, which PROJ falls back to. A file under a name an authority uses
+    is not looked for: PROJ asks for its own name, and NADCON's two published
+    files it cannot read at all.
+    """
+    for name in filter(None, (entry.name, entry.old_proj_name)):
+        for directory in directories:
+            candidate = directory / name
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def _obtainable(entry: GridEntry, network: bool) -> bool:
+    """Whether PROJ would download a grid that is not on this machine."""
+    return network and bool(entry.url)
+
+
+def _listed(found: _Index, stated: str) -> GridEntry:
+    """The grid a stated name is listed under.
+
+    A name the database states nowhere, as an entry kept from another
+    database may carry, is a file of its own: it is looked for, not skipped.
+    """
+    return found.by_stated.get(stated) or GridEntry(name=stated, kind=GridKind.UNKNOWN)
+
+
+def usages(stated: Iterable[str], databases: DatabaseIdentity) -> tuple[GridUsage, ...]:
+    """The files PROJ reads for the grid names an operation states.
+
+    One per file, so NADCON's two names give one. Availability is read from
+    the disk, not from PROJ's account of a registered operation, which tests
+    the authority's names and so calls a grid missing that PROJ reads under
+    its own name.
+    """
+    found = index(databases)
+    directories = _directories()
+    network = is_network_enabled()
+    files: dict[str, GridUsage] = {}
+    for name in stated:
+        entry = _listed(found, name)
+        if entry.name in files:
+            continue
+        path = _located(entry, directories)
+        files[entry.name] = GridUsage(
+            name=entry.name,
+            full_name="" if path is None else str(path),
+            package_name="",
+            url=entry.url or "",
+            available=path is not None or _obtainable(entry, network),
+            open_license=bool(entry.open_license),
+            direct_download=entry.direct_download,
+        )
+    return tuple(files.values())
+
+
+def availability(databases: DatabaseIdentity) -> Callable[[Iterable[str]], bool]:
+    """A test of whether every grid some stated names need is available now.
+
+    Each file is looked for once, so that a whole listing can be filtered.
+    """
+    found = index(databases)
+    directories = _directories()
+    network = is_network_enabled()
+    known: dict[str, bool] = {}
+
+    def available(stated: Iterable[str]) -> bool:
+        for name in stated:
+            entry = _listed(found, name)
+            if entry.name not in known:
+                known[entry.name] = _located(
+                    entry, directories
+                ) is not None or _obtainable(entry, network)
+            if not known[entry.name]:
+                return False
+        return True
+
+    return available
 
 
 @lru_cache(maxsize=1)
@@ -329,8 +448,8 @@ def grids(
         name: Text the PROJ file name or an original name contains, without
             case, or a pattern.
         kind: Only these kinds, for example ``"vertical"``.
-        installed: True for only grids found on this machine, False for only
-            those missing.
+        installed: True for only grids PROJ finds on this machine, False for
+            only those it does not; see :attr:`GridEntry.installed`.
         check_remote: Ask PROJ's content delivery network which grids it
             publishes, to fill in :attr:`GridEntry.remote_available`. The only
             listing that uses the network; read once per process.
@@ -427,7 +546,6 @@ def grids(
         return _filters.located(entry.areas_of_use, bounds, whole)
 
     def produce() -> Iterator[GridEntry]:
-        _registry.unchanged(databases)
         published = remote_names() if remote else None
         directories = _directories()
         for entry in entries(databases):
@@ -435,7 +553,7 @@ def grids(
                 continue
             found = replace(
                 entry,
-                installed=_installed(entry, directories),
+                installed=_located(entry, directories) is not None,
                 remote_available=None if published is None else entry.name in published,
             )
             if not _filters.admits_flag(installed_, found.installed):
@@ -472,5 +590,11 @@ def grids(
         )
     )
     return Listing(
-        "grids", filters, produce, columns=columns, limit=limit, offset=offset
+        "grids",
+        filters,
+        produce,
+        columns=columns,
+        databases=databases,
+        limit=limit,
+        offset=offset,
     )

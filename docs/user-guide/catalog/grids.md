@@ -32,6 +32,11 @@ print(conus.kind, conus.format, conus.proj_method)
 print(conus.url)
 ```
 
+NADCON publishes a grid as two files, one of latitude and one of longitude
+shifts, where PROJ reads one file holding both. Both names are listed under
+that file, as above. A grid PROJ has no file of its own for is listed under
+the name the database states.
+
 `used_by` lists the operations reading a grid, and `operation` turns that
 round:
 
@@ -41,9 +46,13 @@ len(conus.used_by), "operations read", conus.name
 
 ## Installed, or missing
 
-`installed` is whether a file of one of its names is in a directory on PROJ's
-search path or in PROJ's user data directory. It is checked each time a
-listing is read, so a grid installed since shows at once:
+`installed` is whether PROJ finds the file on this machine: under `name`, or
+under `old_proj_name`, the name of PROJ's older release of the grid, which
+PROJ falls back to. It is looked for in the directories on PROJ's search path
+and in PROJ's user data directory. A file under one of `original_names` does
+not count: PROJ asks for its own file, and cannot read NADCON's `conus.las`
+and `conus.los` at all. It is checked each time a listing is read, so a grid
+installed since shows at once:
 
 ```{code-cell} python
 from collections import Counter
@@ -58,8 +67,9 @@ missing_vertical = catalog.grids(kind="vertical", installed=False, area_name="No
 
 ```{note}
 {meth}`OperationEntry.grids_available <geodetic_engine.catalog.OperationEntry.grids_available>`
-asks PROJ instead, so with PROJ networking enabled a grid on the content
-delivery network counts as available there while it is not `installed` here.
+applies the same test to every file an operation reads, with one difference:
+with PROJ networking enabled, a grid PROJ can download counts as available
+there while it is not `installed` here.
 ```
 
 ## On the content delivery network

@@ -251,7 +251,6 @@ def units(
         return names is None or names((entry.name, *entry.aliases))
 
     def produce() -> Iterator[UnitEntry]:
-        _registry.unchanged(databases)
         yield from filter(admits, entries(databases))
 
     filters = _filters.echo(
@@ -269,6 +268,7 @@ def units(
         filters,
         produce,
         columns=columns(UnitEntry),
+        databases=databases,
         limit=limit,
         offset=offset,
     )

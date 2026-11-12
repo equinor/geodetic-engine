@@ -477,7 +477,8 @@ def echo(**given: Any) -> Mapping[str, Any]:
 
 
 def _json(value: Any) -> Any:
-    if isinstance(value, (bool, int, float, str)):
+    # Inside a value None means something, such as the open end of a range.
+    if value is None or isinstance(value, (bool, int, float, str)):
         return value.value if isinstance(value, StrEnum) else value
     if isinstance(value, re.Pattern):
         return {"pattern": value.pattern}

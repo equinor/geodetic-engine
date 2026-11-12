@@ -59,6 +59,17 @@ def test_an_ensemble_lists_its_members() -> None:
     assert "EPSG:1178" in _codes(members)
 
 
+def test_member_of_refuses_a_datum_that_is_no_ensemble() -> None:
+    with pytest.raises(InvalidFilterError, match="EPSG:1178 is not a datum ensemble"):
+        catalog.datums(member_of="EPSG:1178")
+    with pytest.raises(InvalidFilterError, match="no datum ensemble named"):
+        catalog.datums(member_of="World Geodetic System 1984 (G2139)")
+    # "ETRS89" is also an alias of one single datum, ETRS89-IRE [ETRF2000].
+    by_name = catalog.datums(member_of="ETRS89", deprecated=None)
+    by_code = catalog.datums(member_of="EPSG:6258", deprecated=None)
+    assert by_name and _codes(by_name) == _codes(by_code)
+
+
 def test_dynamic_frames_and_epochs() -> None:
     found = catalog.datums(authority="EPSG", frame_reference_epoch=(2010, 2010))
     assert found

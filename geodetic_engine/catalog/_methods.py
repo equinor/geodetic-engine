@@ -266,7 +266,6 @@ def methods(
         return names is None or names((entry.name, *entry.aliases))
 
     def produce() -> Iterator[MethodEntry]:
-        _registry.unchanged(databases)
         yield from filter(admits, entries(databases))
 
     filters = _filters.echo(
@@ -284,6 +283,7 @@ def methods(
         filters,
         produce,
         columns=columns(MethodEntry),
+        databases=databases,
         limit=limit,
         offset=offset,
     )

@@ -553,7 +553,6 @@ def crs(
         return inside is None or (entry.auth_name, entry.code) in inside
 
     def produce() -> Iterator[CrsEntry]:
-        _registry.unchanged(databases)
         inside = None if bounds is None else _within(bounds, whole, authorities)
         for entry in entries(databases):
             if admits(entry, inside):
@@ -581,6 +580,7 @@ def crs(
         filters,
         produce,
         columns=columns(CrsEntry),
+        databases=databases,
         limit=limit,
         offset=offset,
     )

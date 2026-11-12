@@ -91,6 +91,8 @@ Numeric filters take one number, matched exactly, or `(low, high)` with
 [str(e) for e in catalog.ellipsoids(authority="EPSG", inverse_flattening=(299, None))]
 ```
 
+A listing's JSON states an open end as `null`.
+
 ## Areas of interest
 
 West greater than east is an area across the antimeridian, as in PROJ.
@@ -131,7 +133,7 @@ first, second = (
 | {class}`~geodetic_engine.catalog.NotFoundError` | {meth}`Listing.one <geodetic_engine.catalog.Listing.one>` found nothing |
 | {class}`~geodetic_engine.catalog.NotUniqueError` | {meth}`Listing.one <geodetic_engine.catalog.Listing.one>` found more than one |
 | {class}`~geodetic_engine.catalog.GridIndexUnavailableError` | `check_remote=True` and the network's list of grids could not be read |
-| {class}`~geodetic_engine.catalog.CatalogError` | Their base; also no `proj.db` on the search path, or a listing read after its database was switched |
+| {class}`~geodetic_engine.catalog.CatalogError` | Their base; also no `proj.db` on the search path, or a listing read or exported after its database was switched |
 
 The first two subclass {class}`ValueError`, and the next two
 {class}`LookupError`, as well as {class}`~geodetic_engine.catalog.CatalogError`.

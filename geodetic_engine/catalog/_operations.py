@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
@@ -12,7 +11,6 @@ from typing import Any, ClassVar, cast
 
 from pyproj import CRS
 from pyproj.crs import CoordinateOperation
-from pyproj.exceptions import CRSError
 
 from geodetic_engine._referencing.database import DatabaseIdentity
 from geodetic_engine.catalog import _filters, _registry
@@ -42,11 +40,9 @@ from geodetic_engine.geodesy import (
     GeodesyError,
     GridUsage,
 )
-from geodetic_engine.geodesy.operation import grid_usages
-
-logger = logging.getLogger(__name__)
 
 # The grids a PROJ-string operation reads, as "+grids=a.tif,@b.tif".
+_GRIDS = re.compile(r"\+grids=(\S+)")
 _GRIDS = re.compile(r"\+grids=(\S+)")
 
 
@@ -152,26 +148,32 @@ class OperationEntry(LocatedEntry):
         return bool(self.superseded_by)
 
     def grids(self) -> tuple[GridUsage, ...]:
-        """The grid files it reads, and whether PROJ can find each now.
+        """The grid files PROJ reads for it, and whether each is available now.
 
-        Asks PROJ, so it reflects the grids installed, and with PROJ's
-        networking enabled those it would download.
+        Named as PROJ names them, one per file: EPSG's ``conus.las`` and
+        ``conus.los`` are PROJ's one ``us_noaa_conus.tif``. A file is
+        available when PROJ finds it on this machine, as
+        :attr:`GridEntry.installed <geodetic_engine.catalog.GridEntry.installed>`
+        says, or, with PROJ's networking enabled, when PROJ knows where to
+        download it.
+
+        PROJ's own account of a registered operation is not used. It tests
+        the names the authority published, so it calls a grid missing that
+        PROJ reads under its own name.
         """
         if not self.grid_based:
             return ()
-        try:
-            operation = CoordinateOperation.from_authority(self.auth_name, self.code)
-        except CRSError as error:
-            logger.debug("could not build %s: %s", self.authority_code, error)
-            return ()
-        return grid_usages([operation])
+        # Imported here: the grid listing is built from this module's entries.
+        from geodetic_engine.catalog._grids import usages
+
+        return usages(self.grid_names, _registry.identity())
 
     def grids_available(self) -> bool:
-        """Whether PROJ can find every grid it reads; True when it reads none."""
-        if not self.grid_based:
-            return True
-        found = self.grids()
-        return bool(found) and all(grid.available for grid in found)
+        """Whether every grid it reads is available; True when it reads none.
+
+        See :meth:`grids` for what available means.
+        """
+        return all(grid.available for grid in self.grids())
 
     def to_json_dict(self) -> dict[str, Any]:
         """The operation's full PROJJSON, exactly as PROJ exports it.
@@ -521,10 +523,10 @@ def operations(
             worse than this. One that states none is left out.
         grid_based: True for only operations that read a grid file, False for
             none.
-        grids_available: True for only operations whose every grid PROJ can
-            find now, False for those missing one. An operation reading no
-            grid counts as available. Asks PROJ for each grid-based
-            operation, so it is the one slow filter; it is applied last.
+        grids_available: True for only operations whose every grid is
+            available now, False for those missing one; see
+            :meth:`OperationEntry.grids`. An operation reading no grid counts
+            as available.
         superseded: True for only superseded operations, False for none.
         area_of_interest: ``(west, south, east, north)`` in degrees, as for
             :func:`~geodetic_engine.catalog.crs`.
@@ -634,11 +636,15 @@ def operations(
         return _filters.located(entry.areas_of_use, bounds, whole)
 
     def produce() -> Iterator[OperationEntry]:
-        _registry.unchanged(databases)
+        reads = None
+        if available is not None:
+            from geodetic_engine.catalog._grids import availability
+
+            reads = availability(databases)
         for entry in entries(databases):
             if not admits(entry):
                 continue
-            if available is not None and entry.grids_available() != available:
+            if reads is not None and reads(entry.grid_names) != available:
                 continue
             yield entry
 
@@ -667,6 +673,7 @@ def operations(
         filters,
         produce,
         columns=columns(OperationEntry),
+        databases=databases,
         limit=limit,
         offset=offset,
     )

@@ -267,7 +267,8 @@ def datums(
             ``(low, high)`` with None for an open end. A static datum never
             matches.
         member_of: Only the members of these datum ensembles, by code, entry
-            or name, for example ``"ETRS89"``.
+            or name, for example ``"ETRS89"``. A datum that is no ensemble
+            is refused.
         area_of_interest: ``(west, south, east, north)`` in degrees, as for
             :func:`~geodetic_engine.catalog.crs`.
         contains: With ``area_of_interest``, only datums whose area of use
@@ -319,12 +320,15 @@ def datums(
         databases,
     )
     epochs = _filters.value_range(frame_reference_epoch, "frame_reference_epoch")
-    groups = _filters.references(
-        member_of,
-        "datum ensemble",
-        _filters.registered(_registry.DATUM_TABLES, databases),
-        databases,
-    )
+    groups = None
+    if member_of is not None:
+        # Ensembles alone, so that a single datum is refused, not found empty.
+        ensembles = {
+            _filters.folded(entry.auth_name, entry.code): (entry.name, *entry.aliases)
+            for entry in entries(databases)
+            if entry.is_ensemble
+        }
+        groups = _filters.references(member_of, "datum ensemble", ensembles, databases)
     bounds = _filters.area_of_interest(area_of_interest)
     whole = _filters.flag(contains, "contains")
     if whole is None:
@@ -373,7 +377,6 @@ def datums(
         return _filters.located(entry.areas_of_use, bounds, whole)
 
     def produce() -> Iterator[DatumEntry]:
-        _registry.unchanged(databases)
         yield from filter(admits, entries(databases))
 
     filters = _filters.echo(
@@ -399,6 +402,7 @@ def datums(
         filters,
         produce,
         columns=columns(DatumEntry),
+        databases=databases,
         limit=limit,
         offset=offset,
     )

@@ -40,6 +40,13 @@ print(catalog.crs(code="EPSG:4936").one())
 catalog.crs(authority="EPSG", name="UTM zone 32N").one()
 ```
 
+A listing belongs to the database it was made for. If PROJ's search path is
+switched to another database, a listing not yet read refuses to be read, and
+any listing refuses to be exported as JSON, since the export names the
+database that answered. Both raise
+{class}`~geodetic_engine.catalog.CatalogError`; call the listing function
+again. Entries already read stay as they are.
+
 ## A table
 
 {meth}`~geodetic_engine.catalog.Listing.to_dataframe` gives one row per
