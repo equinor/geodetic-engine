@@ -51,7 +51,9 @@ len(backwards), len(either)
 
 The CRSs can be given as anything
 {class}`~geodetic_engine.geodesy.CoordinateReferenceSystem` resolves: a code,
-a name, an entry, a pyproj CRS, a WKT string or an OSDU record id.
+a name, an entry, a pyproj CRS, a WKT string or an OSDU record id. A
+{term}`bound CRS` names the CRS it wraps, since operations are registered on
+that.
 
 ## Registered operations, or what PROJ would run
 

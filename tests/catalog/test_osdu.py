@@ -108,6 +108,23 @@ def test_an_osdu_record_id_names_a_crs_to_filter_by() -> None:
 
 
 @pytest.mark.usefixtures("reading_osdu")
+def test_a_bound_crs_names_the_crs_it_wraps_however_it_is_given() -> None:
+    bound = next(
+        e
+        for e in catalog.crs(bound=True, authority="OSDU")
+        if e.kind is catalog.CrsKind.GEOGRAPHIC_2D
+    )
+    expected = {
+        e.authority_code
+        for e in catalog.operations(source_crs="EPSG:4230", target_crs="EPSG:4326")
+    }
+    assert "EPSG:1612" in expected
+    for source in (bound, bound.authority_code, bound.name, bound.resolve()):
+        found = catalog.operations(source_crs=source, target_crs="EPSG:4326")
+        assert {e.authority_code for e in found} == expected
+
+
+@pytest.mark.usefixtures("reading_osdu")
 def test_the_export_of_an_osdu_listing_validates(listing_validator: Any) -> None:
     document = catalog.crs(authority="OSDU").to_json_dict(include_definitions=True)
     listing_validator.validate(document)

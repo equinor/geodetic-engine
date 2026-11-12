@@ -12,7 +12,7 @@ from typing import Any, ClassVar, NamedTuple, cast
 from pyproj import CRS
 from pyproj.crs import CoordinateOperation
 
-from geodetic_engine._referencing.database import DatabaseIdentity
+from geodetic_engine._referencing.database import DatabaseIdentity, bound_codes
 from geodetic_engine.catalog import _filters, _registry
 from geodetic_engine.catalog._entry import (
     LocatedEntry,
@@ -489,6 +489,8 @@ def crs_keys(
     Anything the other reference filters take, and also anything
     :class:`~geodetic_engine.geodesy.CoordinateReferenceSystem` resolves, such
     as an OSDU record id or a WKT string, identified by its authority code.
+    A bound CRS names the CRS it wraps, however it is given: operations are
+    registered on that, never on the bound CRS.
     """
     if value is None:
         return None
@@ -497,6 +499,7 @@ def crs_keys(
     items = [value] if isinstance(value, single) else list(value)
     if not items:
         raise InvalidFilterError(f"{what} is empty")
+    bound = bound_codes()
     found: set[Folded] = set()
     for item in items:
         crs = item.crs if isinstance(item, CoordinateReferenceSystem) else item
@@ -504,11 +507,8 @@ def crs_keys(
             found |= _identified(crs, what)
             continue
         try:
-            found |= (
-                _filters.references(
-                    cast("ReferenceFilter", item), what, known, databases
-                )
-                or set()
+            named = _filters.references(
+                cast("ReferenceFilter", item), what, known, databases
             )
         except InvalidFilterError as refused:
             if not isinstance(item, str):
@@ -518,6 +518,13 @@ def crs_keys(
             except GeodesyError:
                 raise refused from None
             found |= _identified(resolved.crs, what)
+            continue
+        for key in named or ():
+            if key in bound:
+                wrapper = CoordinateReferenceSystem.from_user_input(":".join(key))
+                found |= _identified(wrapper.crs, what)
+            else:
+                found.add(key)
     return frozenset(found)
 
 
@@ -572,7 +579,8 @@ def operations(
         source_crs: Only operations registered from this CRS, or one of
             several: by code, entry, name, or anything
             :class:`~geodetic_engine.geodesy.CoordinateReferenceSystem`
-            resolves, such as an OSDU record id.
+            resolves, such as an OSDU record id. A bound CRS names the CRS it
+            wraps.
         target_crs: Only operations registered to this CRS, likewise.
         either_direction: Also match an operation registered the other way
             round, from ``target_crs`` to ``source_crs``. PROJ applies
