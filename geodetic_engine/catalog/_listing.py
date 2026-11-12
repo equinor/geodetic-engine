@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import itertools
 import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -97,8 +98,11 @@ class Listing[E: CatalogEntry](Sequence[E]):
 
     @property
     def filters(self) -> Mapping[str, Any]:
-        """The filters this listing was asked for, as JSON values."""
-        return dict(self._filters)
+        """The filters this listing was asked for, as JSON values.
+
+        A copy, lists and all: changing it does not change the listing.
+        """
+        return copy.deepcopy(self._filters)
 
     def _all(self) -> tuple[E, ...]:
         if self._entries is None:
@@ -200,7 +204,7 @@ class Listing[E: CatalogEntry](Sequence[E]):
             "type": "CatalogListing",
             "kind": self._kind,
             "database": database().to_json_dict(),
-            "filters": dict(self._filters),
+            "filters": self.filters,
             "count": len(items),
             "items": items,
         }

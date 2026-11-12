@@ -15,6 +15,7 @@ from typing import Any
 import pyproj
 import pytest
 from pyproj import Transformer
+from pyproj.crs import CoordinateOperation
 from pyproj.exceptions import ProjError
 
 from geodetic_engine import catalog
@@ -250,6 +251,30 @@ _CHAINS = {
     "CHAIN_OPTIONAL": ("OPTIONAL", "ONWARD_OPTIONAL"),
     "CHAIN_NEEDED": ("OPTIONAL", "ONWARD_NEEDED"),
 }
+# Other spellings PROJ accepts, each with the grids PROJ takes from it.
+_SPELLED = {
+    "NO_PLUS": (
+        _PIPELINE.format(grids="test_regional.gsb").replace("+", ""),
+        ("test_regional.gsb",),
+    ),
+    "SOME_PLUS": (
+        "proj=pipeline +step proj=hgridshift +grids=test_regional.gsb "
+        "step +proj=vgridshift grids=test_geoid.tif",
+        ("test_regional.gsb", "test_geoid.tif"),
+    ),
+    "QUOTED": (
+        _PIPELINE.format(grids='"test regional.gsb"'),
+        ("test regional.gsb",),
+    ),
+    "TIN_FILE": (
+        _PIPELINE.replace("hgridshift +grids={grids}", "tinshift +file=test_tin.json"),
+        ("test_tin.json",),
+    ),
+    "NO_GRID_WORD": (
+        _PIPELINE.replace("hgridshift +grids={grids}", "defmodel +model=test.json"),
+        (),
+    ),
+}
 
 
 def _insert(connection: sqlite3.Connection, table: str, row: dict[str, Any]) -> None:
@@ -270,20 +295,24 @@ def _register_stated_grids(database: Path) -> None:
                 "AND method_code = 'PROJString' LIMIT 1"
             ).fetchone()
         )
-        for stated, source, target in ((_STATED, 4267, 4269), (_ONWARD, 4269, 4152)):
-            for code, grids in stated.items():
-                row = {
-                    **single,
-                    "auth_name": "PROJ",
-                    "code": code,
-                    "name": code,
-                    "method_name": _PIPELINE.format(grids=grids),
-                    "source_crs_auth_name": "EPSG",
-                    "source_crs_code": source,
-                    "target_crs_auth_name": "EPSG",
-                    "target_crs_code": target,
-                }
-                _insert(connection, "other_transformation", row)
+        operations = [
+            *((c, _PIPELINE.format(grids=g), 4267, 4269) for c, g in _STATED.items()),
+            *((c, _PIPELINE.format(grids=g), 4269, 4152) for c, g in _ONWARD.items()),
+            *((c, text, 4267, 4269) for c, (text, _) in _SPELLED.items()),
+        ]
+        for code, text, source, target in operations:
+            row = {
+                **single,
+                "auth_name": "PROJ",
+                "code": code,
+                "name": code,
+                "method_name": text,
+                "source_crs_auth_name": "EPSG",
+                "source_crs_code": source,
+                "target_crs_auth_name": "EPSG",
+                "target_crs_code": target,
+            }
+            _insert(connection, "other_transformation", row)
         # EPSG:8460 goes from NAD27 to NAD83(HARN) by way of NAD83.
         chain = dict(
             connection.execute(
@@ -503,6 +532,33 @@ def test_a_chain_needs_the_grids_any_of_its_steps_needs(
     assert needed.grid_names == ("test_regional.gsb",)
     assert needed.optional_grid_names == ()
     assert not needed.grids_available()
+
+
+def test_the_database_refuses_a_chain_as_a_step_of_a_chain(
+    database_alone: Path,
+) -> None:
+    # Why a chain's grids are read from its steps and no deeper.
+    with (
+        closing(sqlite3.connect(database_alone / "proj.db")) as connection,
+        pytest.raises(sqlite3.IntegrityError, match="not be a concatenated_operation"),
+    ):
+        connection.execute(
+            "INSERT INTO concatenated_operation_step "
+            "VALUES ('PROJ', 'CHAIN_NEEDED', 3, 'PROJ', 'CHAIN_OPTIONAL', NULL)"
+        )
+
+
+@pytest.mark.parametrize("code", sorted(_SPELLED))
+def test_a_proj_string_is_read_as_proj_reads_it(
+    lone_grid_directory: Path, code: str
+) -> None:
+    _, names = _SPELLED[code]
+    entry = catalog.operations(code=f"PROJ:{code}").one()
+    assert entry.grid_names == names
+    assert entry.grids_available() is (not names)
+    # PROJ's own account of the same registered operation.
+    reported = CoordinateOperation.from_authority("PROJ", code).grids
+    assert {grid.short_name for grid in reported} == set(names)
 
 
 def test_optional_grids_are_exported(

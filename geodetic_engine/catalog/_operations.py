@@ -41,10 +41,26 @@ from geodetic_engine.geodesy import (
     GridUsage,
 )
 
-# The grids a PROJ-string operation reads, as "+grids=a.tif,@b.tif".
-_GRIDS = re.compile(r"\+grids=(\S+)")
+# The words of a PROJ string. A value in double quotes may hold spaces.
+_WORDS = re.compile(r'(?:[^\s"]|"[^"]*")+')
+# The parameters PROJ takes grid files from: "file" is tinshift's.
+_GRID_KEYS = frozenset({"grids", "file"})
 # The grid PROJ makes up, shifting nothing anywhere. It is no file.
 _NULL_GRID = "null"
+
+
+def _stated(text: str) -> Iterator[str]:
+    """The grid files a PROJ string names, as PROJ reads the string.
+
+    A word is ``key=value``, with or without ``+`` before it. The value is a
+    list such as ``a.tif,@b.tif``, in double quotes where a name has a space.
+    """
+    for word in _WORDS.findall(text):
+        key, _, value = word.removeprefix("+").partition("=")
+        if key in _GRID_KEYS:
+            if len(value) > 1 and value[0] == value[-1] == '"':
+                value = value[1:-1]
+            yield from value.split(",")
 
 
 class OperationKind(StrEnum):
@@ -348,12 +364,11 @@ def grid_names(databases: DatabaseIdentity) -> Mapping[Key, Reads]:
             "SELECT auth_name, code, method_name FROM other_transformation "
             "WHERE method_auth_name = 'PROJ' AND method_code = 'PROJString'"
         ):
-            for match in _GRIDS.finditer(str(method)):
-                for grid in match[1].split(","):
-                    # "@" marks a grid PROJ goes without where it is not found.
-                    name = grid.removeprefix("@")
-                    if name != _NULL_GRID:
-                        state((str(auth), str(code)), name, grid.startswith("@"))
+            for grid in _stated(str(method)):
+                # "@" marks a grid PROJ goes without where it is not found.
+                name = grid.removeprefix("@")
+                if name != _NULL_GRID:
+                    state((str(auth), str(code)), name, grid.startswith("@"))
     return {
         key: Reads(
             names=tuple(found),
@@ -422,6 +437,7 @@ def entries(databases: DatabaseIdentity) -> tuple[OperationEntry, ...]:
         table_key = (row.table, *key)
         chain = chains.get(key, ())
         # A chain reads what its steps read, and needs what any of them needs.
+        # No step is itself a chain: proj.db refuses one, and PROJ builds none.
         stated = [grids[step] for step in chain or (key,) if step in grids]
         reads = tuple(dict.fromkeys(name for one in stated for name in one.names))
         needed = {n for one in stated for n in one.names if n not in one.optional}

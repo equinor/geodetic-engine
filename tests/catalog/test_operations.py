@@ -140,16 +140,17 @@ def test_a_grid_stated_among_other_parameters_is_read() -> None:
     assert "EPSG:10810" in _codes(listed)
 
 
-def test_an_operation_reads_a_grid_exactly_where_proj_reports_one() -> None:
+def test_an_operation_states_the_grids_proj_reports_for_it() -> None:
     checked = 0
-    for entry in catalog.operations(authority="EPSG", deprecated=None):
+    for entry in catalog.operations(deprecated=None):
         if entry.kind is OperationKind.CONVERSION:
             continue
         try:
             operation = CoordinateOperation.from_authority(entry.auth_name, entry.code)
         except CRSError:
             continue
-        assert entry.grid_based is bool(operation.grids), entry
+        reported = {grid.short_name.removeprefix("@") for grid in operation.grids}
+        assert set(entry.grid_names) == reported - {"null"}, entry
         checked += 1
     assert checked > 3000
 

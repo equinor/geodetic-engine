@@ -142,6 +142,20 @@ def test_the_export_echoes_the_filters_as_json() -> None:
     json.dumps(listing.to_json_dict())
 
 
+def test_the_filters_handed_out_are_copies() -> None:
+    listing = catalog.crs(authority="EPSG", code=["EPSG:4326", "EPSG:4258"])
+    listing.filters["authority"].append("ESRI")
+    exported = listing.to_json_dict()
+    exported["filters"]["code"].clear()
+    expected = {
+        "authority": ["EPSG"],
+        "code": ["EPSG:4326", "EPSG:4258"],
+        "deprecated": False,
+    }
+    assert listing.filters == expected
+    assert listing.to_json_dict()["filters"] == expected
+
+
 def test_an_open_range_is_echoed_with_its_open_end() -> None:
     listing = catalog.datums(authority="EPSG", frame_reference_epoch=(2015, None))
     assert listing.filters["frame_reference_epoch"] == [2015, None]
