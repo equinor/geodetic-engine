@@ -7,6 +7,7 @@ from typing import Any
 import pyproj
 import pytest
 from pyproj.crs import CoordinateOperation
+from pyproj.exceptions import CRSError
 
 from geodetic_engine import catalog
 from geodetic_engine.catalog import InvalidFilterError, OperationKind
@@ -126,6 +127,31 @@ def test_grid_based_operations_name_their_grids() -> None:
     assert set(entry.grid_names) == {"conus.las", "conus.los"}
     found = catalog.operations(authority="EPSG", grid_based=True, limit=50)
     assert all(e.grid_names for e in found)
+
+
+def test_a_grid_stated_among_other_parameters_is_read() -> None:
+    # A Helmert transformation with a velocity grid: EPSG registers it with
+    # its seven parameters, not among the grid transformations.
+    entry = catalog.operations(code="EPSG:10810").one()
+    assert entry.grid_names == ("NKG_RF17vel.tif",)
+    assert [grid.name for grid in entry.grids()] == ["eur_nkg_nkgrf17vel.tif"]
+    assert "EPSG:10810" in catalog.grids(operation=entry).one().used_by
+    listed = catalog.operations(method=entry.method, grid_based=True)
+    assert "EPSG:10810" in _codes(listed)
+
+
+def test_an_operation_reads_a_grid_exactly_where_proj_reports_one() -> None:
+    checked = 0
+    for entry in catalog.operations(authority="EPSG", deprecated=None):
+        if entry.kind is OperationKind.CONVERSION:
+            continue
+        try:
+            operation = CoordinateOperation.from_authority(entry.auth_name, entry.code)
+        except CRSError:
+            continue
+        assert entry.grid_based is bool(operation.grids), entry
+        checked += 1
+    assert checked > 3000
 
 
 def test_grids_available_splits_the_grid_based_operations() -> None:

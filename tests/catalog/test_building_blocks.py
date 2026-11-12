@@ -5,17 +5,22 @@ from __future__ import annotations
 import math
 import os
 import shutil
+import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pyproj
 import pytest
+from pyproj import Transformer
+from pyproj.exceptions import ProjError
 
 from geodetic_engine import catalog
 from geodetic_engine.catalog import (
     CoordinateSystemKind,
+    GridEntry,
     GridIndexUnavailableError,
     GridKind,
     InvalidFilterError,
@@ -224,11 +229,86 @@ def test_installed_reads_the_search_path(extra_grid_directory: Path) -> None:
     assert any(g.name == missing.name and g.installed for g in found)
 
 
+_PIPELINE = (
+    "+proj=pipeline +step +proj=axisswap +order=2,1 "
+    "+step +proj=unitconvert +xy_in=deg +xy_out=rad "
+    "+step +proj=hgridshift +grids={grids} "
+    "+step +proj=unitconvert +xy_in=rad +xy_out=deg +step +proj=axisswap +order=2,1"
+)
+# PROJ-string operations from NAD27 to NAD83, and the grids each states.
+_STATED = {
+    "NEEDED": "test_regional.gsb",
+    "OPTIONAL": "@test_regional.gsb",
+    "OPTIONAL_THEN_NULL": "@test_regional.gsb,null",
+    "NULL": "null",
+    "NEEDED_THEN_NULL": "test_regional.gsb,null",
+    "OPTIONAL_AND_NEEDED": "@test_regional.gsb,test_national.gsb",
+}
+# The same from NAD83 on to NAD83(HARN), to chain after one of those.
+_ONWARD = {"ONWARD_NEEDED": "test_regional.gsb", "ONWARD_OPTIONAL": "@test_other.gsb"}
+_CHAINS = {
+    "CHAIN_OPTIONAL": ("OPTIONAL", "ONWARD_OPTIONAL"),
+    "CHAIN_NEEDED": ("OPTIONAL", "ONWARD_NEEDED"),
+}
+
+
+def _insert(connection: sqlite3.Connection, table: str, row: dict[str, Any]) -> None:
+    marks = ", ".join("?" for _ in row)
+    connection.execute(
+        f"INSERT INTO {table} ({', '.join(row)}) VALUES ({marks})",
+        tuple(row.values()),
+    )
+
+
+def _register_stated_grids(database: Path) -> None:
+    """Register PROJ-string operations stating optional grids, and chains of them."""
+    with closing(sqlite3.connect(database)) as connection:
+        connection.row_factory = sqlite3.Row
+        single = dict(
+            connection.execute(
+                "SELECT * FROM other_transformation WHERE method_auth_name = 'PROJ' "
+                "AND method_code = 'PROJString' LIMIT 1"
+            ).fetchone()
+        )
+        for stated, source, target in ((_STATED, 4267, 4269), (_ONWARD, 4269, 4152)):
+            for code, grids in stated.items():
+                row = {
+                    **single,
+                    "auth_name": "PROJ",
+                    "code": code,
+                    "name": code,
+                    "method_name": _PIPELINE.format(grids=grids),
+                    "source_crs_auth_name": "EPSG",
+                    "source_crs_code": source,
+                    "target_crs_auth_name": "EPSG",
+                    "target_crs_code": target,
+                }
+                _insert(connection, "other_transformation", row)
+        # EPSG:8460 goes from NAD27 to NAD83(HARN) by way of NAD83.
+        chain = dict(
+            connection.execute(
+                "SELECT * FROM concatenated_operation "
+                "WHERE auth_name = 'EPSG' AND code = 8460"
+            ).fetchone()
+        )
+        for code, steps in _CHAINS.items():
+            row = {**chain, "auth_name": "PROJ", "code": code, "name": code}
+            _insert(connection, "concatenated_operation", row)
+            for number, step in enumerate(steps, start=1):
+                connection.execute(
+                    "INSERT INTO concatenated_operation_step "
+                    "VALUES ('PROJ', ?, ?, 'PROJ', ?, NULL)",
+                    (code, number, step),
+                )
+        connection.commit()
+
+
 @pytest.fixture(scope="module")
 def database_alone(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A directory holding PROJ's database and no grid."""
+    """A directory holding no grid, and PROJ's database with a few operations added."""
     directory = tmp_path_factory.mktemp("database")
     shutil.copyfile(installed_proj_db(), directory / "proj.db")
+    _register_stated_grids(directory / "proj.db")
     return directory
 
 
@@ -316,6 +396,125 @@ def test_with_proj_networking_a_downloadable_grid_is_available_not_installed(
         for e in catalog.operations(method="NADCON", grids_available=True)
     }
     assert not catalog.grids(operation="EPSG:1241").one().installed
+
+
+def test_with_proj_networking_a_url_alone_does_not_make_a_grid_available(
+    lone_grid_directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_grids, "is_network_enabled", lambda: True)
+    # The RDNAP grid has a URL to download from, but no open licence, and
+    # PROJ's network does not hold it.
+    rdnap = catalog.operations(code="EPSG:7000").one()
+    (grid,) = rdnap.grids()
+    assert grid.url and grid.direct_download and not grid.open_license
+    assert not grid.available
+    assert not rdnap.grids_available()
+    listed = catalog.operations(method=rdnap.method, grids_available=True)
+    assert "EPSG:7000" not in _codes(listed)
+
+
+@pytest.mark.parametrize(
+    ("url", "direct_download", "open_license", "expected"),
+    [
+        ("https://cdn.proj.org/some.tif", True, True, True),
+        ("https://example.org/register-to-download", False, True, False),
+        ("https://example.org/some.gsb", True, False, False),
+        ("https://example.org/some.gsb", True, None, False),
+        (None, True, True, False),
+    ],
+)
+def test_proj_downloads_only_a_direct_download_under_an_open_licence(
+    url: str | None, direct_download: bool, open_license: bool | None, expected: bool
+) -> None:
+    grid = GridEntry(
+        name="some.tif",
+        kind=GridKind.UNKNOWN,
+        url=url,
+        direct_download=direct_download,
+        open_license=open_license,
+    )
+    assert _grids._obtainable(grid, True) is expected
+    assert not _grids._obtainable(grid, False)
+
+
+@pytest.mark.parametrize(
+    ("code", "names", "optional", "available"),
+    [
+        ("NEEDED", ("test_regional.gsb",), (), False),
+        ("OPTIONAL", ("test_regional.gsb",), ("test_regional.gsb",), True),
+        ("OPTIONAL_THEN_NULL", ("test_regional.gsb",), ("test_regional.gsb",), True),
+        ("NULL", (), (), True),
+        ("NEEDED_THEN_NULL", ("test_regional.gsb",), (), False),
+        (
+            "OPTIONAL_AND_NEEDED",
+            ("test_regional.gsb", "test_national.gsb"),
+            ("test_regional.gsb",),
+            False,
+        ),
+    ],
+)
+def test_an_optional_grid_is_listed_but_not_needed(
+    lone_grid_directory: Path,
+    code: str,
+    names: tuple[str, ...],
+    optional: tuple[str, ...],
+    available: bool,
+) -> None:
+    entry = catalog.operations(code=f"PROJ:{code}").one()
+    assert (entry.grid_names, entry.optional_grid_names) == (names, optional)
+    assert entry.grid_based is bool(names)
+    assert [grid.name for grid in entry.grids()] == list(names)
+    assert entry.grids_available() is available
+    listed = catalog.operations(authority="PROJ", grids_available=True)
+    assert (entry.authority_code in _codes(listed)) is available
+    # PROJ is the judge: with no grid installed, it builds the pipeline or not.
+    try:
+        Transformer.from_pipeline(_PIPELINE.format(grids=_STATED[code]))
+    except ProjError:
+        builds = False
+    else:
+        builds = True
+    assert available is builds
+
+
+def test_an_optional_grid_is_a_grid_file_and_the_null_grid_is_not(
+    lone_grid_directory: Path,
+) -> None:
+    regional = catalog.grids(operation="PROJ:OPTIONAL").one()
+    assert regional.name == "test_regional.gsb"
+    assert {"PROJ:OPTIONAL", "PROJ:OPTIONAL_THEN_NULL"} <= set(regional.used_by)
+    assert all(grid.name != "null" for grid in catalog.grids())
+    needed = catalog.operations(code="PROJ:OPTIONAL_AND_NEEDED").one()
+    (lone_grid_directory / "test_regional.gsb").write_bytes(b"")
+    assert not needed.grids_available()
+    (lone_grid_directory / "test_national.gsb").write_bytes(b"")
+    assert needed.grids_available()
+
+
+def test_a_chain_needs_the_grids_any_of_its_steps_needs(
+    lone_grid_directory: Path,
+) -> None:
+    optional = catalog.operations(code="PROJ:CHAIN_OPTIONAL").one()
+    assert optional.grid_names == ("test_regional.gsb", "test_other.gsb")
+    assert optional.optional_grid_names == optional.grid_names
+    assert optional.grids_available()
+    # The grid one step can run without, the next step cannot.
+    needed = catalog.operations(code="PROJ:CHAIN_NEEDED").one()
+    assert needed.grid_names == ("test_regional.gsb",)
+    assert needed.optional_grid_names == ()
+    assert not needed.grids_available()
+
+
+def test_optional_grids_are_exported(
+    lone_grid_directory: Path, listing_validator: Any
+) -> None:
+    document = catalog.operations(code="PROJ:OPTIONAL_AND_NEEDED").to_json_dict()
+    listing_validator.validate(document)
+    (item,) = document["items"]
+    assert item["grids"] == ["test_regional.gsb", "test_national.gsb"]
+    assert item["optional_grids"] == ["test_regional.gsb"]
+    (plain,) = catalog.operations(code="PROJ:NEEDED").to_json_dict()["items"]
+    assert "optional_grids" not in plain
 
 
 def test_check_remote_reads_the_cdn_list_once(monkeypatch: pytest.MonkeyPatch) -> None:

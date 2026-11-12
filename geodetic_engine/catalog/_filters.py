@@ -472,8 +472,16 @@ def paging(limit: int | None, offset: int) -> tuple[int | None, int]:
 
 
 def echo(**given: Any) -> Mapping[str, Any]:
-    """The filters a listing was asked for, as JSON values, for its export."""
-    return {name: _json(value) for name, value in given.items() if value is not None}
+    """The filters a listing was asked for, as JSON values, for its export.
+
+    A filter left at None is left out. Not ``deprecated``: it defaults to
+    False, so None there asks for something, the deprecated objects as well.
+    """
+    return {
+        name: _json(value)
+        for name, value in given.items()
+        if value is not None or name == "deprecated"
+    }
 
 
 def _json(value: Any) -> Any:

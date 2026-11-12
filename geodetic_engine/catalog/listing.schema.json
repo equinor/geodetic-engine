@@ -213,6 +213,7 @@
         "accuracy": { "$ref": "#/definitions/accuracy" },
         "version": { "type": "string" },
         "grids": { "$ref": "#/definitions/strings" },
+        "optional_grids": { "$ref": "#/definitions/strings" },
         "steps": { "$ref": "#/definitions/references" },
         "superseded_by": { "$ref": "#/definitions/ids" },
         "osdu_ids": { "$ref": "#/definitions/strings" },

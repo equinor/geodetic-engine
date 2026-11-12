@@ -112,6 +112,11 @@ print(json.dumps({**document, "database": "..."}, indent=2)[:1500])
 `definition`. It builds every object through PROJ, so it takes longer on a
 large listing.
 
+`filters` holds the filters that were given; one left out was not asked for.
+The exception is `deprecated`, which a listing that has the filter always
+states: `false` is the default, current objects only, and `null` is
+`deprecated=None`, deprecated objects as well.
+
 ### The listing schema
 
 The envelope is described by a JSON Schema, draft-07 like PROJJSON's own,

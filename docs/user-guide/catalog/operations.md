@@ -113,7 +113,8 @@ print(chain.kind, [str(step) for step in chain.steps])
 
 `grid_based` keeps the operations that read grid files, and `grids_available`
 those whose every grid PROJ can read now: the file is on this machine or,
-with PROJ networking enabled, PROJ knows where to download it.
+with PROJ networking enabled, the database states a direct download under an
+open licence for it, as it does for the grids PROJ's network serves.
 `grid_names` are the names the database states, which are often not the
 files PROJ reads:
 
@@ -142,6 +143,12 @@ operation is not used, because it tests the names the authority published
 and so reports a grid missing that PROJ reads under its own name
 ({doc}`/workarounds`). The grid files themselves are listed by
 {func}`~geodetic_engine.catalog.grids`; see {doc}`grids`.
+
+An operation written as a PROJ string can mark a grid as optional, with `@`
+before its name: PROJ reads it where it is installed, and goes without it
+otherwise. Such a grid is in `grid_names` and also in `optional_grid_names`,
+and `grids_available` does not ask for it. PROJ's `null` grid, which shifts
+nothing, is no file and is not listed.
 
 ## Deprecated and superseded operations
 

@@ -151,6 +151,45 @@ def test_an_open_range_is_echoed_with_its_open_end() -> None:
     assert again.to_list() == listing.to_list()
 
 
+@pytest.mark.parametrize(
+    "listing_of",
+    [
+        catalog.crs,
+        catalog.operations,
+        catalog.datums,
+        catalog.ellipsoids,
+        catalog.prime_meridians,
+        catalog.units,
+    ],
+    ids=lambda function: function.__name__,
+)
+def test_asking_for_deprecated_objects_as_well_is_echoed(listing_of: Any) -> None:
+    current = listing_of(authority="EPSG")
+    deprecated = listing_of(authority="EPSG", deprecated=True)
+    both = listing_of(authority="EPSG", deprecated=None)
+    assert [
+        listing.filters["deprecated"] for listing in (current, deprecated, both)
+    ] == [
+        False,
+        True,
+        None,
+    ]
+    assert len(both) == len(current) + len(deprecated)
+    # The echoed filters ask for the same listing again.
+    assert listing_of(**both.filters).to_list() == both.to_list()
+
+
+def test_deprecated_objects_as_well_is_null_in_the_export(
+    listing_validator: Any,
+) -> None:
+    document = json.loads(
+        catalog.ellipsoids(authority="EPSG", deprecated=None).to_json()
+    )
+    assert document["filters"] == {"authority": ["EPSG"], "deprecated": None}
+    listing_validator.validate(document)
+    assert {item["deprecated"] for item in document["items"]} == {False, True}
+
+
 def test_the_export_names_the_database_that_answered() -> None:
     info = catalog.database()
     assert info.epsg_version == get_database_metadata("EPSG.VERSION")

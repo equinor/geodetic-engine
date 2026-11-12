@@ -7,7 +7,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, NamedTuple, cast
 
 from pyproj import CRS
 from pyproj.crs import CoordinateOperation
@@ -43,7 +43,8 @@ from geodetic_engine.geodesy import (
 
 # The grids a PROJ-string operation reads, as "+grids=a.tif,@b.tif".
 _GRIDS = re.compile(r"\+grids=(\S+)")
-_GRIDS = re.compile(r"\+grids=(\S+)")
+# The grid PROJ makes up, shifting nothing anywhere. It is no file.
+_NULL_GRID = "null"
 
 
 class OperationKind(StrEnum):
@@ -95,6 +96,9 @@ class OperationEntry(LocatedEntry):
             which tells apart several operations between one pair.
         grid_names: The grid files it reads, as the database names them; for a
             concatenated operation, those of every step.
+        optional_grid_names: Those of :attr:`grid_names` it can run without.
+            A PROJ string marks such a grid with ``@``: PROJ reads it where
+            it is installed, and goes without it otherwise.
         steps: The steps of a concatenated operation, in order; empty
             otherwise.
         superseded_by: ``"AUTH:CODE"`` of the operations the authority has
@@ -127,6 +131,7 @@ class OperationEntry(LocatedEntry):
     accuracy: float | None = None
     version: str | None = None
     grid_names: tuple[str, ...] = ()
+    optional_grid_names: tuple[str, ...] = field(default=(), repr=False)
     steps: tuple[ObjectRef, ...] = field(default=(), repr=False)
     superseded_by: tuple[str, ...] = field(default=(), repr=False)
     osdu_ids: tuple[str, ...] = field(default=(), repr=False)
@@ -151,29 +156,39 @@ class OperationEntry(LocatedEntry):
         """The grid files PROJ reads for it, and whether each is available now.
 
         Named as PROJ names them, one per file: EPSG's ``conus.las`` and
-        ``conus.los`` are PROJ's one ``us_noaa_conus.tif``. A file is
+        ``conus.los`` are PROJ's one ``us_noaa_conus.tif``. The optional
+        grids, :attr:`optional_grid_names`, are among them. A file is
         available when PROJ finds it on this machine, as
         :attr:`GridEntry.installed <geodetic_engine.catalog.GridEntry.installed>`
-        says, or, with PROJ's networking enabled, when PROJ knows where to
-        download it.
+        says, or, with PROJ's networking enabled, when the database states a
+        direct download under an open licence for it, as it does for the
+        grids PROJ's network serves.
 
         PROJ's own account of a registered operation is not used. It tests
         the names the authority published, so it calls a grid missing that
         PROJ reads under its own name.
         """
-        if not self.grid_based:
+        return self._usages(self.grid_names)
+
+    def grids_available(self) -> bool:
+        """Whether every grid it cannot run without is available.
+
+        True when it reads no grid, or only optional ones. See :meth:`grids`
+        for what available means.
+        """
+        return all(grid.available for grid in self._usages(self._must_read()))
+
+    def _must_read(self) -> tuple[str, ...]:
+        optional = self.optional_grid_names
+        return tuple(name for name in self.grid_names if name not in optional)
+
+    def _usages(self, stated: tuple[str, ...]) -> tuple[GridUsage, ...]:
+        if not stated:
             return ()
         # Imported here: the grid listing is built from this module's entries.
         from geodetic_engine.catalog._grids import usages
 
-        return usages(self.grid_names, _registry.identity())
-
-    def grids_available(self) -> bool:
-        """Whether every grid it reads is available; True when it reads none.
-
-        See :meth:`grids` for what available means.
-        """
-        return all(grid.available for grid in self.grids())
+        return usages(stated, _registry.identity())
 
     def to_json_dict(self) -> dict[str, Any]:
         """The operation's full PROJJSON, exactly as PROJ exports it.
@@ -205,6 +220,8 @@ class OperationEntry(LocatedEntry):
             summary["version"] = self.version
         if self.grid_names:
             summary["grids"] = list(self.grid_names)
+        if self.optional_grid_names:
+            summary["optional_grids"] = list(self.optional_grid_names)
         if self.steps:
             summary["steps"] = [step.to_json_dict() for step in self.steps]
         if self.superseded_by:
@@ -292,29 +309,58 @@ def rows(databases: DatabaseIdentity) -> tuple[Row, ...]:
     )
 
 
+class Reads(NamedTuple):
+    """The grid files an operation reads, as the database names them."""
+
+    names: tuple[str, ...]
+    optional: tuple[str, ...]
+
+
 @lru_cache(maxsize=4)
-def grid_names(databases: DatabaseIdentity) -> Mapping[Key, tuple[str, ...]]:
-    """The grid files each single operation reads, as the database names them."""
-    found: dict[Key, list[str]] = {}
+def grid_names(databases: DatabaseIdentity) -> Mapping[Key, Reads]:
+    """The grid files each single operation reads, and which are optional."""
+    names: dict[Key, list[str]] = {}
+    required: dict[Key, set[str]] = {}
+
+    def state(key: Key, grid: object, optional: bool = False) -> None:
+        name = str(grid or "")
+        if not name:
+            return
+        found = names.setdefault(key, [])
+        if name not in found:
+            found.append(name)
+        if not optional:
+            required.setdefault(key, set()).add(name)
+
     with _registry.reading(databases) as connection:
         for auth, code, first, second in connection.execute(
             "SELECT auth_name, code, grid_name, grid2_name FROM grid_transformation"
         ):
-            names = found.setdefault((str(auth), str(code)), [])
-            for grid in (first, second):
-                if grid and str(grid) not in names:
-                    names.append(str(grid))
+            state((str(auth), str(code)), first)
+            state((str(auth), str(code)), second)
+        # A method with other parameters besides its grid is registered here.
+        for auth, code, grid in connection.execute(
+            "SELECT auth_name, code, grid_name FROM other_transformation "
+            "WHERE grid_name IS NOT NULL"
+        ):
+            state((str(auth), str(code)), grid)
         for auth, code, method in connection.execute(
             "SELECT auth_name, code, method_name FROM other_transformation "
             "WHERE method_auth_name = 'PROJ' AND method_code = 'PROJString'"
         ):
             for match in _GRIDS.finditer(str(method)):
-                names = found.setdefault((str(auth), str(code)), [])
                 for grid in match[1].split(","):
-                    grid = grid.lstrip("@")
-                    if grid and grid not in names:
-                        names.append(grid)
-    return {key: tuple(value) for key, value in found.items()}
+                    # "@" marks a grid PROJ goes without where it is not found.
+                    name = grid.removeprefix("@")
+                    if name != _NULL_GRID:
+                        state((str(auth), str(code)), name, grid.startswith("@"))
+    return {
+        key: Reads(
+            names=tuple(found),
+            optional=tuple(n for n in found if n not in required.get(key, ())),
+        )
+        for key, found in names.items()
+    }
 
 
 @lru_cache(maxsize=4)
@@ -375,13 +421,10 @@ def entries(databases: DatabaseIdentity) -> tuple[OperationEntry, ...]:
         key = (row.auth_name, row.code)
         table_key = (row.table, *key)
         chain = chains.get(key, ())
-        if chain:
-            files: list[str] = []
-            for step in chain:
-                files += [g for g in grids.get(step, ()) if g not in files]
-            reads = tuple(files)
-        else:
-            reads = grids.get(key, ())
+        # A chain reads what its steps read, and needs what any of them needs.
+        stated = [grids[step] for step in chain or (key,) if step in grids]
+        reads = tuple(dict.fromkeys(name for one in stated for name in one.names))
+        needed = {n for one in stated for n in one.names if n not in one.optional}
         method = None
         if row.method is not None:
             method = ObjectRef(*row.method, row.method_name or row.method[1])
@@ -401,6 +444,7 @@ def entries(databases: DatabaseIdentity) -> tuple[OperationEntry, ...]:
                 accuracy=row.accuracy,
                 version=row.version,
                 grid_names=reads,
+                optional_grid_names=tuple(n for n in reads if n not in needed),
                 steps=tuple(step_ref(step) for step in chain),
                 superseded_by=supersessions.get(table_key, ()),
                 osdu_ids=osdu.get(table_key, ()),
@@ -525,8 +569,8 @@ def operations(
             none.
         grids_available: True for only operations whose every grid is
             available now, False for those missing one; see
-            :meth:`OperationEntry.grids`. An operation reading no grid counts
-            as available.
+            :meth:`OperationEntry.grids`. An operation reading no grid, or
+            only optional ones, counts as available.
         superseded: True for only superseded operations, False for none.
         area_of_interest: ``(west, south, east, north)`` in degrees, as for
             :func:`~geodetic_engine.catalog.crs`.
@@ -644,7 +688,7 @@ def operations(
         for entry in entries(databases):
             if not admits(entry):
                 continue
-            if reads is not None and reads(entry.grid_names) != available:
+            if reads is not None and reads(entry._must_read()) != available:
                 continue
             yield entry
 

@@ -69,7 +69,8 @@ missing_vertical = catalog.grids(kind="vertical", installed=False, area_name="No
 {meth}`OperationEntry.grids_available <geodetic_engine.catalog.OperationEntry.grids_available>`
 applies the same test to every file an operation reads, with one difference:
 with PROJ networking enabled, a grid PROJ can download counts as available
-there while it is not `installed` here.
+there while it is not `installed` here. PROJ can download a grid the database
+states a direct download and an open licence for; a URL alone is not enough.
 ```
 
 ## On the content delivery network

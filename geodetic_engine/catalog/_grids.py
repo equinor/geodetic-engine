@@ -336,8 +336,18 @@ def _located(entry: GridEntry, directories: tuple[Path, ...]) -> Path | None:
 
 
 def _obtainable(entry: GridEntry, network: bool) -> bool:
-    """Whether PROJ would download a grid that is not on this machine."""
-    return network and bool(entry.url)
+    """Whether PROJ would download a grid that is not on this machine.
+
+    PROJ's network serves the grids the database states a direct download
+    and an open licence for. A URL alone may be a page, or a file PROJ's
+    network does not hold.
+    """
+    return (
+        network
+        and bool(entry.url)
+        and entry.direct_download
+        and bool(entry.open_license)
+    )
 
 
 def _listed(found: _Index, stated: str) -> GridEntry:
