@@ -220,7 +220,8 @@ def references(
         elif isinstance(item, int) or (
             isinstance(item, str) and item.strip().isdigit()
         ):
-            matches = {key for key in known if key[1] == str(item).strip()}
+            bare = str(item).strip()
+            matches = {key for key in known if key[1] == bare}
         elif isinstance(item, str) and item.strip():
             parsed = authority_code(item, databases)
             if parsed is not None:
@@ -421,7 +422,7 @@ def intersects(area: AreaOfUse, bounds: Bounds) -> bool:
     """Whether an area of use and an area of interest share any point.
 
     Decided exactly as PROJ decides it when it searches CRSs by area, so that
-    every listing agrees with :func:`~geodetic_engine.catalog.crs`: edges
+    every listing agrees with :func:`pyproj.database.query_crs_info`: edges
     count between two boxes that do not cross the antimeridian, and do not
     when either does.
     """
@@ -456,7 +457,12 @@ def located(areas: tuple[AreaOfUse, ...], bounds: Bounds | None, whole: bool) ->
     if bounds is None:
         return True
     test = contains if whole else intersects
-    return any(test(area, bounds) for area in areas)
+    # A loop: for the one area most entries have, any() over a generator
+    # costs more than the test, and this runs for every entry of a listing.
+    for area in areas:  # noqa: SIM110
+        if test(area, bounds):
+            return True
+    return False
 
 
 def paging(limit: int | None, offset: int) -> tuple[int | None, int]:

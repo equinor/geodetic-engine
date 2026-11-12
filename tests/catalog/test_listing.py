@@ -267,7 +267,7 @@ _LATITUDES = st.floats(-90, 90, allow_nan=False)
     north=_LATITUDES,
     whole=st.booleans(),
 )
-def test_the_area_predicate_other_listings_use_is_projs(
+def test_the_area_predicate_every_listing_uses_is_projs(
     west: float, east: float, south: float, north: float, whole: bool
 ) -> None:
     south, north = min(south, north), max(south, north)

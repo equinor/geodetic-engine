@@ -8,7 +8,6 @@ from enum import StrEnum
 from functools import lru_cache
 from typing import Any, ClassVar
 
-from pyproj.aoi import AreaOfInterest
 from pyproj.database import query_crs_info
 
 from geodetic_engine._referencing.database import DatabaseIdentity, bound_codes
@@ -382,25 +381,6 @@ def entries(databases: DatabaseIdentity) -> tuple[CrsEntry, ...]:
     return tuple(sorted(built, key=lambda e: order(e.auth_name, e.code)))
 
 
-def _within(
-    bounds: _filters.Bounds, whole: bool, authorities: tuple[str, ...] | None
-) -> frozenset[Key]:
-    """The CRSs PROJ itself finds for an area of interest."""
-    area = AreaOfInterest(*bounds)
-    found: set[Key] = set()
-    for authority in authorities or (None,):
-        found |= {
-            (info.auth_name, info.code)
-            for info in query_crs_info(
-                auth_name=authority,
-                area_of_interest=area,
-                contains=whole,
-                allow_deprecated=True,
-            )
-        }
-    return frozenset(found)
-
-
 def crs(
     *,
     authority: str | Iterable[str] | None = None,
@@ -425,8 +405,9 @@ def crs(
 
     Every filter given must hold. Rows, names, kinds, deprecation and areas
     come from :func:`pyproj.database.query_crs_info`, and an
-    ``area_of_interest`` is tested by PROJ itself; the datum, coordinate
-    system and units of each CRS are read from ``proj.db``.
+    ``area_of_interest`` is tested against those areas exactly as PROJ tests
+    it; the datum, coordinate system and units of each CRS are read from
+    ``proj.db``.
 
     Args:
         authority: Only these authorities, for example ``"EPSG"``; see
@@ -517,8 +498,9 @@ def crs(
     limit, offset = _filters.paging(limit, offset)
     wanted = None if authorities is None else frozenset(authorities)
     system_rows = _registry.coordinate_system_rows(databases) if systems else {}
+    system_kinds = {s.value.casefold() for s in systems or ()}
 
-    def admits(entry: CrsEntry, inside: frozenset[Key] | None) -> bool:
+    def admits(entry: CrsEntry) -> bool:
         if wanted is not None and entry.auth_name not in wanted:
             return False
         if not _filters.admits_flag(deprecated_, entry.deprecated):
@@ -542,21 +524,16 @@ def crs(
         if systems is not None:
             cs = entry.coordinate_system
             row = None if cs is None else system_rows.get((cs.auth_name, cs.code))
-            if row is None or row.kind.casefold() not in {
-                s.value.casefold() for s in systems
-            }:
+            if row is None or row.kind.casefold() not in system_kinds:
                 return False
         if methods is not None and not methods((entry.projection_method or "",)):
             return False
         if areas is not None and not areas(a.name for a in entry.areas_of_use):
             return False
-        return inside is None or (entry.auth_name, entry.code) in inside
+        return _filters.located(entry.areas_of_use, bounds, whole)
 
     def produce() -> Iterator[CrsEntry]:
-        inside = None if bounds is None else _within(bounds, whole, authorities)
-        for entry in entries(databases):
-            if admits(entry, inside):
-                yield entry
+        yield from filter(admits, entries(databases))
 
     filters: Mapping[str, Any] = _filters.echo(
         authority=authorities,

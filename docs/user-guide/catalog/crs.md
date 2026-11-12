@@ -22,7 +22,7 @@ print(len(everything), "CRSs, for example", everything[0])
 
 The question this page answers most often: which projected CRSs on ETRS89
 cover my area? `area_of_interest` is `(west, south, east, north)` in degrees,
-and PROJ itself decides which areas of use intersect it:
+and an area of use intersects it exactly when PROJ's own CRS search says so:
 
 ```{code-cell} python
 found = catalog.crs(

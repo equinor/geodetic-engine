@@ -97,7 +97,8 @@ A listing's JSON states an open end as `null`.
 
 West greater than east is an area across the antimeridian, as in PROJ.
 Whether an area of use qualifies is decided exactly as PROJ decides it in its
-own CRS search, so every listing agrees with {func}`~geodetic_engine.catalog.crs`.
+own CRS search, so every listing agrees with
+{func}`pyproj.database.query_crs_info`.
 An object with several usages qualifies when any of them does:
 
 ```{code-cell} python

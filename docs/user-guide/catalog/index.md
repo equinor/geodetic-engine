@@ -62,8 +62,9 @@ flowchart LR
 ```
 
 - **pyproj first.** CRS rows, their kinds, areas and deprecation come from
-  {func}`pyproj.database.query_crs_info`, and an area of interest is tested by
-  PROJ itself. Units come from {func}`pyproj.database.get_units_map`, and every
+  {func}`pyproj.database.query_crs_info`, and an area of interest is tested
+  against those areas by PROJ's own rule, without asking PROJ again for every
+  listing. Units come from {func}`pyproj.database.get_units_map`, and every
   full definition is exported by PROJ. What pyproj does not hand back -- the
   datum of a CRS, aliases, replacements, operation endpoints and accuracies,
   coordinate system axes, grid files -- is read from the same `proj.db` that
