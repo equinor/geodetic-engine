@@ -558,7 +558,7 @@ def grids(
     def produce() -> Iterator[GridEntry]:
         published = remote_names() if remote else None
         directories = _directories()
-        for entry in entries(databases):
+        for entry in _filters.nearby(entries, databases, bounds):
             if not admits(entry):
                 continue
             found = replace(

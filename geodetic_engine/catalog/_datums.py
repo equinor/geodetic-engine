@@ -377,7 +377,7 @@ def datums(
         return _filters.located(entry.areas_of_use, bounds, whole)
 
     def produce() -> Iterator[DatumEntry]:
-        yield from filter(admits, entries(databases))
+        yield from filter(admits, _filters.nearby(entries, databases, bounds))
 
     filters = _filters.echo(
         authority=authorities,

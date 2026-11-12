@@ -288,6 +288,11 @@ def test_the_area_predicate_every_listing_uses_is_projs(
         and _filters.located(entry.areas_of_use, bounds, whole)
     }
     assert found == expected
+    # A listing first leaves out the entries nowhere near, then tests the rest.
+    listed = catalog.crs(
+        authority="EPSG", area_of_interest=bounds, contains=whole, deprecated=None
+    )
+    assert {(entry.auth_name, entry.code) for entry in listed} == expected
 
 
 @pytest.mark.parametrize(

@@ -533,7 +533,7 @@ def crs(
         return _filters.located(entry.areas_of_use, bounds, whole)
 
     def produce() -> Iterator[CrsEntry]:
-        yield from filter(admits, entries(databases))
+        yield from filter(admits, _filters.nearby(entries, databases, bounds))
 
     filters: Mapping[str, Any] = _filters.echo(
         authority=authorities,

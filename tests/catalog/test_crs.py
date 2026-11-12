@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -196,6 +197,28 @@ def test_area_of_interest_is_pyprojs(
     }
     found = catalog.crs(authority="EPSG", area_of_interest=bounds, contains=contains)
     assert _codes(found) == expected
+
+
+def test_a_point_one_float_step_outside_an_area_is_found_as_proj_finds_it() -> None:
+    # PROJ widens a point by one float step before it tests an area across the
+    # antimeridian, so the point reaches an area it lies just north of.
+    area = next(
+        area
+        for entry in catalog.crs(authority="EPSG")
+        for area in entry.areas_of_use
+        if area.west > area.east and area.north < 90
+    )
+    north = math.nextafter(area.north, math.inf)
+    point = (180.0, north, 180.0, north)
+    expected = {
+        f"{info.auth_name}:{info.code}"
+        for info in query_crs_info(
+            auth_name="EPSG", area_of_interest=AreaOfInterest(*point)
+        )
+    }
+    found = catalog.crs(authority="EPSG", area_of_interest=point)
+    assert _codes(found) == expected
+    assert any(area in entry.areas_of_use for entry in found)
 
 
 def test_area_name_filter() -> None:

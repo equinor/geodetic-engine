@@ -709,7 +709,7 @@ def operations(
             from geodetic_engine.catalog._grids import availability
 
             reads = availability(databases)
-        for entry in entries(databases):
+        for entry in _filters.nearby(entries, databases, bounds):
             if not admits(entry):
                 continue
             if reads is not None and reads(entry._must_read()) != available:

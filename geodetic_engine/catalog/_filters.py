@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
-from typing import Any, cast
+from typing import Any, NamedTuple, Protocol, cast
 
+import numpy as np
+from numpy.typing import NDArray
 from pyproj.aoi import AreaOfInterest, BBox
 from pyproj.aoi import AreaOfUse as PyprojAreaOfUse
 
@@ -463,6 +465,81 @@ def located(areas: tuple[AreaOfUse, ...], bounds: Bounds | None, whole: bool) ->
         if test(area, bounds):
             return True
     return False
+
+
+# PROJ widens a box that is a point or a line by the least step a float takes.
+# Far wider than that, and far narrower than any area of use.
+_MARGIN = 1e-9
+
+
+class _Located(Protocol):
+    """An entry that states where it is valid."""
+
+    @property
+    def areas_of_use(self) -> tuple[AreaOfUse, ...]: ...
+
+
+class _Boxes(NamedTuple):
+    """Every area of use of a listing's entries, one row for each."""
+
+    owner: NDArray[np.intp]
+    west: NDArray[np.float64]
+    south: NDArray[np.float64]
+    east: NDArray[np.float64]
+    north: NDArray[np.float64]
+
+
+@lru_cache(maxsize=16)
+def _boxes(
+    entries: Callable[[DatabaseIdentity], Sequence[_Located]],
+    databases: DatabaseIdentity,
+) -> _Boxes:
+    """The areas of use of a listing's entries as arrays, once per database.
+
+    ``owner`` is the position of the entry an area belongs to. An area across
+    the antimeridian is held as every longitude, so it is near whatever the
+    longitudes asked for, and :func:`located` decides it.
+    """
+    rows = [
+        (position, area.west, area.south, area.east, area.north)
+        for position, entry in enumerate(entries(databases))
+        for area in entry.areas_of_use
+    ]
+    owner = np.array([row[0] for row in rows], dtype=np.intp)
+    bounds = np.array([row[1:] for row in rows], dtype=np.float64).reshape(-1, 4)
+    west, south, east, north = bounds.T.copy()
+    crossing = west > east
+    west[crossing], east[crossing] = -180.0, 180.0
+    return _Boxes(owner, west, south, east, north)
+
+
+def nearby[E: _Located](
+    entries: Callable[[DatabaseIdentity], Sequence[E]],
+    databases: DatabaseIdentity,
+    bounds: Bounds | None,
+) -> Sequence[E]:
+    """A listing's entries: all of them, or those near an area of interest.
+
+    Every area of use is compared with the area of interest at once, and the
+    entries with one near it are kept, in their order. That is never short of
+    an entry :func:`located` accepts, which still decides; it spares a listing
+    from testing, one by one, the many entries that are nowhere near.
+    """
+    found = entries(databases)
+    if bounds is None:
+        return found
+    areas = _boxes(entries, databases)
+    west, south, east, north = bounds
+    near = (areas.north >= south - _MARGIN) & (areas.south <= north + _MARGIN)
+    if west <= east:
+        near &= (areas.east >= west - _MARGIN) & (areas.west <= east + _MARGIN)
+    else:
+        near &= (areas.east >= west - _MARGIN) | (areas.west <= east + _MARGIN)
+    if near.all():  # the whole world, say: there is nothing to leave out
+        return found
+    kept = np.zeros(len(found), dtype=bool)
+    kept[areas.owner[near]] = True
+    return [found[position] for position in np.flatnonzero(kept).tolist()]
 
 
 def paging(limit: int | None, offset: int) -> tuple[int | None, int]:
