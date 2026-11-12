@@ -704,17 +704,26 @@ def operations(
         return _filters.located(entry.areas_of_use, bounds, whole)
 
     def produce() -> Iterator[OperationEntry]:
-        reads = None
-        if available is not None:
-            from geodetic_engine.catalog._grids import availability
+        kept = _filters.passing(
+            entries,
+            databases,
+            admits,
+            filters,
+            bounds=bounds,
+            codes=codes,
+            name=name,
+            authority=("auth_name", wanted),
+            deprecated=("deprecated", deprecated_),
+            kind=("kind", kinds),
+            grid_based=("grid_based", grid_based_),
+            superseded=("superseded", superseded_),
+        )
+        if available is None:
+            return kept
+        from geodetic_engine.catalog._grids import availability
 
-            reads = availability(databases)
-        for entry in _filters.nearby(entries, databases, bounds):
-            if not admits(entry):
-                continue
-            if reads is not None and reads(entry._must_read()) != available:
-                continue
-            yield entry
+        reads = availability(databases)
+        return (entry for entry in kept if reads(entry._must_read()) == available)
 
     filters = _filters.echo(
         authority=authorities,

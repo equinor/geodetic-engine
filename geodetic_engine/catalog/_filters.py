@@ -2,17 +2,18 @@
 
 Every filter is checked when the listing function is called, so a malformed
 one fails at the call that gave it, not at the first use of the listing.
+:func:`passing` then applies them, to a whole database at once where it can.
 """
 
 from __future__ import annotations
 
 import math
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
-from typing import Any, NamedTuple, Protocol, cast
+from typing import Any, NamedTuple, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -471,12 +472,9 @@ def located(areas: tuple[AreaOfUse, ...], bounds: Bounds | None, whole: bool) ->
 # Far wider than that, and far narrower than any area of use.
 _MARGIN = 1e-9
 
-
-class _Located(Protocol):
-    """An entry that states where it is valid."""
-
-    @property
-    def areas_of_use(self) -> tuple[AreaOfUse, ...]: ...
+# What reads the entries of one kind from a database: a listing module's
+# ``entries``. Everything below is kept by it and by database, built once.
+type _Entries = Callable[[DatabaseIdentity], Sequence[Any]]
 
 
 class _Boxes(NamedTuple):
@@ -490,11 +488,8 @@ class _Boxes(NamedTuple):
 
 
 @lru_cache(maxsize=16)
-def _boxes(
-    entries: Callable[[DatabaseIdentity], Sequence[_Located]],
-    databases: DatabaseIdentity,
-) -> _Boxes:
-    """The areas of use of a listing's entries as arrays, once per database.
+def _boxes(entries: _Entries, databases: DatabaseIdentity) -> _Boxes:
+    """The areas of use of a listing's entries as arrays.
 
     ``owner`` is the position of the entry an area belongs to. An area across
     the antimeridian is held as every longitude, so it is near whatever the
@@ -513,21 +508,58 @@ def _boxes(
     return _Boxes(owner, west, south, east, north)
 
 
-def nearby[E: _Located](
-    entries: Callable[[DatabaseIdentity], Sequence[E]],
-    databases: DatabaseIdentity,
-    bounds: Bounds | None,
-) -> Sequence[E]:
-    """A listing's entries: all of them, or those near an area of interest.
-
-    Every area of use is compared with the area of interest at once, and the
-    entries with one near it are kept, in their order. That is never short of
-    an entry :func:`located` accepts, which still decides; it spares a listing
-    from testing, one by one, the many entries that are nowhere near.
-    """
+@lru_cache(maxsize=16)
+def _objects(entries: _Entries, databases: DatabaseIdentity) -> NDArray[np.object_]:
+    """A listing's entries as an array, to pick many of them at once."""
     found = entries(databases)
-    if bounds is None:
-        return found
+    return np.fromiter(found, dtype=object, count=len(found))
+
+
+@lru_cache(maxsize=64)
+def _column(
+    entries: _Entries, databases: DatabaseIdentity, attribute: str
+) -> tuple[NDArray[np.intp], Mapping[Any, int]]:
+    """One attribute of a listing's entries as numbers, and each value's number."""
+    values = [getattr(entry, attribute) for entry in entries(databases)]
+    numbers = {value: number for number, value in enumerate(dict.fromkeys(values))}
+    return np.array([numbers[value] for value in values], dtype=np.intp), numbers
+
+
+@lru_cache(maxsize=16)
+def _by_code(
+    entries: _Entries, databases: DatabaseIdentity
+) -> Mapping[Folded | str, Sequence[int]]:
+    """Where a listing's entries are, by authority code and by bare code."""
+    found: dict[Folded | str, list[int]] = {}
+    for position, entry in enumerate(entries(databases)):
+        found.setdefault(folded(entry.auth_name, entry.code), []).append(position)
+        found.setdefault(entry.code, []).append(position)
+    return found
+
+
+@lru_cache(maxsize=16)
+def _names(entries: _Entries, databases: DatabaseIdentity) -> Sequence[str]:
+    """The name and aliases of each of a listing's entries, case folded once."""
+    return [
+        "\n".join((entry.name, *entry.aliases)).casefold()
+        for entry in entries(databases)
+    ]
+
+
+def _marked(count: int, positions: Any) -> NDArray[np.bool_]:
+    """Positions among ``count`` entries, as a mask."""
+    mask = np.zeros(count, dtype=bool)
+    mask[positions] = True
+    return mask
+
+
+def _near(
+    entries: _Entries, databases: DatabaseIdentity, bounds: Bounds
+) -> NDArray[np.bool_] | None:
+    """The entries with an area of use near an area of interest; None for all.
+
+    Never short of an entry :func:`located` accepts, which still decides.
+    """
     areas = _boxes(entries, databases)
     west, south, east, north = bounds
     near = (areas.north >= south - _MARGIN) & (areas.south <= north + _MARGIN)
@@ -536,10 +568,64 @@ def nearby[E: _Located](
     else:
         near &= (areas.east >= west - _MARGIN) | (areas.west <= east + _MARGIN)
     if near.all():  # the whole world, say: there is nothing to leave out
-        return found
-    kept = np.zeros(len(found), dtype=bool)
-    kept[areas.owner[near]] = True
-    return [found[position] for position in np.flatnonzero(kept).tolist()]
+        return None
+    return _marked(len(entries(databases)), areas.owner[near])
+
+
+def passing[E](
+    entries: Callable[[DatabaseIdentity], Sequence[E]],
+    databases: DatabaseIdentity,
+    admits: Callable[[E], bool],
+    filters: Mapping[str, Any],
+    *,
+    bounds: Bounds | None = None,
+    codes: Codes | None = None,
+    name: TextFilter | None = None,
+    **columns: tuple[str, Collection[Any] | bool | None],
+) -> Iterator[E]:
+    """The entries of a listing that pass its filters, in their order.
+
+    ``admits`` is the listing's own test of one entry, and it is complete.
+    Putting every entry of a database to it is what takes time, so whatever
+    can be read off for all of them at once is, before it is asked:
+
+    * ``columns`` are the filters that compare one attribute: each under the
+      name ``filters`` echoes it by, with the attribute and the value, or
+      values, to keep. They are decided here. A listing asked for nothing but
+      these and paging never calls ``admits``; any other filter in
+      ``filters``, and so any a listing gains later, has it called.
+    * ``bounds``, ``codes`` and a ``name`` given as text only leave out
+      entries that cannot pass: those with no area of use near, with another
+      code, or without the text in their name and aliases.
+    """
+    found = entries(databases)
+    count = len(found)
+    masks = []
+    for attribute, wanted in columns.values():
+        if wanted is None:
+            continue
+        column, numbers = _column(entries, databases, attribute)
+        values = (wanted,) if isinstance(wanted, bool) else wanted
+        accepted = np.zeros(len(numbers), dtype=bool)
+        accepted[[numbers[value] for value in values if value in numbers]] = True
+        masks.append(accepted[column])
+    if bounds is not None and (near := _near(entries, databases, bounds)) is not None:
+        masks.append(near)
+    if codes is not None:
+        index = _by_code(entries, databases)
+        keys: tuple[Folded | str, ...] = (*codes.full, *codes.bare)
+        masks.append(_marked(count, [p for key in keys for p in index.get(key, ())]))
+    keep = np.logical_and.reduce(masks) if masks else None
+    if isinstance(name, str):
+        texts, needle = _names(entries, databases), name.strip().casefold()
+        positions = range(count) if keep is None else np.flatnonzero(keep).tolist()
+        keep = _marked(count, [p for p in positions if needle in texts[p]])
+    kept: Sequence[E] = (
+        found if keep is None else _objects(entries, databases)[keep].tolist()
+    )
+    if filters.keys() <= {*columns, "limit", "offset"}:
+        return iter(kept)
+    return filter(admits, kept)
 
 
 def paging(limit: int | None, offset: int) -> tuple[int | None, int]:

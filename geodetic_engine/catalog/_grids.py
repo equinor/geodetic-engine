@@ -558,9 +558,8 @@ def grids(
     def produce() -> Iterator[GridEntry]:
         published = remote_names() if remote else None
         directories = _directories()
-        for entry in _filters.nearby(entries, databases, bounds):
-            if not admits(entry):
-                continue
+        passing = _filters.passing(entries, databases, admits, filters, bounds=bounds)
+        for entry in passing:
             found = replace(
                 entry,
                 installed=_located(entry, directories) is not None,

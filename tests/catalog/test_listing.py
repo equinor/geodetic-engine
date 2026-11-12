@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -54,9 +56,10 @@ def test_nothing_is_read_until_the_listing_is_used(
     assert calls == []
     assert "unread" in repr(listing)
     assert len(listing) > 1000
+    read = len(calls)
     list(listing)
     listing.to_list()
-    assert len(calls) == 1
+    assert len(calls) == read > 0
 
 
 def test_limit_and_offset_page_through_the_filtered_entries() -> None:
@@ -293,6 +296,134 @@ def test_the_area_predicate_every_listing_uses_is_projs(
         authority="EPSG", area_of_interest=bounds, contains=whole, deprecated=None
     )
     assert {(entry.auth_name, entry.code) for entry in listed} == expected
+
+
+_AREA = (10.0, 59.0, 11.0, 60.0)
+
+
+@pytest.mark.parametrize(
+    ("kind", "filters"),
+    [
+        ("crs", {}),
+        ("crs", {"authority": ["EPSG", "ESRI"], "kind": ["projected", "vertical"]}),
+        ("crs", {"deprecated": True, "bound": False, "limit": 50, "offset": 7}),
+        ("crs", {"code": ["EPSG:25832", 4326, "ESRI:102100"], "deprecated": None}),
+        ("crs", {"name": "etrs89-tm32"}),
+        ("crs", {"authority": "EPSG", "name": re.compile(r"UTM zone 3[12]N$")}),
+        ("crs", {"kind": "projected", "name": "utm", "area_of_interest": _AREA}),
+        ("operations", {"kind": "transformation", "grid_based": True}),
+        ("operations", {"superseded": True, "deprecated": None}),
+        ("operations", {"code": 1612, "deprecated": None}),
+        ("operations", {"name": "ED50 to WGS 84", "grids_available": True}),
+        ("datums", {"kind": "geodetic", "ensemble": True, "dynamic": False}),
+        ("datums", {"name": "etrs89", "area_of_interest": _AREA}),
+        ("grids", {}),
+        ("grids", {"kind": "vertical", "area_of_interest": _AREA}),
+    ],
+)
+def test_a_listing_is_what_its_own_test_admits_of_every_entry(
+    kind: str, filters: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A listing reads off what it can for a whole database at once, and puts
+    # only the entries left to its own test. Here every entry is put to it.
+    found = getattr(catalog, kind)(**filters).to_list()
+    assert found
+    monkeypatch.setattr(
+        _filters,
+        "passing",
+        lambda entries, databases, admits, filters, **_: filter(
+            admits, entries(databases)
+        ),
+    )
+    assert getattr(catalog, kind)(**filters).to_list() == found
+
+
+_EVERY_FILTER: dict[str, dict[str, Any]] = {
+    "crs": {
+        "authority": "EPSG",
+        "name": "x",
+        "code": 4326,
+        "kind": "projected",
+        "datum": "EPSG:6258",
+        "unit": "metre",
+        "coordinate_system_kind": "Cartesian",
+        "projection_method": "x",
+        "area_of_interest": _AREA,
+        "contains": True,
+        "area_name": "x",
+        "bound": False,
+        "deprecated": None,
+        "limit": 1,
+        "offset": 1,
+    },
+    "operations": {
+        "authority": "EPSG",
+        "name": "x",
+        "code": 1612,
+        "kind": "transformation",
+        "source_crs": "EPSG:4230",
+        "target_crs": "EPSG:4326",
+        "either_direction": True,
+        "method": "EPSG:9606",
+        "max_accuracy": 1.0,
+        "grid_based": False,
+        "grids_available": True,
+        "superseded": False,
+        "area_of_interest": _AREA,
+        "contains": True,
+        "area_name": "x",
+        "deprecated": None,
+        "limit": 1,
+        "offset": 1,
+    },
+    "datums": {
+        "authority": "EPSG",
+        "name": "x",
+        "code": 6258,
+        "kind": "geodetic",
+        "ensemble": True,
+        "dynamic": False,
+        "ellipsoid": "EPSG:7019",
+        "prime_meridian": "EPSG:8901",
+        "frame_reference_epoch": 2010.0,
+        "member_of": "EPSG:6258",
+        "area_of_interest": _AREA,
+        "contains": True,
+        "area_name": "x",
+        "deprecated": None,
+        "limit": 1,
+        "offset": 1,
+    },
+    "grids": {
+        "authority": "EPSG",
+        "name": "x",
+        "kind": "vertical",
+        "installed": True,
+        "check_remote": True,
+        "remote_available": True,
+        "format": "GTiff",
+        "direct_download": True,
+        "open_license": True,
+        "used": True,
+        "operation": "EPSG:15851",
+        "area_of_interest": _AREA,
+        "contains": True,
+        "area_name": "x",
+        "limit": 1,
+        "offset": 1,
+    },
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_EVERY_FILTER))
+def test_every_filter_given_is_echoed(kind: str) -> None:
+    # A listing skips its own test when the filters it echoes are all ones it
+    # has decided for the whole database, so a filter it did not echo would
+    # be ignored. A new filter needs a value above.
+    make = getattr(catalog, kind)
+    given = _EVERY_FILTER[kind]
+    assert set(given) == set(inspect.signature(make).parameters)
+    assert set(make(**given).filters) == set(given)
 
 
 @pytest.mark.parametrize(
