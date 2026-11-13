@@ -134,6 +134,15 @@ def bound_definition(auth_name: str, code: str) -> str | None:
     )
 
 
+def bound_codes() -> frozenset[tuple[str, str]]:
+    """Every CRS the active database stores as a ``BOUNDCRS``.
+
+    Returns:
+        ``(auth_name, code)`` of each, the authority case folded.
+    """
+    return frozenset(_definitions(database_identity()).by_code)
+
+
 def bound_definition_by_name(name: str) -> str | None:
     """The stored ``BOUNDCRS`` WKT going by a CRS's name.
 
@@ -340,6 +349,42 @@ def object_identifiers(
     return _identifiers_of(
         database_identity(), scheme, table_name, auth_name, str(code)
     )
+
+
+def identifiers_by_object(
+    scheme: str,
+) -> Mapping[tuple[str, str, str], tuple[str, ...]]:
+    """Every identifier of a scheme the active database records, by object.
+
+    For reading many objects at once, where :func:`object_identifiers` would
+    query once per object.
+
+    Args:
+        scheme: The identifying scheme, for example ``"OSDU"``.
+
+    Returns:
+        The identifiers of each object, sorted, keyed by its ``table_name``,
+        ``auth_name`` and ``code``; empty when the database records none.
+    """
+    return _identifiers_by_object(database_identity(), scheme)
+
+
+@lru_cache(maxsize=8)
+def _identifiers_by_object(
+    identity: DatabaseIdentity, scheme: str
+) -> Mapping[tuple[str, str, str], tuple[str, ...]]:
+    """Read every identifier of a scheme once per database."""
+    rows = _query_identifiers(
+        identity,
+        "SELECT table_name, auth_name, code, identifier FROM {table} "
+        "WHERE scheme = ? ORDER BY identifier",
+        (scheme,),
+    )
+    found: dict[tuple[str, str, str], list[str]] = {}
+    for table_name, auth_name, code, identifier in rows:
+        key = (str(table_name), str(auth_name), str(code))
+        found.setdefault(key, []).append(str(identifier))
+    return {key: tuple(identifiers) for key, identifiers in found.items()}
 
 
 @lru_cache(maxsize=1024)

@@ -39,6 +39,11 @@ SUBPACKAGES: tuple[tuple[str, str], ...] = (
         "and Esri JSON.",
     ),
     (
+        "geodetic_engine.catalog",
+        "List and filter the CRSs, operations, datums, ellipsoids, units, "
+        "methods, coordinate systems and grids the PROJ database holds.",
+    ),
+    (
         "geodetic_engine.geojson",
         "Convert GeoJSON, OGC JSON-FG and OSDU AnyCrs GeoJSON documents to "
         "another CRS.",

@@ -1,0 +1,433 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://equinor.github.io/geodetic-engine/schemas/catalog-listing-v1.schema.json",
+  "title": "geodetic-engine catalog listing, version 1",
+  "description": "What geodetic_engine.catalog.Listing.to_json_dict() returns. Items use PROJJSON's property names and value shapes wherever PROJJSON has the property, and refer to the official PROJJSON v0.7 schema for id, bbox, unit, method, coordinate_system and every full definition. Properties PROJJSON has no place for, such as deprecated, are added beside them.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "type": { "const": "CatalogListing" },
+    "kind": {
+      "enum": [
+        "crs",
+        "operations",
+        "datums",
+        "ellipsoids",
+        "prime_meridians",
+        "units",
+        "methods",
+        "coordinate_systems",
+        "grids"
+      ]
+    },
+    "database": { "$ref": "#/definitions/database" },
+    "filters": { "type": "object" },
+    "count": { "type": "integer", "minimum": 0 },
+    "items": { "type": "array" }
+  },
+  "required": ["type", "kind", "database", "filters", "count", "items"],
+  "additionalProperties": false,
+  "allOf": [
+    { "$ref": "#/definitions/items_of/crs" },
+    { "$ref": "#/definitions/items_of/operations" },
+    { "$ref": "#/definitions/items_of/datums" },
+    { "$ref": "#/definitions/items_of/ellipsoids" },
+    { "$ref": "#/definitions/items_of/prime_meridians" },
+    { "$ref": "#/definitions/items_of/units" },
+    { "$ref": "#/definitions/items_of/methods" },
+    { "$ref": "#/definitions/items_of/coordinate_systems" },
+    { "$ref": "#/definitions/items_of/grids" }
+  ],
+  "definitions": {
+    "items_of": {
+      "crs": {
+        "if": { "properties": { "kind": { "const": "crs" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/crs_item" } } } }
+      },
+      "operations": {
+        "if": { "properties": { "kind": { "const": "operations" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/operation_item" } } } }
+      },
+      "datums": {
+        "if": { "properties": { "kind": { "const": "datums" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/datum_item" } } } }
+      },
+      "ellipsoids": {
+        "if": { "properties": { "kind": { "const": "ellipsoids" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/ellipsoid_item" } } } }
+      },
+      "prime_meridians": {
+        "if": { "properties": { "kind": { "const": "prime_meridians" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/prime_meridian_item" } } } }
+      },
+      "units": {
+        "if": { "properties": { "kind": { "const": "units" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/unit_item" } } } }
+      },
+      "methods": {
+        "if": { "properties": { "kind": { "const": "methods" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/method_item" } } } }
+      },
+      "coordinate_systems": {
+        "if": { "properties": { "kind": { "const": "coordinate_systems" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/coordinate_system_item" } } } }
+      },
+      "grids": {
+        "if": { "properties": { "kind": { "const": "grids" } } },
+        "then": { "properties": { "items": { "items": { "$ref": "#/definitions/grid_item" } } } }
+      }
+    },
+
+    "projjson": { "$ref": "https://proj.org/schemas/v0.7/projjson.schema.json" },
+    "id": { "$ref": "https://proj.org/schemas/v0.7/projjson.schema.json#/definitions/id" },
+    "bbox": { "$ref": "https://proj.org/schemas/v0.7/projjson.schema.json#/definitions/bbox" },
+    "ids": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+    "strings": { "type": "array", "items": { "type": "string" } },
+    "reference": {
+      "description": "Another object in the database, as PROJJSON states an ensemble member or a method: a name and an id.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" }
+      },
+      "required": ["name", "id"],
+      "additionalProperties": false
+    },
+    "references": { "type": "array", "items": { "$ref": "#/definitions/reference" } },
+    "usages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "area": { "type": "string" },
+          "bbox": { "$ref": "#/definitions/bbox" }
+        },
+        "required": ["area", "bbox"],
+        "additionalProperties": false
+      }
+    },
+    "accuracy": {
+      "description": "An accuracy in metres, as a string, as PROJJSON states one.",
+      "type": "string"
+    },
+
+    "database": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "proj_version": { "type": "string" },
+        "metadata": { "type": "object", "additionalProperties": { "type": "string" } },
+        "fingerprints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            },
+            "required": ["path", "sha256"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["path", "proj_version", "metadata", "fingerprints"],
+      "additionalProperties": false
+    },
+
+    "crs_item": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "GeographicCRS",
+            "GeodeticCRS",
+            "ProjectedCRS",
+            "DerivedProjectedCRS",
+            "VerticalCRS",
+            "CompoundCRS",
+            "EngineeringCRS",
+            "BoundCRS"
+          ]
+        },
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" },
+        "kind": {
+          "enum": [
+            "geographic_2d",
+            "geographic_3d",
+            "geocentric",
+            "geodetic",
+            "projected",
+            "derived_projected",
+            "vertical",
+            "compound",
+            "engineering"
+          ]
+        },
+        "area": { "type": "string" },
+        "bbox": { "$ref": "#/definitions/bbox" },
+        "usages": { "$ref": "#/definitions/usages" },
+        "projection_method": { "type": "string" },
+        "datums": { "$ref": "#/definitions/references" },
+        "coordinate_system": { "$ref": "#/definitions/reference" },
+        "axis_units": { "$ref": "#/definitions/references" },
+        "bound": { "type": "boolean" },
+        "osdu_ids": { "$ref": "#/definitions/strings" },
+        "has_persistable_reference": { "type": "boolean" },
+        "deprecated": { "type": "boolean" },
+        "replaced_by": { "$ref": "#/definitions/ids" },
+        "aliases": { "$ref": "#/definitions/strings" },
+        "definition": { "$ref": "#/definitions/projjson" }
+      },
+      "required": ["type", "name", "id", "kind", "bound", "deprecated"],
+      "additionalProperties": false
+    },
+
+    "operation_item": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "Conversion",
+            "Transformation",
+            "ConcatenatedOperation",
+            "PointMotionOperation"
+          ]
+        },
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" },
+        "kind": {
+          "enum": [
+            "conversion",
+            "transformation",
+            "concatenated_operation",
+            "point_motion_operation"
+          ]
+        },
+        "area": { "type": "string" },
+        "bbox": { "$ref": "#/definitions/bbox" },
+        "usages": { "$ref": "#/definitions/usages" },
+        "method": { "$ref": "#/definitions/reference" },
+        "source_crs": { "$ref": "#/definitions/reference" },
+        "target_crs": { "$ref": "#/definitions/reference" },
+        "accuracy": { "$ref": "#/definitions/accuracy" },
+        "version": { "type": "string" },
+        "grids": { "$ref": "#/definitions/strings" },
+        "optional_grids": { "$ref": "#/definitions/strings" },
+        "steps": { "$ref": "#/definitions/references" },
+        "superseded_by": { "$ref": "#/definitions/ids" },
+        "osdu_ids": { "$ref": "#/definitions/strings" },
+        "has_persistable_reference": { "type": "boolean" },
+        "deprecated": { "type": "boolean" },
+        "replaced_by": { "$ref": "#/definitions/ids" },
+        "aliases": { "$ref": "#/definitions/strings" },
+        "definition": { "$ref": "#/definitions/projjson" }
+      },
+      "required": ["type", "name", "id", "kind", "deprecated"],
+      "additionalProperties": false
+    },
+
+    "datum_item": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "GeodeticReferenceFrame",
+            "DynamicGeodeticReferenceFrame",
+            "VerticalReferenceFrame",
+            "DynamicVerticalReferenceFrame",
+            "DatumEnsemble",
+            "EngineeringDatum"
+          ]
+        },
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" },
+        "kind": { "enum": ["geodetic", "vertical", "engineering"] },
+        "area": { "type": "string" },
+        "bbox": { "$ref": "#/definitions/bbox" },
+        "usages": { "$ref": "#/definitions/usages" },
+        "ellipsoid": { "$ref": "#/definitions/reference" },
+        "prime_meridian": { "$ref": "#/definitions/reference" },
+        "frame_reference_epoch": { "type": "number" },
+        "members": { "$ref": "#/definitions/references" },
+        "accuracy": { "$ref": "#/definitions/accuracy" },
+        "publication_date": { "type": "string" },
+        "deprecated": { "type": "boolean" },
+        "replaced_by": { "$ref": "#/definitions/ids" },
+        "aliases": { "$ref": "#/definitions/strings" },
+        "definition": { "$ref": "#/definitions/projjson" }
+      },
+      "required": ["type", "name", "id", "kind", "deprecated"],
+      "additionalProperties": false
+    },
+
+    "ellipsoid_item": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "Ellipsoid" },
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" },
+        "semi_major_axis": { "type": "number", "description": "In metres." },
+        "semi_minor_axis": { "type": "number", "description": "In metres." },
+        "inverse_flattening": { "type": "number", "description": "Absent for a sphere." },
+        "celestial_body": { "type": "string" },
+        "deprecated": { "type": "boolean" },
+        "replaced_by": { "$ref": "#/definitions/ids" },
+        "aliases": { "$ref": "#/definitions/strings" },
+        "definition": { "$ref": "#/definitions/projjson" }
+      },
+      "required": ["type", "name", "id", "semi_major_axis", "semi_minor_axis", "deprecated"],
+      "additionalProperties": false
+    },
+
+    "prime_meridian_item": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "PrimeMeridian" },
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" },
+        "longitude": {
+          "type": "number",
+          "description": "In decimal degrees, as PROJJSON states a longitude without a unit."
+        },
+        "deprecated": { "type": "boolean" },
+        "replaced_by": { "$ref": "#/definitions/ids" },
+        "aliases": { "$ref": "#/definitions/strings" },
+        "definition": { "$ref": "#/definitions/projjson" }
+      },
+      "required": ["type", "name", "id", "longitude", "deprecated"],
+      "additionalProperties": false
+    },
+
+    "unit_item": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["LinearUnit", "AngularUnit", "ScaleUnit", "TimeUnit", "ParametricUnit", "Unit"]
+        },
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" },
+        "kind": {
+          "enum": [
+            "linear",
+            "linear_per_time",
+            "angular",
+            "angular_per_time",
+            "scale",
+            "scale_per_time",
+            "time",
+            "parametric"
+          ]
+        },
+        "conversion_factor": { "type": "number" },
+        "proj_short_name": { "type": "string" },
+        "deprecated": { "type": "boolean" },
+        "replaced_by": { "$ref": "#/definitions/ids" },
+        "aliases": { "$ref": "#/definitions/strings" },
+        "definition": {
+          "$ref": "https://proj.org/schemas/v0.7/projjson.schema.json#/definitions/unit"
+        }
+      },
+      "required": ["type", "name", "id", "kind", "deprecated"],
+      "additionalProperties": false
+    },
+
+    "method_item": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "OperationMethod" },
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" },
+        "kind": { "enum": ["conversion", "transformation"] },
+        "parameters": { "$ref": "#/definitions/references" },
+        "operation_count": { "type": "integer", "minimum": 0 },
+        "deprecated": { "type": "boolean" },
+        "replaced_by": { "$ref": "#/definitions/ids" },
+        "aliases": { "$ref": "#/definitions/strings" },
+        "definition": {
+          "$ref": "https://proj.org/schemas/v0.7/projjson.schema.json#/definitions/method"
+        }
+      },
+      "required": ["type", "name", "id", "kind", "operation_count", "deprecated"],
+      "additionalProperties": false
+    },
+
+    "axis": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "abbreviation": { "type": "string" },
+        "direction": { "type": "string" },
+        "meridian": {
+          "type": "object",
+          "properties": { "longitude": { "type": "number" } },
+          "required": ["longitude"],
+          "additionalProperties": false
+        },
+        "unit": { "$ref": "#/definitions/reference" }
+      },
+      "required": ["name", "abbreviation", "direction"],
+      "additionalProperties": false
+    },
+
+    "coordinate_system_item": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "CoordinateSystem" },
+        "name": { "type": "string" },
+        "id": { "$ref": "#/definitions/id" },
+        "subtype": {
+          "enum": [
+            "Cartesian",
+            "spherical",
+            "ellipsoidal",
+            "vertical",
+            "ordinal",
+            "parametric",
+            "affine",
+            "TemporalDateTime",
+            "TemporalCount",
+            "TemporalMeasure"
+          ]
+        },
+        "dimension": { "type": "integer", "minimum": 1 },
+        "axis": { "type": "array", "items": { "$ref": "#/definitions/axis" } },
+        "deprecated": { "type": "boolean" },
+        "replaced_by": { "$ref": "#/definitions/ids" },
+        "aliases": { "$ref": "#/definitions/strings" },
+        "definition": {
+          "$ref": "https://proj.org/schemas/v0.7/projjson.schema.json#/definitions/coordinate_system"
+        }
+      },
+      "required": ["type", "name", "id", "subtype", "dimension", "axis", "deprecated"],
+      "additionalProperties": false
+    },
+
+    "grid_item": {
+      "description": "A grid file. It has no PROJJSON form and no authority code.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "original_names": { "$ref": "#/definitions/strings" },
+        "old_proj_name": { "type": "string" },
+        "format": { "type": "string" },
+        "proj_method": { "type": "string" },
+        "kind": {
+          "enum": ["horizontal", "vertical", "geocentric", "velocity", "deformation", "unknown"]
+        },
+        "url": { "type": "string" },
+        "direct_download": { "type": "boolean" },
+        "open_license": { "type": "boolean" },
+        "installed": { "type": "boolean" },
+        "remote_available": { "type": "boolean" },
+        "used_by": { "$ref": "#/definitions/ids" },
+        "area": { "type": "string" },
+        "bbox": { "$ref": "#/definitions/bbox" },
+        "usages": { "$ref": "#/definitions/usages" },
+        "definition": { "type": "object" }
+      },
+      "required": ["name", "kind", "direct_download", "installed", "used_by"],
+      "additionalProperties": false
+    }
+  }
+}

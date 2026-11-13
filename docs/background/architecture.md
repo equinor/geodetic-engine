@@ -22,6 +22,9 @@ flowchart TD
     Payload["OSDU persistableReference"] --> PR["persistablereference: parse / emit"]
     PR --> API
     App["Your Python application"] --> API["geodesy: resolve, check, transform"]
+    App --> Catalog["catalog: list and filter"]
+    Catalog --> Engine
+    Catalog --> API
     API --> Engine
     Engine --> API
     API --> Result["Coordinates + provenance"]
@@ -59,6 +62,7 @@ straight from it.
 | Package | Responsibility |
 | --- | --- |
 | {mod}`geodetic_engine.geodesy` | Public transformation API, CRS handling, operation checks, result provenance, projection factors |
+| {mod}`geodetic_engine.catalog` | Read-only discovery: listing and filtering CRSs, operations, datums, ellipsoids, prime meridians, units, methods, coordinate systems and grids in the active database |
 | {mod}`geodetic_engine.geodesy.utils` | Helmert composition and collapse, abridged-transformation unit fixes |
 | {mod}`geodetic_engine.welltrajectory` | Directional surveys, minimum curvature, georeferencing in a CRS through `geodesy`, 3D plots |
 | {mod}`geodetic_engine.persistablereference` | OSDU `persistableReference` and ESRI WKT reading and writing |
@@ -88,5 +92,7 @@ and under `TYPE_CHECKING` count as imports.
   imports `geodesy`. What is public in `_referencing` is re-exported, and
   documented, where it was before: `geodesy`, `geodesy.utils`,
   `geodesy.errors`, `geodesy.database` and `geodesy.osdu_id`.
-- `welltrajectory`, `bingrid` and `geojson` do not import each other.
+- `welltrajectory`, `bingrid`, `geojson` and `catalog` do not import each
+  other. `catalog` sits above `geodesy`: it lists through pyproj and
+  `_referencing`, and resolves CRSs and grid usages through `geodesy`.
 - `units` imports neither `geodesy` nor any domain package.

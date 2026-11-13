@@ -26,6 +26,17 @@ for name in sorted(sys.modules):
         ("geodetic_engine.geojson", ["geodetic_engine.welltrajectory", "shapely"]),
         ("geodetic_engine.persistablereference", ["geodetic_engine.geodesy"]),
         (
+            "geodetic_engine.catalog",
+            [
+                "geodetic_engine.welltrajectory",
+                "geodetic_engine.geojson",
+                "geodetic_engine.bingrid",
+                "geodetic_engine.projdb",
+                "geodetic_engine.georepository",
+                "shapely",
+            ],
+        ),
+        (
             "geodetic_engine.units",
             [
                 "geodetic_engine.geodesy",

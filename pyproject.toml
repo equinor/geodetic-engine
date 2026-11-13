@@ -153,6 +153,7 @@ modules = [
     "geodetic_engine.welltrajectory",
     "geodetic_engine.bingrid",
     "geodetic_engine.geojson",
+    "geodetic_engine.catalog",
 ]
 
 [[tool.importlinter.contracts]]
@@ -164,6 +165,7 @@ forbidden_modules = [
     "geodetic_engine.welltrajectory",
     "geodetic_engine.bingrid",
     "geodetic_engine.geojson",
+    "geodetic_engine.catalog",
     "geodetic_engine.osdudb",
     "geodetic_engine.projdb",
     "geodetic_engine.georepository",

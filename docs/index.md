@@ -30,6 +30,9 @@ operation needs a coordinate epoch.
 - **Refuses results it cannot vouch for.** Ballpark approximations, a missing
   grid, a time-dependent operation without a coordinate epoch: each raises an
   error that says what was wrong, instead of returning a plausible number.
+- **Lists what the PROJ database holds.** CRSs, transformations, datums,
+  ellipsoids, units, methods, coordinate systems and grid files, filtered by
+  area, datum, accuracy, deprecation and more, as tables or PROJJSON.
 - **Records provenance.** Every result carries the applied operation, its
   accuracy, the grids used, the coordinate epoch, the exact PROJ pipeline, and
   fingerprints of the `proj.db` that answered, so a result can be reproduced
@@ -51,6 +54,7 @@ operation needs a coordinate epoch.
 | Module | Purpose |
 |---|---|
 | {mod}`geodetic_engine.geodesy` | Transformations, CRS inspection, operation lookup, results and provenance, projection factors |
+| {mod}`geodetic_engine.catalog` | Discover CRSs, operations, datums, ellipsoids, units, methods, coordinate systems and grids in the PROJ database |
 | {mod}`geodetic_engine.welltrajectory` | Well trajectories from directional surveys: minimum curvature, georeferencing in a CRS, 3D plots |
 | {mod}`geodetic_engine.bingrid` | Seismic bin grids: P6 conversion, four-corner squaring and QC, outlines |
 | {mod}`geodetic_engine.persistablereference` | Parse and emit OSDU `persistableReference` payloads |
@@ -141,6 +145,9 @@ each workaround can be removed.
 |---|---|
 | Transform coordinates between two CRSs | {doc}`user-guide/geodesy/transformations` |
 | Find out which operations exist between two CRSs | {doc}`user-guide/geodesy/choosing-operations` |
+| Find a CRS for an area and datum, or list what the database holds | {doc}`user-guide/catalog/crs`, {doc}`user-guide/catalog/index` |
+| List the transformations an authority publishes, deprecated ones included | {doc}`user-guide/catalog/operations` |
+| See which grid files are installed, and which operations need them | {doc}`user-guide/catalog/grids` |
 | Understand why my transformation was refused | {doc}`user-guide/geodesy/errors` |
 | Turn an azimuth between true and grid north, or scale a distance onto the grid | {doc}`user-guide/geodesy/projection-factors` |
 | Transform or round a geometry in WKT, WKB, EWKB, GeoJSON or Esri JSON | {doc}`user-guide/geodesy/geometries` |
@@ -167,6 +174,7 @@ getting-started/index
 :maxdepth: 2
 
 user-guide/geodesy/index
+user-guide/catalog/index
 user-guide/geojson
 user-guide/welltrajectory/index
 user-guide/bingrid
